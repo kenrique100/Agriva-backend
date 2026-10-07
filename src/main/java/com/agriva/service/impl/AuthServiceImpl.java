@@ -2,12 +2,14 @@ package com.agriva.service.impl;
 
 import com.agriva.exception.BusinessException;
 import com.agriva.exception.InvalidCredentialsException;
+import com.agriva.exception.InvalidTokenException;
 import com.agriva.model.dto.*;
 import com.agriva.model.entity.User;
 import com.agriva.repository.AuthRepository;
 import com.agriva.security.JwtUtil;
 import com.agriva.service.AuthService;
 import com.agriva.service.PasswordResetService;
+import com.agriva.service.TokenBlacklistService;
 import com.agriva.utils.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,6 +18,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Date;
 import java.util.List;
 import java.util.UUID;
 
@@ -34,6 +37,7 @@ public class AuthServiceImpl implements AuthService {
     private final ResponseBuilderUtils responseBuilder;
     private final UserDeleteUtils userDeleteUtils;
     private final PasswordResetService passwordResetService;
+    private final TokenBlacklistService tokenBlacklistService;
 
     @Value("${agriva.security.password-reset.expose-token:false}")
     private boolean exposeResetToken;
@@ -208,6 +212,35 @@ public class AuthServiceImpl implements AuthService {
 
         log.info("Authenticated password reset for userId={} email={}",
                 user.getId(), user.getEmail());
+    }
+
+    // NEW: sign-out
+    @Override
+    public void logout(String authHeader) {
+        String token = userValidation.validateAndExtractToken(authHeader);
+
+        if (!jwtUtil.validateToken(token)) {
+            throw new InvalidTokenException("Token is invalid or expired");
+        }
+
+        String jti = jwtUtil.extractJti(token);
+        if (jti == null || jti.isBlank()) {
+            // Legacy token issued before jti was added — cannot blacklist precisely,
+            // so we simply log out the caller (they just stop using the token).
+            log.warn("Logout called with legacy token without jti; no blacklist entry created");
+            return;
+        }
+
+        Date expiresAt = jwtUtil.extractExpiration(token);
+        long ttlSeconds = (expiresAt.getTime() - System.currentTimeMillis()) / 1000L;
+
+        if (ttlSeconds <= 0) {
+            log.info("Logout called for already-expired token jti={}", jti);
+            return;
+        }
+
+        tokenBlacklistService.blacklist(jti, ttlSeconds);
+        log.info("User logged out, jti={} blacklisted for {}s", jti, ttlSeconds);
     }
 
     @Override

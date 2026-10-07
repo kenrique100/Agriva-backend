@@ -54,6 +54,12 @@ public class AuthController {
         return ResponseEntity.ok("Password reset successfully. You can now log in with your new password.");
     }
 
+    @PostMapping("/logout")
+    public ResponseEntity<String> logout(@RequestHeader("Authorization") String authHeader) {
+        authService.logout(authHeader);
+        return ResponseEntity.ok("Logged out successfully");
+    }
+
     @GetMapping("/me")
     public ResponseEntity<UserResponse> getCurrentUser(@RequestHeader("Authorization") String authHeader) {
         log.debug("Getting current user from token");
@@ -86,7 +92,6 @@ public class AuthController {
         return ResponseEntity.ok("Password changed successfully");
     }
 
-    /** Authenticated reset — uses JWT to identify the user; no current password required. */
     @PostMapping("/me/reset-password")
     public ResponseEntity<String> resetOwnPassword(
             @RequestHeader("Authorization") String authHeader,

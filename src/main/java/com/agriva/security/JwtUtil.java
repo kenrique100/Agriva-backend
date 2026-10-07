@@ -26,6 +26,7 @@ public class JwtUtil {
     public String generateToken(User user) {
         String normalizedRole = RoleConstants.normalizeRole(user.getRole());
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())                      // NEW: jti
                 .subject(user.getEmail())
                 .claim("userId", user.getId().toString())
                 .claim("farmId", user.getFarmId() == null ? null : user.getFarmId().toString())
@@ -48,6 +49,20 @@ public class JwtUtil {
 
     public String extractEmail(String token) {
         return extractAllClaims(token).getSubject();
+    }
+
+    /** NEW: JWT ID claim, used as blacklist key. */
+    public String extractJti(String token) {
+        try {
+            return extractAllClaims(token).getId();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** NEW: token expiration instant, used to size the blacklist TTL. */
+    public Date extractExpiration(String token) {
+        return extractAllClaims(token).getExpiration();
     }
 
     public UUID extractUserId(String token) {

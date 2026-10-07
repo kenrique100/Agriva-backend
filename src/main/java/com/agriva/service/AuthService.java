@@ -28,4 +28,5 @@ public interface AuthService {
     ForgotPasswordResponse forgotPassword(ForgotPasswordRequest request);
     void resetPassword(ResetPasswordRequest request);
     void resetOwnPassword(UUID userId, MeResetPasswordRequest request);
+    void logout(String authHeader);
 }

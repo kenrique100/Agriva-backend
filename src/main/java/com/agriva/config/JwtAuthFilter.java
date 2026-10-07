@@ -1,111 +1,78 @@
 package com.agriva.config;
 
 import com.agriva.security.JwtUtil;
-import com.agriva.security.RoleConstants;
+import com.agriva.service.TokenBlacklistService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.util.Collection;
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
 
 @Component
+@RequiredArgsConstructor
 @Slf4j
 public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtUtil jwtUtil;
-
-    public JwtAuthFilter(JwtUtil jwtUtil) {
-        this.jwtUtil = jwtUtil;
-    }
+    private final TokenBlacklistService tokenBlacklistService;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
-                                    FilterChain chain) throws ServletException, IOException {
+                                    FilterChain filterChain) throws ServletException, IOException {
 
-        String requestURI = request.getRequestURI();
+        String authHeader = request.getHeader("Authorization");
 
-        // Skip JWT validation for Swagger UI and API docs paths
-        if (shouldSkipJwtValidation(requestURI)) {
-            log.debug("Skipping JWT validation for Swagger path: {}", requestURI);
-            chain.doFilter(request, response);
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            filterChain.doFilter(request, response);
             return;
         }
 
-        String authHeader = request.getHeader("Authorization");
-        if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            String token = authHeader.substring(7);
-            if (jwtUtil.validateToken(token)) {
-                String email = jwtUtil.extractEmail(token);
-                String role = resolveRole(token);
-                UsernamePasswordAuthenticationToken auth =
-                        new UsernamePasswordAuthenticationToken(email, null,
-                                List.of(new SimpleGrantedAuthority("ROLE_" + role)));
-                SecurityContextHolder.getContext().setAuthentication(auth);
-                log.debug("Authenticated request for {} with role {}", email, role);
-            } else {
-                log.warn("Rejected request with invalid JWT for path {}", request.getRequestURI());
+        String token = authHeader.substring(7);
+
+        try {
+            if (!jwtUtil.validateToken(token)) {
+                filterChain.doFilter(request, response);
+                return;
             }
-        }
-        chain.doFilter(request, response);
-    }
 
-    private boolean shouldSkipJwtValidation(String requestURI) {
-        String[] skipPaths = {
-                "/swagger-ui",
-                "/swagger-ui.html",
-                "/v3/api-docs",
-                "/swagger-resources",
-                "/webjars",
-                "/actuator/health",
-                "/actuator/info",
-                "/api/v1/users/login",
-                "/api/v1/users/register/master",
-                "/api/v1/users/register/sub-user"
-        };
-
-        for (String path : skipPaths) {
-            if (requestURI.startsWith(path)) {
-                return true;
+            String jti = jwtUtil.extractJti(token);
+            if (tokenBlacklistService.isBlacklisted(jti)) {
+                log.debug("Rejected blacklisted JWT jti={}", jti);
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                response.getWriter().write(
+                        "{\"error\":\"Token has been revoked. Please log in again.\"}");
+                return;
             }
-        }
-        return false;
-    }
 
-    private String resolveRole(String token) {
-        List<String> roles = jwtUtil.extractRoles(token);
-        if (!roles.isEmpty()) {
-            return RoleConstants.resolvePrimaryRole(roles);
+            String email = jwtUtil.extractEmail(token);
+            String role = jwtUtil.extractRole(token);
+
+            List<SimpleGrantedAuthority> authorities =
+                    List.of(new SimpleGrantedAuthority("ROLE_" + role));
+
+            UsernamePasswordAuthenticationToken authentication =
+                    new UsernamePasswordAuthenticationToken(email, null, authorities);
+            authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+
+            SecurityContextHolder.getContext().setAuthentication(authentication);
+
+        } catch (Exception e) {
+            log.debug("JWT authentication failed: {}", e.getMessage());
         }
 
-        String role = jwtUtil.extractRole(token);
-        if (role != null && !role.isBlank()) {
-            return RoleConstants.normalizeRole(role);
-        }
-
-        Map<String, Object> claims = jwtUtil.extractClaims(token);
-        Object realmAccess = claims.get("realm_access");
-        if (realmAccess instanceof Map<?, ?> realmAccessMap) {
-            Object realmRoles = realmAccessMap.get("roles");
-            if (realmRoles instanceof Collection<?> collection) {
-                List<String> roleValues = collection.stream()
-                        .filter(Objects::nonNull)
-                        .map(String::valueOf)
-                        .toList();
-                return RoleConstants.resolvePrimaryRole(roleValues);
-            }
-        }
-        return RoleConstants.DEFAULT_ROLE;
+        filterChain.doFilter(request, response);
     }
 }
