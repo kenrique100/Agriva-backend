@@ -32,6 +32,8 @@ public class SecurityConfig {
                                 "/api/v1/users/login",
                                 "/api/v1/users/register/master",
                                 "/api/v1/users/register/sub-user",
+                                "/api/v1/users/forgot-password",
+                                "/api/v1/users/reset-password",
 
                                 "/swagger-ui.html",
                                 "/swagger-ui/**",
@@ -41,7 +43,6 @@ public class SecurityConfig {
                                 "/swagger-resources",
                                 "/webjars/**",
 
-                                // Actuator
                                 "/actuator/health",
                                 "/actuator/info"
                         ).permitAll()

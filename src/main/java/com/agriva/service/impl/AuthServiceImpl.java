@@ -1,14 +1,17 @@
 package com.agriva.service.impl;
 
+import com.agriva.exception.BusinessException;
 import com.agriva.exception.InvalidCredentialsException;
 import com.agriva.model.dto.*;
 import com.agriva.model.entity.User;
 import com.agriva.repository.AuthRepository;
 import com.agriva.security.JwtUtil;
 import com.agriva.service.AuthService;
+import com.agriva.service.PasswordResetService;
 import com.agriva.utils.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +33,13 @@ public class AuthServiceImpl implements AuthService {
     private final FarmBuilderUtils farmBuilder;
     private final ResponseBuilderUtils responseBuilder;
     private final UserDeleteUtils userDeleteUtils;
+    private final PasswordResetService passwordResetService;
+
+    @Value("${agriva.security.password-reset.expose-token:false}")
+    private boolean exposeResetToken;
+
+    @Value("${agriva.security.password-reset.ttl-seconds:900}")
+    private long resetTokenTtlSeconds;
 
     @Override
     public String login(LoginRequest request) {
@@ -65,7 +75,7 @@ public class AuthServiceImpl implements AuthService {
 
         PasswordValidator.validatePasswordStrength(request.getPassword());
         userValidation.validateEmailNotExists(request.getEmail());
-        userValidation.validateUsernameNotExists(request.getUsername());   // NEW
+        userValidation.validateUsernameNotExists(request.getUsername());
         farmUtils.validateFarmNameUniqueness(request.getFarmName());
 
         FarmBuilderUtils.FarmData farmData = farmBuilder.createNewFarm(request.getFarmName());
@@ -83,7 +93,7 @@ public class AuthServiceImpl implements AuthService {
 
         PasswordValidator.validatePasswordStrength(request.getPassword());
         userValidation.validateEmailNotExists(request.getEmail());
-        userValidation.validateUsernameNotExists(request.getUsername());   // NEW
+        userValidation.validateUsernameNotExists(request.getUsername());
         farmUtils.validateFarmExistsWithMaster(request.getFarmId());
 
         String role = userValidation.normalizeSubUserRole(request.getRole());
@@ -151,10 +161,53 @@ public class AuthServiceImpl implements AuthService {
             throw new InvalidCredentialsException("Current password is incorrect");
         }
 
+        if (request.getCurrentPassword().equals(request.getNewPassword())) {
+            throw new BusinessException("New password must be different from the current one");
+        }
+
         PasswordValidator.validatePasswordStrength(request.getNewPassword());
+
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         authRepository.save(user);
         log.info("Password changed for user: {}", user.getEmail());
+    }
+
+    @Override
+    public ForgotPasswordResponse forgotPassword(ForgotPasswordRequest request) {
+        String token = passwordResetService.initiateReset(request.getEmail());
+
+        String genericMessage =
+                "If an account exists for " + request.getEmail()
+                        + ", a password reset link has been sent.";
+
+        if (!exposeResetToken || token == null) {
+            return new ForgotPasswordResponse(genericMessage, null, null);
+        }
+
+        return new ForgotPasswordResponse(genericMessage, token, resetTokenTtlSeconds);
+    }
+
+    @Override
+    public void resetPassword(ResetPasswordRequest request) {
+        passwordResetService.resetPassword(request.getToken(), request.getNewPassword());
+    }
+
+    @Override
+    @Transactional
+    public void resetOwnPassword(UUID userId, MeResetPasswordRequest request) {
+        User user = userValidation.validateAndGetUser(userId);
+
+        if (passwordEncoder.matches(request.getNewPassword(), user.getPassword())) {
+            throw new BusinessException("New password must be different from the current one");
+        }
+
+        PasswordValidator.validatePasswordStrength(request.getNewPassword());
+
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        authRepository.save(user);
+
+        log.info("Authenticated password reset for userId={} email={}",
+                user.getId(), user.getEmail());
     }
 
     @Override

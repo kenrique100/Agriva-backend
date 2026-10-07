@@ -63,7 +63,6 @@ public class UserValidationUtils {
         }
     }
 
-    /** NEW: called during registration. */
     public void validateUsernameNotExists(String username) {
         if (username == null || username.isBlank()) return;
         if (authRepository.findByUsername(username).isPresent()) {

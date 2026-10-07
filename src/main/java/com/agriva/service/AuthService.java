@@ -14,7 +14,7 @@ public interface AuthService {
     UserResponse getUserById(UUID userId);
     List<UserListResponse> getUsersByFarmId(UUID farmId);
     List<UserListResponse> getAllUsers();
-    FarmDetailsResponse getFarmDetails(UUID farmId);  // NEW METHOD
+    FarmDetailsResponse getFarmDetails(UUID farmId);
     UserResponse updateUser(UUID userId, UpdateUserRequest request, String requesterRole);
     void changePassword(UUID userId, ChangePasswordRequest request);
     UserResponse updateSubUserByMaster(UUID masterFarmId, UUID subUserId, UpdateUserRequest request);
@@ -25,4 +25,7 @@ public interface AuthService {
     void deleteFarmByAdmin(UUID farmId);
     int deleteAllSubUsers();
     FarmsListResponse getAllFarms();
+    ForgotPasswordResponse forgotPassword(ForgotPasswordRequest request);
+    void resetPassword(ResetPasswordRequest request);
+    void resetOwnPassword(UUID userId, MeResetPasswordRequest request);
 }
