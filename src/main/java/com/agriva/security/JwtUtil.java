@@ -11,29 +11,32 @@ import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 @Component
 public class JwtUtil {
 
     private final SecretKey secretKey;
+    private final long ttlSeconds;
 
-    public JwtUtil(@Value("${agriva.security.jwt.secret}") String secret) {
+    public JwtUtil(
+            @Value("${agriva.security.jwt.secret}") String secret,
+            @Value("${agriva.security.jwt.access-token-ttl-seconds:900}") long ttlSeconds) {
         this.secretKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+        this.ttlSeconds = ttlSeconds;
     }
 
     public String generateToken(User user) {
         String normalizedRole = RoleConstants.normalizeRole(user.getRole());
+        long now = System.currentTimeMillis();
         return Jwts.builder()
-                .id(UUID.randomUUID().toString())                      // NEW: jti
                 .subject(user.getEmail())
                 .claim("userId", user.getId().toString())
                 .claim("farmId", user.getFarmId() == null ? null : user.getFarmId().toString())
                 .claim("role", normalizedRole)
                 .claim("roles", List.of(normalizedRole))
-                .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + 86400000))
+                .issuedAt(new Date(now))
+                .expiration(new Date(now + ttlSeconds * 1000))
                 .signWith(secretKey)
                 .compact();
     }
@@ -49,20 +52,6 @@ public class JwtUtil {
 
     public String extractEmail(String token) {
         return extractAllClaims(token).getSubject();
-    }
-
-    /** NEW: JWT ID claim, used as blacklist key. */
-    public String extractJti(String token) {
-        try {
-            return extractAllClaims(token).getId();
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    /** NEW: token expiration instant, used to size the blacklist TTL. */
-    public Date extractExpiration(String token) {
-        return extractAllClaims(token).getExpiration();
     }
 
     public UUID extractUserId(String token) {
@@ -91,23 +80,8 @@ public class JwtUtil {
         }
     }
 
-    public List<String> extractRoles(String token) {
-        try {
-            Object roles = extractAllClaims(token).get("roles");
-            if (roles instanceof List<?> list) {
-                return list.stream()
-                        .filter(String.class::isInstance)
-                        .map(String.class::cast)
-                        .toList();
-            }
-            return List.of();
-        } catch (Exception e) {
-            return List.of();
-        }
-    }
-
-    public Map<String, Object> extractClaims(String token) {
-        return extractAllClaims(token);
+    public Date extractExpiration(String token) {
+        return extractAllClaims(token).getExpiration();
     }
 
     private Claims extractAllClaims(String token) {

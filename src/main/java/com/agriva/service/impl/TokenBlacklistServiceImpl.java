@@ -1,5 +1,6 @@
 package com.agriva.service.impl;
 
+import com.agriva.security.JwtUtil;
 import com.agriva.service.TokenBlacklistService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -7,32 +8,45 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.util.Date;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class TokenBlacklistServiceImpl implements TokenBlacklistService {
 
-    private static final String KEY_PREFIX = "agriva:jwt:blacklist:";
-    private static final String VALUE = "1";
+    private static final String KEY_PREFIX = "agriva:jwt-blacklist:";
 
     private final StringRedisTemplate redisTemplate;
+    private final JwtUtil jwtUtil;
 
     @Override
-    public void blacklist(String jti, long ttlSeconds) {
-        if (jti == null || jti.isBlank() || ttlSeconds <= 0) {
-            return;
+    public void blacklist(String token) {
+        try {
+            Date expiration = jwtUtil.extractExpiration(token);
+            long ttlMillis = expiration.getTime() - System.currentTimeMillis();
+
+            if (ttlMillis <= 0) {
+                log.debug("Token already expired — no need to blacklist");
+                return;
+            }
+
+            redisTemplate.opsForValue()
+                    .set(KEY_PREFIX + token, "1", Duration.ofMillis(ttlMillis));
+
+            log.info("Blacklisted token until {}", expiration);
+        } catch (Exception e) {
+            log.warn("Failed to blacklist token: {}", e.getMessage());
         }
-        String key = KEY_PREFIX + jti;
-        redisTemplate.opsForValue().set(key, VALUE, Duration.ofSeconds(ttlSeconds));
-        log.info("Blacklisted JWT jti={} for {}s", jti, ttlSeconds);
     }
 
     @Override
-    public boolean isBlacklisted(String jti) {
-        if (jti == null || jti.isBlank()) {
+    public boolean isBlacklisted(String token) {
+        try {
+            return Boolean.TRUE.equals(redisTemplate.hasKey(KEY_PREFIX + token));
+        } catch (Exception e) {
+            log.warn("Blacklist lookup failed: {}", e.getMessage());
             return false;
         }
-        return Boolean.TRUE.equals(redisTemplate.hasKey(KEY_PREFIX + jti));
     }
 }

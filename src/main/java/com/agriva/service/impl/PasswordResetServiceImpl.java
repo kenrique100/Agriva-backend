@@ -6,7 +6,6 @@ import com.agriva.repository.AuthRepository;
 import com.agriva.service.EmailService;
 import com.agriva.service.PasswordResetService;
 import com.agriva.utils.PasswordValidator;
-import com.agriva.utils.UserValidationUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -34,13 +33,11 @@ public class PasswordResetServiceImpl implements PasswordResetService {
     private final StringRedisTemplate redisTemplate;
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
-    private final UserValidationUtils userValidation;
 
     @Override
     public String initiateReset(String email) {
         Optional<User> userOpt = authRepository.findByEmail(email);
 
-        // Do not leak whether an account exists for this email.
         if (userOpt.isEmpty()) {
             log.info("Password reset requested for unknown email: {}", email);
             return null;
@@ -78,7 +75,8 @@ public class PasswordResetServiceImpl implements PasswordResetService {
             throw new InvalidTokenException("Reset token is invalid or has expired");
         }
 
-        User user = userValidation.validateAndGetUser(userId);
+        User user = authRepository.findById(userId)
+                .orElseThrow(() -> new InvalidTokenException("Reset token is invalid or has expired"));
 
         PasswordValidator.validatePasswordStrength(newPassword);
 
@@ -88,7 +86,6 @@ public class PasswordResetServiceImpl implements PasswordResetService {
 
         user.setPassword(passwordEncoder.encode(newPassword));
         authRepository.save(user);
-
         redisTemplate.delete(key);
 
         log.info("Password reset successful for userId={} email={}",

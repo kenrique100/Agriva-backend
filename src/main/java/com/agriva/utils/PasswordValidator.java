@@ -4,7 +4,8 @@ import com.agriva.exception.BusinessException;
 
 public final class PasswordValidator {
 
-    private PasswordValidator() {}
+    private PasswordValidator() {
+    }
 
     public static void validatePasswordStrength(String password) {
         if (password == null || password.length() < 6) {
@@ -22,7 +23,8 @@ public final class PasswordValidator {
         }
 
         if (!hasUpper || !hasLower || !hasDigit) {
-            throw new BusinessException("Password must contain at least one uppercase letter, one lowercase letter, and one digit");
+            throw new BusinessException(
+                    "Password must contain at least one uppercase letter, one lowercase letter, and one digit");
         }
     }
 }

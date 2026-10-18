@@ -3,6 +3,7 @@ package com.agriva;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
+import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.utility.DockerImageName;
@@ -12,13 +13,22 @@ public class TestcontainersConfiguration {
 
     @Bean
     @ServiceConnection
-    PostgreSQLContainer<?> postgresContainer() {
-        return new PostgreSQLContainer<>(DockerImageName.parse("postgres:17.4-alpine"));
+    public PostgreSQLContainer<?> postgresContainer() {
+        return new PostgreSQLContainer<>("postgres:17.4-alpine")
+                .withDatabaseName("agriva_test")
+                .withUsername("agriva")
+                .withPassword("agriva");
     }
 
     @Bean
     @ServiceConnection
-    KafkaContainer kafkaContainer() {
-        return new KafkaContainer(DockerImageName.parse("apache/kafka-native:3.9.0"));
+    public KafkaContainer kafkaContainer() {
+        return new KafkaContainer(DockerImageName.parse("apache/kafka:3.9.0"));
+    }
+
+    @Bean
+    public GenericContainer<?> redisContainer() {
+        return new GenericContainer<>(DockerImageName.parse("redis:8.0-alpine"))
+                .withExposedPorts(6379);
     }
 }

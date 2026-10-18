@@ -1,4 +1,3 @@
-
 .git
 .gitignore
 .gitattributes
@@ -16,17 +15,24 @@
 .springBeans
 .sts4-cache
 
-
-target
 build
 out
 bin
+
+target/classes
+target/test-classes
+target/generated-sources
+target/generated-test-sources
+target/maven-archiver
+target/maven-status
+target/surefire-reports
+target/site
+target/*.original
 
 README.md
 README*
 HELP.md
 *.md
-
 
 .github
 .gitlab-ci.yml

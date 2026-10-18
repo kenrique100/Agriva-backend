@@ -2,15 +2,20 @@ package com.agriva.service.impl;
 
 import com.agriva.exception.BusinessException;
 import com.agriva.exception.InvalidCredentialsException;
-import com.agriva.exception.InvalidTokenException;
-import com.agriva.model.dto.*;
+import com.agriva.mapper.FarmMapper;
+import com.agriva.mapper.UserMapper;
+import com.agriva.model.dto.auth.*;
+import com.agriva.model.dto.farm.FarmDetailsResponse;
+import com.agriva.model.dto.farm.FarmListResponse;
+import com.agriva.model.entity.Farm;
 import com.agriva.model.entity.User;
-import com.agriva.repository.AuthRepository;
+import com.agriva.repository.*;
 import com.agriva.security.JwtUtil;
+import com.agriva.security.RoleConstants;
 import com.agriva.service.AuthService;
 import com.agriva.service.PasswordResetService;
 import com.agriva.service.TokenBlacklistService;
-import com.agriva.utils.*;
+import com.agriva.utils.PasswordValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,8 +23,10 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Date;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -28,16 +35,17 @@ import java.util.UUID;
 public class AuthServiceImpl implements AuthService {
 
     private final AuthRepository authRepository;
+    private final FarmRepository farmRepository;
+    private final IncomeRepository incomeRepository;
+    private final ExpenseRepository expenseRepository;
+    private final InvestmentRepository investmentRepository;
+    private final TransactionRepository transactionRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
-    private final UserValidationUtils userValidation;
-    private final FarmUtils farmUtils;
-    private final UserBuilderUtils userBuilder;
-    private final FarmBuilderUtils farmBuilder;
-    private final ResponseBuilderUtils responseBuilder;
-    private final UserDeleteUtils userDeleteUtils;
     private final PasswordResetService passwordResetService;
     private final TokenBlacklistService tokenBlacklistService;
+    private final UserMapper userMapper;
+    private final FarmMapper farmMapper;
 
     @Value("${agriva.security.password-reset.expose-token:false}")
     private boolean exposeResetToken;
@@ -45,9 +53,12 @@ public class AuthServiceImpl implements AuthService {
     @Value("${agriva.security.password-reset.ttl-seconds:900}")
     private long resetTokenTtlSeconds;
 
+    // ---------- Authentication ----------
+
     @Override
     public String login(LoginRequest request) {
-        User user = authRepository.findByEmailOrUsername(request.getEmailOrUsername(), request.getEmailOrUsername())
+        User user = authRepository.findByEmailOrUsername(
+                        request.getEmailOrUsername(), request.getEmailOrUsername())
                 .orElseThrow(() -> new InvalidCredentialsException("Invalid credentials"));
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
@@ -61,134 +72,272 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public UserDetails getUserDetails(String email) {
-        User user = userValidation.validateAndGetUserByEmail(email);
-        return responseBuilder.buildUserDetails(user);
+        User user = authRepository.findByEmailOrUsername(email, email)
+                .orElseThrow(() -> new BusinessException("User not found"));
+        return new UserDetails(user.getEmail(), user.getRole(), user.getFarmId());
     }
 
     @Override
     public TokenValidationResponse validateToken(String authHeader) {
-        String token = userValidation.validateAndExtractToken(authHeader);
-        jwtUtil.validateToken(token);
-        return responseBuilder.buildTokenValidationResponse(token, jwtUtil);
+        String token = stripBearer(authHeader);
+
+        if (!jwtUtil.validateToken(token)) {
+            throw new InvalidCredentialsException("Invalid token");
+        }
+
+        UUID userId = jwtUtil.extractUserId(token);
+        String username = userId == null ? null
+                : authRepository.findById(userId).map(User::getUsername).orElse(null);
+
+        return new TokenValidationResponse(
+                userId,
+                jwtUtil.extractFarmId(token),
+                jwtUtil.extractRole(token),
+                username
+        );
     }
+
+    @Override
+    public void logout(String authHeader) {
+        tokenBlacklistService.blacklist(stripBearer(authHeader));
+    }
+
+    // ---------- Registration ----------
 
     @Override
     @Transactional
     public AuthResponse registerMaster(MasterRegisterRequest request) {
-        log.info("Registering master: {}", request.getEmail());
-
         PasswordValidator.validatePasswordStrength(request.getPassword());
-        userValidation.validateEmailNotExists(request.getEmail());
-        userValidation.validateUsernameNotExists(request.getUsername());
-        farmUtils.validateFarmNameUniqueness(request.getFarmName());
+        validateEmailNotExists(request.getEmail());
+        validateUsernameNotExists(request.getUsername());
+        if (farmRepository.existsByName(request.getFarmName())) {
+            throw new BusinessException("Farm name already taken");
+        }
 
-        FarmBuilderUtils.FarmData farmData = farmBuilder.createNewFarm(request.getFarmName());
-        User user = userBuilder.createMasterUser(request, farmData.farmId(), passwordEncoder);
-        farmBuilder.linkMasterToFarm(farmData.farm(), user.getId());
+        Farm farm = farmRepository.save(Farm.builder()
+                .name(request.getFarmName())
+                .masterId(null)
+                .build());
 
-        log.info("Master registered: {} for farm {}", user.getEmail(), farmData.farmName());
-        return responseBuilder.buildAuthResponse(user, jwtUtil);
+        User master = authRepository.save(User.builder()
+                .email(request.getEmail())
+                .username(trimToNull(request.getUsername()))
+                .password(passwordEncoder.encode(request.getPassword()))
+                .role(RoleConstants.MASTER)
+                .farmId(farm.getId())
+                .build());
+
+        farm.setMasterId(master.getId());
+        farmRepository.save(farm);
+
+        log.info("Master registered: {} for farm {}", master.getEmail(), farm.getName());
+        String token = jwtUtil.generateToken(master);
+        return new AuthResponse(token, master.getEmail(), master.getRole(), master.getFarmId());
     }
 
     @Override
     @Transactional
     public String registerSubUser(SubUserRegisterRequest request) {
-        log.info("Registering sub-user: {}", request.getEmail());
-
         PasswordValidator.validatePasswordStrength(request.getPassword());
-        userValidation.validateEmailNotExists(request.getEmail());
-        userValidation.validateUsernameNotExists(request.getUsername());
-        farmUtils.validateFarmExistsWithMaster(request.getFarmId());
+        validateEmailNotExists(request.getEmail());
+        validateUsernameNotExists(request.getUsername());
 
-        String role = userValidation.normalizeSubUserRole(request.getRole());
-        User user = userBuilder.createSubUser(request, passwordEncoder, role);
+        boolean farmHasMaster = authRepository.existsByFarmIdAndRole(
+                request.getFarmId(), RoleConstants.MASTER);
+        if (!farmHasMaster) {
+            throw new BusinessException("Farm not found or invalid");
+        }
 
-        log.info("Sub-user registered: {} for farm {}", user.getEmail(), user.getFarmId());
-        return responseBuilder.buildSubUserResponse(user.getEmail());
+        User subUser = authRepository.save(User.builder()
+                .email(request.getEmail())
+                .username(trimToNull(request.getUsername()))
+                .password(passwordEncoder.encode(request.getPassword()))
+                .role(RoleConstants.SUB_USER)
+                .farmId(request.getFarmId())
+                .build());
+
+        log.info("Sub-user registered: {} for farm {}", subUser.getEmail(), subUser.getFarmId());
+        return "Sub-user registered: " + subUser.getEmail();
     }
 
-    @Override
-    public FarmDetailsResponse getFarmDetails(UUID farmId) {
-        FarmUtils.FarmData farmData = farmUtils.getFarmWithValidation(farmId);
-        List<User> farmUsers = authRepository.findByFarmId(farmId);
-
-        User master = userValidation.extractMasterFromUsers(farmUsers);
-        List<User> subUsers = userValidation.extractSubUsersFromUsers(farmUsers);
-
-        return responseBuilder.buildFarmDetailsResponse(farmData, master, subUsers);
-    }
-
-    @Override
-    public FarmsListResponse getAllFarms() {
-        List<FarmUtils.FarmData> allFarms = farmUtils.getAllFarms();
-        return responseBuilder.buildFarmsListResponse(allFarms, this);
-    }
+    // ---------- User reads ----------
 
     @Override
     public UserResponse getUserById(UUID userId) {
-        User user = userValidation.validateAndGetUser(userId);
-        return responseBuilder.buildUserResponse(user);
+        return userMapper.toResponse(loadUser(userId));
     }
 
     @Override
     public List<UserListResponse> getUsersByFarmId(UUID farmId) {
-        List<User> users = authRepository.findByFarmId(farmId);
-        return responseBuilder.buildUserListResponse(users);
+        return userMapper.toListResponse(authRepository.findByFarmId(farmId));
     }
 
     @Override
     public List<UserListResponse> getAllUsers() {
-        List<User> users = authRepository.findAll();
-        return responseBuilder.buildUserListResponse(users);
+        return userMapper.toListResponse(authRepository.findAll());
     }
+
+    // ---------- Farm reads ----------
+
+    @Override
+    public FarmDetailsResponse getFarmDetails(UUID farmId) {
+        Farm farm = farmRepository.findById(farmId)
+                .orElseThrow(() -> new BusinessException("Farm not found with ID: " + farmId));
+        return buildFarmDetails(farm);
+    }
+
+    @Override
+    public FarmListResponse getAllFarms() {
+        List<FarmDetailsResponse> details = new ArrayList<>();
+        for (Farm f : farmRepository.findAll()) {
+            details.add(buildFarmDetails(f));
+        }
+        return farmMapper.toList(details);
+    }
+
+    // ---------- User updates ----------
 
     @Override
     @Transactional
     public UserResponse updateUser(UUID userId, UpdateUserRequest request, String requesterRole) {
-        User user = userValidation.validateAndGetUser(userId);
-
-        userValidation.updateUserEmail(user, request.getEmail(), userId);
-        userValidation.updateUserUsername(user, request.getUsername(), userId);
-        userValidation.updateUserRole(user, request.getRole(), requesterRole);
-
-        User updated = authRepository.save(user);
-        log.info("User updated: {}", updated.getEmail());
-        return responseBuilder.buildUserResponse(updated);
+        User user = loadUser(userId);
+        applyProfileUpdates(user, request, userId);
+        applyRoleChange(user, request.getRole(), requesterRole);
+        return userMapper.toResponse(authRepository.save(user));
     }
 
     @Override
     @Transactional
     public void changePassword(UUID userId, ChangePasswordRequest request) {
-        User user = userValidation.validateAndGetUser(userId);
+        User user = loadUser(userId);
 
         if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPassword())) {
             throw new InvalidCredentialsException("Current password is incorrect");
         }
-
         if (request.getCurrentPassword().equals(request.getNewPassword())) {
             throw new BusinessException("New password must be different from the current one");
         }
 
         PasswordValidator.validatePasswordStrength(request.getNewPassword());
-
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         authRepository.save(user);
-        log.info("Password changed for user: {}", user.getEmail());
     }
+
+    @Override
+    @Transactional
+    public void resetOwnPassword(UUID userId, MeResetPasswordRequest request) {
+        User user = loadUser(userId);
+
+        if (passwordEncoder.matches(request.getNewPassword(), user.getPassword())) {
+            throw new BusinessException("New password must be different from the current one");
+        }
+
+        PasswordValidator.validatePasswordStrength(request.getNewPassword());
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        authRepository.save(user);
+    }
+
+    @Override
+    @Transactional
+    public UserResponse updateSubUserByMaster(UUID masterFarmId, UUID subUserId, UpdateUserRequest request) {
+        User subUser = loadUser(subUserId);
+
+        if (subUser.getFarmId() == null || !subUser.getFarmId().equals(masterFarmId)) {
+            throw new BusinessException("You can only update users from your own farm");
+        }
+        if (RoleConstants.MASTER.equals(subUser.getRole())) {
+            throw new BusinessException("Cannot perform this action on MASTER user");
+        }
+        if (request.getRole() != null && !request.getRole().equals(subUser.getRole())) {
+            throw new BusinessException("Master cannot change user role");
+        }
+
+        applyProfileUpdates(subUser, request, subUserId);
+        return userMapper.toResponse(authRepository.save(subUser));
+    }
+
+    @Override
+    @Transactional
+    public UserResponse updateUserByAdmin(UUID userId, UpdateUserRequest request) {
+        User user = loadUser(userId);
+        applyProfileUpdates(user, request, userId);
+        applyRoleChange(user, request.getRole(), RoleConstants.ADMIN);
+        return userMapper.toResponse(authRepository.save(user));
+    }
+
+    // ---------- Deletions ----------
+
+    @Override
+    @Transactional
+    public void deleteUserByAdmin(UUID userId) {
+        User user = loadUser(userId);
+
+        if (RoleConstants.ADMIN.equals(user.getRole())) {
+            long adminCount = authRepository.findByRole(RoleConstants.ADMIN).size();
+            if (adminCount <= 1) {
+                throw new BusinessException("Cannot delete the only ADMIN user");
+            }
+        }
+
+        if (RoleConstants.MASTER.equals(user.getRole()) && user.getFarmId() != null) {
+            deleteFarmAndAllUsersInternal(user.getFarmId());
+        } else {
+            authRepository.delete(user);
+        }
+    }
+
+    @Override
+    @Transactional
+    public void deleteSubUserByMaster(UUID masterFarmId, UUID subUserId) {
+        User subUser = loadUser(subUserId);
+
+        if (subUser.getFarmId() == null || !subUser.getFarmId().equals(masterFarmId)) {
+            throw new BusinessException("You can only delete users from your own farm");
+        }
+        if (RoleConstants.MASTER.equals(subUser.getRole())) {
+            throw new BusinessException("Cannot delete MASTER user");
+        }
+
+        authRepository.delete(subUser);
+    }
+
+    @Override
+    @Transactional
+    public void deleteFarmAndAllUsers(UUID masterFarmId, UUID farmIdToDelete) {
+        if (!masterFarmId.equals(farmIdToDelete)) {
+            throw new BusinessException("You can only delete your own farm");
+        }
+        deleteFarmAndAllUsersInternal(farmIdToDelete);
+    }
+
+    @Override
+    @Transactional
+    public void deleteFarmByAdmin(UUID farmId) {
+        deleteFarmAndAllUsersInternal(farmId);
+    }
+
+    @Override
+    @Transactional
+    public int deleteAllSubUsers() {
+        List<User> subUsers = authRepository.findByRole(RoleConstants.SUB_USER);
+        int count = subUsers.size();
+        authRepository.deleteAll(subUsers);
+        log.info("Admin deleted {} sub-users", count);
+        return count;
+    }
+
+    // ---------- Password reset ----------
 
     @Override
     public ForgotPasswordResponse forgotPassword(ForgotPasswordRequest request) {
         String token = passwordResetService.initiateReset(request.getEmail());
-
-        String genericMessage =
-                "If an account exists for " + request.getEmail()
-                        + ", a password reset link has been sent.";
+        String msg = "If an account exists for " + request.getEmail()
+                + ", a password reset link has been sent.";
 
         if (!exposeResetToken || token == null) {
-            return new ForgotPasswordResponse(genericMessage, null, null);
+            return new ForgotPasswordResponse(msg, null, null);
         }
-
-        return new ForgotPasswordResponse(genericMessage, token, resetTokenTtlSeconds);
+        return new ForgotPasswordResponse(msg, token, resetTokenTtlSeconds);
     }
 
     @Override
@@ -196,112 +345,117 @@ public class AuthServiceImpl implements AuthService {
         passwordResetService.resetPassword(request.getToken(), request.getNewPassword());
     }
 
-    @Override
-    @Transactional
-    public void resetOwnPassword(UUID userId, MeResetPasswordRequest request) {
-        User user = userValidation.validateAndGetUser(userId);
+    // ---------- Helpers ----------
 
-        if (passwordEncoder.matches(request.getNewPassword(), user.getPassword())) {
-            throw new BusinessException("New password must be different from the current one");
+    private void applyProfileUpdates(User user, UpdateUserRequest request, UUID userId) {
+        if (request.getEmail() != null && !request.getEmail().equals(user.getEmail())) {
+            validateEmailUniqueness(request.getEmail(), userId);
+            user.setEmail(request.getEmail());
+        }
+        if (request.getUsername() != null && !request.getUsername().equals(user.getUsername())) {
+            validateUsernameUniqueness(request.getUsername(), userId);
+            user.setUsername(request.getUsername());
+        }
+    }
+
+    private void applyRoleChange(User user, String newRole, String requesterRole) {
+        if (newRole == null || newRole.equals(user.getRole())) return;
+
+        if (!RoleConstants.ADMIN.equals(requesterRole)) {
+            throw new BusinessException("Only ADMIN can change user role");
+        }
+        String normalized = RoleConstants.normalizeRole(newRole);
+        if (!RoleConstants.ALLOWED_ROLES.contains(normalized)) {
+            throw new BusinessException("Invalid role: " + newRole);
+        }
+        user.setRole(normalized);
+    }
+
+    private User loadUser(UUID userId) {
+        if (userId == null) throw new BusinessException("User ID cannot be null");
+        return authRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException("User not found with ID: " + userId));
+    }
+
+    private void validateEmailNotExists(String email) {
+        if (email != null && authRepository.existsByEmail(email)) {
+            throw new BusinessException("Email already in use");
+        }
+    }
+
+    private void validateEmailUniqueness(String email, UUID currentUserId) {
+        authRepository.findByEmail(email).ifPresent(existing -> {
+            if (!existing.getId().equals(currentUserId)) {
+                throw new BusinessException("Email already in use");
+            }
+        });
+    }
+
+    private void validateUsernameNotExists(String username) {
+        if (username == null || username.isBlank()) return;
+        if (authRepository.findByUsername(username).isPresent()) {
+            throw new BusinessException("Username already taken");
+        }
+    }
+
+    private void validateUsernameUniqueness(String username, UUID currentUserId) {
+        if (username == null || username.isBlank()) return;
+        authRepository.findByUsername(username).ifPresent(existing -> {
+            if (!existing.getId().equals(currentUserId)) {
+                throw new BusinessException("Username already taken");
+            }
+        });
+    }
+
+    private void deleteFarmAndAllUsersInternal(UUID farmId) {
+        Farm farm = farmRepository.findById(farmId)
+                .orElseThrow(() -> new BusinessException("Farm not found with ID: " + farmId));
+
+        List<User> farmUsers = authRepository.findByFarmId(farmId);
+        authRepository.deleteAll(farmUsers);
+        farmRepository.delete(farm);
+        log.info("Deleted farm {} with {} users", farm.getName(), farmUsers.size());
+    }
+
+    private FarmDetailsResponse buildFarmDetails(Farm farm) {
+        UUID farmId = farm.getId();
+        List<User> users = authRepository.findByFarmId(farmId);
+
+        FarmMapper.FarmTotals totals = new FarmMapper.FarmTotals(
+                incomeRepository.countByFarmId(farmId),
+                expenseRepository.countByFarmId(farmId),
+                investmentRepository.countByFarmId(farmId),
+                transactionRepository.countByFarmId(farmId),
+                incomeRepository.sumAmountByFarmIdOrZero(farmId),
+                expenseRepository.sumAmountByFarmIdOrZero(farmId),
+                investmentRepository.sumAmountByFarmIdOrZero(farmId)
+        );
+
+        Map<UUID, FarmMapper.UserActivity> activityByUser = new HashMap<>();
+        for (User u : users) {
+            activityByUser.put(u.getId(), new FarmMapper.UserActivity(
+                    incomeRepository.countByFarmIdAndCreatedByUserId(farmId, u.getId()),
+                    expenseRepository.countByFarmIdAndCreatedByUserId(farmId, u.getId()),
+                    investmentRepository.countByFarmIdAndCreatedByUserId(farmId, u.getId()),
+                    incomeRepository.sumAmountByFarmIdAndUserOrZero(farmId, u.getId()),
+                    expenseRepository.sumAmountByFarmIdAndUserOrZero(farmId, u.getId()),
+                    investmentRepository.sumAmountByFarmIdAndUserOrZero(farmId, u.getId())
+            ));
         }
 
-        PasswordValidator.validatePasswordStrength(request.getNewPassword());
-
-        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
-        authRepository.save(user);
-
-        log.info("Authenticated password reset for userId={} email={}",
-                user.getId(), user.getEmail());
+        return farmMapper.toDetails(farm, users, totals, activityByUser);
     }
 
-    // NEW: sign-out
-    @Override
-    public void logout(String authHeader) {
-        String token = userValidation.validateAndExtractToken(authHeader);
-
-        if (!jwtUtil.validateToken(token)) {
-            throw new InvalidTokenException("Token is invalid or expired");
+    private String stripBearer(String authHeader) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            throw new InvalidCredentialsException("Missing or invalid Authorization header");
         }
-
-        String jti = jwtUtil.extractJti(token);
-        if (jti == null || jti.isBlank()) {
-            // Legacy token issued before jti was added — cannot blacklist precisely,
-            // so we simply log out the caller (they just stop using the token).
-            log.warn("Logout called with legacy token without jti; no blacklist entry created");
-            return;
-        }
-
-        Date expiresAt = jwtUtil.extractExpiration(token);
-        long ttlSeconds = (expiresAt.getTime() - System.currentTimeMillis()) / 1000L;
-
-        if (ttlSeconds <= 0) {
-            log.info("Logout called for already-expired token jti={}", jti);
-            return;
-        }
-
-        tokenBlacklistService.blacklist(jti, ttlSeconds);
-        log.info("User logged out, jti={} blacklisted for {}s", jti, ttlSeconds);
+        return authHeader.substring(7);
     }
 
-    @Override
-    @Transactional
-    public UserResponse updateSubUserByMaster(UUID masterFarmId, UUID subUserId, UpdateUserRequest request) {
-        User subUser = userValidation.validateAndGetUser(subUserId);
-
-        userValidation.validateFarmOwnership(subUser.getFarmId(), masterFarmId, "update");
-        userValidation.validateSubUserRole(subUser);
-        userValidation.validateMasterCannotChangeRole(request.getRole(), subUser.getRole());
-
-        userValidation.updateUserEmail(subUser, request.getEmail(), subUserId);
-        userValidation.updateUserUsername(subUser, request.getUsername(), subUserId);
-
-        User updated = authRepository.save(subUser);
-        log.info("Master updated sub-user: {}", updated.getEmail());
-        return responseBuilder.buildUserResponse(updated);
-    }
-
-    @Override
-    @Transactional
-    public UserResponse updateUserByAdmin(UUID userId, UpdateUserRequest request) {
-        User user = userValidation.validateAndGetUser(userId);
-
-        userValidation.updateUserEmail(user, request.getEmail(), userId);
-        userValidation.updateUserUsername(user, request.getUsername(), userId);
-        userValidation.updateUserRoleAdmin(user, request.getRole());
-
-        User updated = authRepository.save(user);
-        log.info("Admin updated user: {}", updated.getEmail());
-        return responseBuilder.buildUserResponse(updated);
-    }
-
-    @Override
-    @Transactional
-    public void deleteUserByAdmin(UUID userId) {
-        userDeleteUtils.deleteUserAndFarmIfMaster(userId);
-    }
-
-    @Override
-    @Transactional
-    public void deleteSubUserByMaster(UUID masterFarmId, UUID subUserId) {
-        userDeleteUtils.deleteSubUserByMaster(masterFarmId, subUserId);
-    }
-
-    @Override
-    @Transactional
-    public void deleteFarmAndAllUsers(UUID masterFarmId, UUID farmIdToDelete) {
-        farmUtils.validateMasterFarmOwnership(masterFarmId, farmIdToDelete);
-        farmUtils.deleteFarmAndAllUsers(farmIdToDelete, "Master");
-    }
-
-    @Override
-    @Transactional
-    public void deleteFarmByAdmin(UUID farmId) {
-        farmUtils.deleteFarmAndAllUsers(farmId, "Admin");
-    }
-
-    @Override
-    @Transactional
-    public int deleteAllSubUsers() {
-        return userDeleteUtils.deleteAllSubUsers();
+    private static String trimToNull(String s) {
+        if (s == null) return null;
+        String t = s.trim();
+        return t.isEmpty() ? null : t;
     }
 }
