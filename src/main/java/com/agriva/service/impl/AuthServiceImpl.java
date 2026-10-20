@@ -23,6 +23,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -52,7 +53,6 @@ public class AuthServiceImpl implements AuthService {
 
     @Value("${agriva.security.password-reset.ttl-seconds:900}")
     private long resetTokenTtlSeconds;
-
 
     @Override
     public String login(LoginRequest request) {
@@ -86,7 +86,8 @@ public class AuthServiceImpl implements AuthService {
                 user.getUsername(),
                 user.getRole(),
                 user.getFarmId(),
-                farmName
+                farmName,
+                user.getPreferredCurrency()
         );
     }
 
@@ -123,6 +124,11 @@ public class AuthServiceImpl implements AuthService {
         PasswordValidator.validatePasswordStrength(request.getPassword());
         validateEmailNotExists(request.getEmail());
         validateUsernameNotExists(request.getUsername());
+
+        if (request.getDateOfBirth().plusYears(18).isAfter(LocalDate.now())) {
+            throw new BusinessException("Master user must be at least 18 years old.");
+        }
+
         if (farmRepository.existsByName(request.getFarmName())) {
             throw new BusinessException("Farm name already taken");
         }
@@ -138,6 +144,15 @@ public class AuthServiceImpl implements AuthService {
                 .password(passwordEncoder.encode(request.getPassword()))
                 .role(RoleConstants.MASTER)
                 .farmId(farm.getId())
+                .gender(request.getGender())
+                .dateOfBirth(request.getDateOfBirth())
+                .phoneNumber(request.getPhoneNumber())
+                .address(request.getAddress())
+                .city(request.getCity())
+                .state(request.getState())
+                .country(request.getCountry())
+                .postalCode(request.getPostalCode())
+                .preferredCurrency(request.getCurrency())
                 .build());
 
         farm.setMasterId(master.getId());
@@ -152,7 +167,8 @@ public class AuthServiceImpl implements AuthService {
                 master.getUsername(),
                 master.getRole(),
                 master.getFarmId(),
-                farm.getName()
+                farm.getName(),
+                master.getPreferredCurrency()
         );
     }
 
@@ -162,6 +178,10 @@ public class AuthServiceImpl implements AuthService {
         PasswordValidator.validatePasswordStrength(request.getPassword());
         validateEmailNotExists(request.getEmail());
         validateUsernameNotExists(request.getUsername());
+
+        if (request.getDateOfBirth().plusYears(18).isAfter(LocalDate.now())) {
+            throw new BusinessException("Sub-user must be at least 18 years old.");
+        }
 
         boolean farmHasMaster = authRepository.existsByFarmIdAndRole(
                 request.getFarmId(), RoleConstants.MASTER);
@@ -175,6 +195,10 @@ public class AuthServiceImpl implements AuthService {
                 .password(passwordEncoder.encode(request.getPassword()))
                 .role(RoleConstants.SUB_USER)
                 .farmId(request.getFarmId())
+                .gender(request.getGender())
+                .dateOfBirth(request.getDateOfBirth())
+                .phoneNumber(request.getPhoneNumber())
+                .address(request.getAddress())
                 .build());
 
         log.info("Sub-user registered: {} for farm {}", subUser.getEmail(), subUser.getFarmId());
@@ -377,6 +401,21 @@ public class AuthServiceImpl implements AuthService {
             validateUsernameUniqueness(request.getUsername(), userId);
             user.setUsername(request.getUsername());
         }
+
+        if (request.getGender() != null) user.setGender(request.getGender());
+        if (request.getDateOfBirth() != null) {
+            if (request.getDateOfBirth().plusYears(18).isAfter(LocalDate.now())) {
+                throw new BusinessException("User must be at least 18 years old.");
+            }
+            user.setDateOfBirth(request.getDateOfBirth());
+        }
+        if (request.getPhoneNumber() != null) user.setPhoneNumber(request.getPhoneNumber());
+        if (request.getAddress() != null) user.setAddress(request.getAddress());
+        if (request.getCity() != null) user.setCity(request.getCity());
+        if (request.getState() != null) user.setState(request.getState());
+        if (request.getCountry() != null) user.setCountry(request.getCountry());
+        if (request.getPostalCode() != null) user.setPostalCode(request.getPostalCode());
+        if (request.getPreferredCurrency() != null) user.setPreferredCurrency(request.getPreferredCurrency());
     }
 
     private void applyRoleChange(User user, String newRole, String requesterRole) {

@@ -56,6 +56,7 @@ public class SecurityConfig {
                                 "/swagger-resources",
                                 "/webjars/**",
                                 "/actuator/health",
+                                "/actuator/health/**",
                                 "/actuator/info",
                                 "/api/v1/files/**"
                         ).permitAll()
@@ -73,9 +74,19 @@ public class SecurityConfig {
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
+        List<String> origins = Arrays.stream(allowedOrigins.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+
+        if (origins.isEmpty()) {
+            throw new IllegalStateException(
+                    "agriva.cors.allowed-origins is empty — set CORS_ALLOWED_ORIGINS");
+        }
+
         CorsConfiguration config = new CorsConfiguration();
-        List<String> origins = Arrays.asList(allowedOrigins.split(","));
-        config.setAllowedOrigins(origins);
+        // setAllowedOriginPatterns (NOT setAllowedOrigins) — safe with allowCredentials(true)
+        config.setAllowedOriginPatterns(origins);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setExposedHeaders(List.of("Authorization"));

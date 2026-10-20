@@ -32,7 +32,8 @@ public class AuthController {
                 userDetails.getUsername(),
                 userDetails.getRole(),
                 userDetails.getFarmId(),
-                userDetails.getFarmName()
+                userDetails.getFarmName(),
+                userDetails.getPreferredCurrency()
         ));
     }
 

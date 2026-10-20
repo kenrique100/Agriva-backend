@@ -16,4 +16,5 @@ public class AuthResponse {
     private String role;
     private UUID farmId;
     private String farmName;
+    private String preferredCurrency;
 }

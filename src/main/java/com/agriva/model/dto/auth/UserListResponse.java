@@ -1,5 +1,6 @@
 package com.agriva.model.dto.auth;
 
+import com.agriva.model.entity.Gender;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -15,4 +16,6 @@ public class UserListResponse {
     private String username;
     private String role;
     private UUID farmId;
+    private Gender gender;
+    private String phoneNumber;
 }

@@ -26,6 +26,5 @@ public interface ExpenseService {
 
     Map<String, Long> stagingStats(UUID farmId);
 
-    /** Direct write that bypasses Kafka — used by tests and admin backfills. */
     ExpenseResponse createDirect(ExpenseRequest request, UUID farmId, UUID userId);
 }

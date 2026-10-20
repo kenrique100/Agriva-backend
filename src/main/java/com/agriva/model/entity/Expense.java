@@ -29,7 +29,7 @@ public class Expense {
     private UUID transactionId;
 
     @Column(name = "investment_id")
-    private UUID investmentId;                 // NEW — active investment that funds this expense
+    private UUID investmentId;
 
     @Column(name = "reason", nullable = false, length = 255)
     private String reason;
