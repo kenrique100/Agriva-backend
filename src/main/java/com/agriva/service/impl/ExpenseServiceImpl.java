@@ -2,15 +2,18 @@ package com.agriva.service.impl;
 
 import com.agriva.exception.DuplicateExpenseException;
 import com.agriva.exception.ExpenseNotFoundException;
+import com.agriva.exception.InvestmentLimitExceededException;
 import com.agriva.kafka.producer.ExpenseProducer;
 import com.agriva.mapper.ExpenseMapper;
 import com.agriva.model.dto.expense.*;
 import com.agriva.model.entity.Expense;
+import com.agriva.model.entity.Investment;
 import com.agriva.model.entity.StagedExpense;
 import com.agriva.model.entity.StagedExpenseStatus;
 import com.agriva.model.entity.User;
 import com.agriva.repository.AuthRepository;
 import com.agriva.repository.ExpenseRepository;
+import com.agriva.repository.InvestmentRepository;
 import com.agriva.repository.StagedExpenseRepository;
 import com.agriva.service.ExpenseService;
 import com.agriva.utils.ExpenseExcelParser;
@@ -23,6 +26,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -39,6 +43,7 @@ public class ExpenseServiceImpl implements ExpenseService {
 
     private final ExpenseRepository expenseRepo;
     private final StagedExpenseRepository stagedRepo;
+    private final InvestmentRepository investmentRepo;
     private final AuthRepository authRepository;
     private final ExpenseProducer expenseProducer;
     private final ExpenseExcelParser excelParser;
@@ -97,20 +102,37 @@ public class ExpenseServiceImpl implements ExpenseService {
     @Override
     @Transactional
     public ExpenseResponse createDirect(ExpenseRequest request, UUID farmId, UUID userId) {
+        // Enforce active investment on direct creation too
+        Investment active = investmentRepo.findActiveForUpdate(farmId)
+                .orElseThrow(() -> new com.agriva.exception.NoActiveInvestmentException(
+                        "No active investment for this farm. Create and activate an investment first."));
+
+        BigDecimal spent = investmentRepo.sumExpensesByInvestmentIdOrZero(active.getId());
+        if (spent.add(request.getAmountPaid()).compareTo(active.getAmount()) > 0) {
+            throw new InvestmentLimitExceededException(String.format(
+                    "Investment limit exceeded. Remaining: %s %s.",
+                    active.getAmount().subtract(spent).toPlainString(), active.getCurrency()));
+        }
+
         Expense expense = Expense.builder()
                 .farmId(farmId)
                 .transactionId(request.getTransactionId())
-                .amount(request.getAmount())
-                .currency(request.getCurrency() == null ? "USD" : request.getCurrency())
+                .investmentId(active.getId())
+                .reason(request.getReason())
+                .qtyPurchased(request.getQtyPurchased())
+                .amountPaid(request.getAmountPaid())
+                .expectedAmount(request.getExpectedAmount())
+                .receipt(request.getReceipt())
+                .currency(request.getCurrency())
                 .category(request.getCategory())
-                .vendor(request.getVendor())
-                .description(request.getDescription())
                 .expenseDate(request.getExpenseDate())
                 .createdByUserId(userId)
                 .build();
 
+        expense.calculateDueBalance();
         Expense saved = expenseRepo.save(expense);
-        log.info("Expense {} created directly for farm {}", saved.getId(), farmId);
+        log.info("Expense {} created directly for farm {} (investment {})",
+                saved.getId(), farmId, active.getId());
         return mapper.toResponse(saved, lookupUsers(List.of(saved)));
     }
 
@@ -134,21 +156,41 @@ public class ExpenseServiceImpl implements ExpenseService {
         Expense expense = expenseRepo.findByIdAndFarmId(id, farmId)
                 .orElseThrow(() -> new ExpenseNotFoundException("Expense not found with ID: " + id));
 
-        if (expenseRepo.existsByFarmIdAndAmountAndExpenseDateAndVendor(
-                farmId, request.getAmount(), request.getExpenseDate(), request.getVendor())
-                && !(expense.getAmount().compareTo(request.getAmount()) == 0
+        // Duplicate guard (existing)
+        if (expenseRepo.existsByFarmIdAndAmountPaidAndExpenseDateAndReason(
+                farmId, request.getAmountPaid(), request.getExpenseDate(), request.getReason())
+                && !(expense.getAmountPaid().compareTo(request.getAmountPaid()) == 0
                 && expense.getExpenseDate().equals(request.getExpenseDate())
-                && Objects.equals(expense.getVendor(), request.getVendor()))) {
-            throw new DuplicateExpenseException("Another expense with the same amount, date and vendor already exists");
+                && Objects.equals(expense.getReason(), request.getReason()))) {
+            throw new DuplicateExpenseException("Another expense with the same amount, date and reason already exists");
         }
 
-        expense.setAmount(request.getAmount());
-        expense.setTransactionId(request.getTransactionId());
-        expense.setCurrency(request.getCurrency() == null ? "USD" : request.getCurrency());
+        // Budget guard: only if this expense is linked to an investment
+        if (expense.getInvestmentId() != null) {
+            Investment investment = investmentRepo.findById(expense.getInvestmentId()).orElse(null);
+            if (investment != null) {
+                BigDecimal spentExcludingThis = investmentRepo
+                        .sumExpensesByInvestmentIdExcludingOrZero(investment.getId(), expense.getId());
+                BigDecimal projected = spentExcludingThis.add(request.getAmountPaid());
+                if (projected.compareTo(investment.getAmount()) > 0) {
+                    BigDecimal remaining = investment.getAmount().subtract(spentExcludingThis);
+                    throw new InvestmentLimitExceededException(String.format(
+                            "Investment limit exceeded. Remaining balance: %s %s.",
+                            remaining.toPlainString(), investment.getCurrency()));
+                }
+            }
+        }
+
+        expense.setReason(request.getReason());
+        expense.setQtyPurchased(request.getQtyPurchased());
+        expense.setAmountPaid(request.getAmountPaid());
+        expense.setExpectedAmount(request.getExpectedAmount());
+        expense.setReceipt(request.getReceipt());
+        expense.setCurrency(request.getCurrency());
         expense.setCategory(request.getCategory());
-        expense.setVendor(request.getVendor());
-        expense.setDescription(request.getDescription());
         expense.setExpenseDate(request.getExpenseDate());
+        expense.setTransactionId(request.getTransactionId());
+        expense.calculateDueBalance();
 
         Expense saved = expenseRepo.save(expense);
         log.info("Expense {} updated for farm {}", id, farmId);

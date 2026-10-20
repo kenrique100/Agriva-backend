@@ -1,10 +1,8 @@
 package com.agriva.model.dto.income;
 
-import jakarta.validation.constraints.DecimalMin;
-import jakarta.validation.constraints.Digits;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
+import com.agriva.model.entity.Currency;
+import com.agriva.model.entity.IncomeCategory;
+import jakarta.validation.constraints.*;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -13,27 +11,30 @@ import java.util.UUID;
 
 @Data
 public class IncomeRequest {
-
-    @NotNull(message = "Amount is required")
-    @DecimalMin(value = "0.0001", message = "Amount must be positive")
-    @Digits(integer = 15, fraction = 4, message = "Amount must have at most 15 integer digits and 4 decimals")
-    private BigDecimal amount;
-
-    @Size(min = 3, max = 3, message = "Currency must be a 3-letter ISO code")
-    private String currency = "USD";
-
-    @NotBlank(message = "Source is required")
-    @Size(max = 100, message = "Source must not exceed 100 characters")
-    private String source;
-
-    @Size(max = 50, message = "Category must not exceed 50 characters")
-    private String category;
-
-    @Size(max = 500, message = "Description must not exceed 500 characters")
-    private String description;
+    @NotBlank(message = "Reason is required")
+    private String reason;
 
     @NotNull(message = "Income date is required")
     private LocalDate incomeDate;
+
+    @Min(value = 1, message = "Quantity must be at least 1")
+    private int quantity = 1;
+
+    @NotNull(message = "Amount received is required")
+    @Positive(message = "Amount received must be positive")
+    private BigDecimal amountReceived;
+
+    @NotNull(message = "Expected amount is required")
+    @Positive(message = "Expected amount must be positive")
+    private BigDecimal expectedAmount;
+
+    private String receipt;
+
+    @NotNull(message = "Currency is required")
+    private Currency currency = Currency.XAF;
+
+    @NotNull(message = "Category is required")
+    private IncomeCategory category;
 
     private UUID transactionId;
 }

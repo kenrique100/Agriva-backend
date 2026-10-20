@@ -18,4 +18,10 @@ public interface InvestmentService {
     InvestmentResponse updateInvestment(UUID id, InvestmentRequest request, UUID farmId);
 
     void deleteInvestment(UUID id, UUID farmId);
+
+    InvestmentResponse activate(UUID id, UUID farmId);
+
+    InvestmentResponse deactivate(UUID id, UUID farmId);
+
+    InvestmentResponse getActive(UUID farmId);   // null if none
 }

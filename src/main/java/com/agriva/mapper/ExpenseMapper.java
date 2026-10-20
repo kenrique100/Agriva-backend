@@ -30,17 +30,21 @@ public class ExpenseMapper {
                 expense.getId(),
                 expense.getFarmId(),
                 expense.getTransactionId(),
-                expense.getAmount(),
+                expense.getReason(),
+                expense.getQtyPurchased(),
+                expense.getAmountPaid(),
+                expense.getExpectedAmount(),
+                expense.getDueBalance(),
+                expense.getReceipt(),
                 expense.getCurrency(),
                 expense.getCategory(),
-                expense.getVendor(),
-                expense.getDescription(),
                 expense.getExpenseDate(),
                 expense.getCreatedByUserId(),
                 username,
                 email,
                 expense.getCreatedAt(),
-                expense.getUpdatedAt()
+                expense.getUpdatedAt(),
+                expense.getInvestmentId()
         );
     }
 

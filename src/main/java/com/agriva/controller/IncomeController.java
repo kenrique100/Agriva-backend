@@ -3,6 +3,7 @@ package com.agriva.controller;
 import com.agriva.model.dto.auth.TokenValidationResponse;
 import com.agriva.model.dto.income.*;
 import com.agriva.service.AuthService;
+import com.agriva.service.FileStorageService;
 import com.agriva.service.IncomeService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -11,6 +12,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -26,18 +28,26 @@ public class IncomeController {
 
     private final IncomeService incomeService;
     private final AuthService authService;
+    private final FileStorageService fileStorageService;
 
-    @PostMapping
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
     public ResponseEntity<IncomeSubmissionAck> submit(
             @RequestHeader("Authorization") String authHeader,
-            @Valid @RequestBody IncomeRequest request) {
+            @Valid @RequestPart("request") IncomeRequest request,
+            @RequestPart(value = "file", required = false) MultipartFile file) {
+
         TokenValidationResponse token = authService.validateToken(authHeader);
+
+        if (file != null && !file.isEmpty()) {
+            request.setReceipt(fileStorageService.storeFile(file));
+        }
+
         return ResponseEntity.accepted().body(incomeService.submitIncome(
                 request, token.getFarmId(), token.getUserId(), token.getUsername()));
     }
 
-    @PostMapping(value = "/bulk", consumes = "multipart/form-data")
+    @PostMapping(value = "/bulk", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
     public ResponseEntity<IncomeBulkUploadResponse> bulkUpload(
             @RequestHeader("Authorization") String authHeader,
@@ -67,12 +77,19 @@ public class IncomeController {
         return ResponseEntity.ok(incomeService.getIncome(id, token.getFarmId()));
     }
 
-    @PutMapping("/{id}")
+    @PutMapping(value = "/{id}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<IncomeResponse> update(
             @RequestHeader("Authorization") String authHeader,
             @PathVariable UUID id,
-            @Valid @RequestBody IncomeRequest request) {
+            @Valid @RequestPart("request") IncomeRequest request,
+            @RequestPart(value = "file", required = false) MultipartFile file) {
+
         TokenValidationResponse token = authService.validateToken(authHeader);
+
+        if (file != null && !file.isEmpty()) {
+            request.setReceipt(fileStorageService.storeFile(file));
+        }
+
         return ResponseEntity.ok(incomeService.updateIncome(id, request, token.getFarmId()));
     }
 

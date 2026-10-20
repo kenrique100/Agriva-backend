@@ -114,21 +114,24 @@ public class IncomeServiceImpl implements IncomeService {
         Income income = incomeRepo.findByIdAndFarmId(id, farmId)
                 .orElseThrow(() -> new IncomeNotFoundException("Income not found with ID: " + id));
 
-        if (incomeRepo.existsByFarmIdAndAmountAndIncomeDateAndSource(
-                farmId, request.getAmount(), request.getIncomeDate(), request.getSource())
-                && !(income.getAmount().compareTo(request.getAmount()) == 0
+        if (incomeRepo.existsByFarmIdAndAmountReceivedAndIncomeDateAndReason(
+                farmId, request.getAmountReceived(), request.getIncomeDate(), request.getReason())
+                && !(income.getAmountReceived().compareTo(request.getAmountReceived()) == 0
                 && income.getIncomeDate().equals(request.getIncomeDate())
-                && Objects.equals(income.getSource(), request.getSource()))) {
-            throw new DuplicateIncomeException("Another income with the same amount, date and source already exists");
+                && Objects.equals(income.getReason(), request.getReason()))) {
+            throw new DuplicateIncomeException("Another income with the same amount, date and reason already exists");
         }
 
-        income.setAmount(request.getAmount());
-        income.setTransactionId(request.getTransactionId());
-        income.setCurrency(request.getCurrency() == null ? "USD" : request.getCurrency());
-        income.setSource(request.getSource());
+        income.setReason(request.getReason());
+        income.setQuantity(request.getQuantity());
+        income.setAmountReceived(request.getAmountReceived());
+        income.setExpectedAmount(request.getExpectedAmount());
+        income.setReceipt(request.getReceipt());
+        income.setCurrency(request.getCurrency());
         income.setCategory(request.getCategory());
-        income.setDescription(request.getDescription());
         income.setIncomeDate(request.getIncomeDate());
+        income.setTransactionId(request.getTransactionId());
+        income.calculateDueBalance();
 
         Income saved = incomeRepo.save(income);
         log.info("Income {} updated for farm {}", id, farmId);

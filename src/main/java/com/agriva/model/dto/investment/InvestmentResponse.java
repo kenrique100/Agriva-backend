@@ -27,4 +27,8 @@ public class InvestmentResponse {
     private String createdByEmail;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private boolean active;
+    private LocalDateTime activatedAt;
+    private BigDecimal spentAmount;
+    private BigDecimal remainingAmount;
 }

@@ -76,14 +76,18 @@ public class StagedIncomeValidator {
             Income income = Income.builder()
                     .farmId(staged.getFarmId())
                     .transactionId(request.getTransactionId())
-                    .amount(request.getAmount())
-                    .currency(request.getCurrency() == null ? "USD" : request.getCurrency())
-                    .source(request.getSource())
+                    .reason(request.getReason())
+                    .quantity(request.getQuantity())
+                    .amountReceived(request.getAmountReceived())
+                    .expectedAmount(request.getExpectedAmount())
+                    .receipt(request.getReceipt())
+                    .currency(request.getCurrency())
                     .category(request.getCategory())
-                    .description(request.getDescription())
                     .incomeDate(request.getIncomeDate())
                     .createdByUserId(staged.getSubmittedByUserId())
                     .build();
+
+            income.calculateDueBalance();
 
             Income saved = incomeRepo.save(income);
 

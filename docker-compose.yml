@@ -1,4 +1,17 @@
 services:
+
+  agriva-init:
+    image: alpine:3.20
+    container_name: agriva-init
+    user: root
+    volumes:
+      - agriva-uploads:/app/uploads
+    command: >
+      sh -c "mkdir -p /app/uploads && chown -R 1001:1001 /app/uploads && echo 'agriva-init: /app/uploads chowned to 1001:1001'"
+    restart: "no"
+    networks:
+      - agriva-network
+
   agriva:
     build: .
     image: agriva/backend:0.0.1-SNAPSHOT
@@ -8,6 +21,7 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-docker}
       SERVER_PORT: "8080"
+      AGRIVA_UPLOADS_DIR: /app/uploads
       DB_HOST: postgres
       DB_PORT: "5432"
       DB_NAME: ${POSTGRES_DB:-agriva}
@@ -24,7 +38,11 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@agriva.local}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-agriva-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change_me}
+    volumes:
+      - agriva-uploads:/app/uploads
     depends_on:
+      agriva-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -140,3 +158,4 @@ volumes:
   postgres-data:
   redis-data:
   kafka-data:
+  agriva-uploads:

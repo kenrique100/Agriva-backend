@@ -25,8 +25,15 @@ public class AuthController {
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
         String token = authService.login(request);
         UserDetails userDetails = authService.getUserDetails(request.getEmailOrUsername());
+
         return ResponseEntity.ok(new AuthResponse(
-                token, userDetails.getEmail(), userDetails.getRole(), userDetails.getFarmId()));
+                token,
+                userDetails.getEmail(),
+                userDetails.getUsername(),
+                userDetails.getRole(),
+                userDetails.getFarmId(),
+                userDetails.getFarmName()
+        ));
     }
 
     @PostMapping("/validate")

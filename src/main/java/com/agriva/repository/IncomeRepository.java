@@ -21,8 +21,8 @@ public interface IncomeRepository extends JpaRepository<Income, UUID> {
 
     Optional<Income> findByIdAndFarmId(UUID id, UUID farmId);
 
-    boolean existsByFarmIdAndAmountAndIncomeDateAndSource(
-            UUID farmId, BigDecimal amount, LocalDate incomeDate, String source);
+    boolean existsByFarmIdAndAmountReceivedAndIncomeDateAndReason(
+            UUID farmId, BigDecimal amountReceived, LocalDate incomeDate, String reason);
 
     List<Income> findByTransactionId(UUID transactionId);
 
@@ -32,14 +32,14 @@ public interface IncomeRepository extends JpaRepository<Income, UUID> {
 
     long countByFarmIdAndCreatedByUserId(UUID farmId, UUID userId);
 
-    @Query("SELECT SUM(i.amount) FROM Income i WHERE i.farmId = :farmId")
+    @Query("SELECT SUM(i.amountReceived) FROM Income i WHERE i.farmId = :farmId")
     BigDecimal sumAmountByFarmId(@Param("farmId") UUID farmId);
 
-    @Query("SELECT SUM(i.amount) FROM Income i WHERE i.farmId = :farmId AND i.createdByUserId = :userId")
+    @Query("SELECT SUM(i.amountReceived) FROM Income i WHERE i.farmId = :farmId AND i.createdByUserId = :userId")
     BigDecimal sumAmountByFarmIdAndCreatedByUserId(@Param("farmId") UUID farmId,
                                                    @Param("userId") UUID userId);
 
-    @Query("SELECT i.createdByUserId, SUM(i.amount) FROM Income i " +
+    @Query("SELECT i.createdByUserId, SUM(i.amountReceived) FROM Income i " +
             "WHERE i.farmId = :farmId GROUP BY i.createdByUserId")
     List<Object[]> sumAmountGroupedByUser(@Param("farmId") UUID farmId);
 

@@ -19,7 +19,6 @@ public final class ExcelCellReader {
 
     public static String readString(Cell cell) {
         if (cell == null) return null;
-
         try {
             return switch (cell.getCellType()) {
                 case STRING -> cell.getStringCellValue().trim();
@@ -36,16 +35,15 @@ public final class ExcelCellReader {
     }
 
     public static BigDecimal readBigDecimal(Cell cell, String field) {
-        if (cell == null) {
-            throw new ExcelProcessingException(field + " is required");
-        }
-
+        if (cell == null) throw new ExcelProcessingException(field + " is required");
         try {
             if (cell.getCellType() == CellType.NUMERIC) {
                 return BigDecimal.valueOf(cell.getNumericCellValue());
             }
             if (cell.getCellType() == CellType.STRING) {
-                return new BigDecimal(cell.getStringCellValue().trim());
+                String val = cell.getStringCellValue().trim().replace(",", "");
+                if (val.isEmpty()) throw new ExcelProcessingException(field + " is required");
+                return new BigDecimal(val);
             }
             throw new ExcelProcessingException(field + " must be a valid number");
         } catch (NumberFormatException e) {
@@ -54,16 +52,17 @@ public final class ExcelCellReader {
     }
 
     public static LocalDate readDate(Cell cell, String field) {
-        if (cell == null) {
-            throw new ExcelProcessingException(field + " is required");
-        }
-
+        if (cell == null) throw new ExcelProcessingException(field + " is required");
         try {
             if (cell.getCellType() == CellType.NUMERIC && DateUtil.isCellDateFormatted(cell)) {
                 return cell.getLocalDateTimeCellValue().toLocalDate();
             }
             if (cell.getCellType() == CellType.STRING) {
-                return LocalDate.parse(cell.getStringCellValue().trim(), DATE_FORMATTER);
+                String dateStr = cell.getStringCellValue().trim();
+                if (dateStr.isEmpty()) throw new ExcelProcessingException(field + " is required");
+                // Handle "2024-01-15" AND "2024-01-15 00:00:00"
+                if (dateStr.contains(" ")) dateStr = dateStr.split(" ")[0];
+                return LocalDate.parse(dateStr, DATE_FORMATTER);
             }
             throw new ExcelProcessingException(field + " must be a valid date (yyyy-MM-dd)");
         } catch (Exception e) {

@@ -22,7 +22,6 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -60,7 +59,6 @@ public class DashboardServiceImpl implements DashboardService {
                 ? dashboardQueryRepo.totalsForFarm(farmId)
                 : DashboardQueryRepository.Totals.empty();
 
-        // Show every transaction on the farm — not just the caller's
         List<DashboardResponse.TransactionSummary> txSummaries =
                 buildTransactionSummaries(farmId, canSeeInvestments);
 
@@ -134,7 +132,6 @@ public class DashboardServiceImpl implements DashboardService {
                     ? investmentRepo.findByTransactionId(tx.getId())
                     : List.of();
 
-            // Collect all creator IDs in one pass so we do one lookup for the whole transaction
             Set<UUID> creatorIds = new HashSet<>();
             incomes.forEach(i -> { if (i.getCreatedByUserId() != null) creatorIds.add(i.getCreatedByUserId()); });
             expenses.forEach(e -> { if (e.getCreatedByUserId() != null) creatorIds.add(e.getCreatedByUserId()); });
@@ -147,9 +144,9 @@ public class DashboardServiceImpl implements DashboardService {
                       .collect(Collectors.toMap(User::getId, User::getUsername, (a, b) -> a));
 
             BigDecimal totalIncome = incomes.stream()
-                    .map(Income::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+                    .map(Income::getAmountReceived).reduce(BigDecimal.ZERO, BigDecimal::add);
             BigDecimal totalExpense = expenses.stream()
-                    .map(Expense::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+                    .map(Expense::getAmountPaid).reduce(BigDecimal.ZERO, BigDecimal::add);
             BigDecimal totalInvestment = canSeeInvestments
                     ? investments.stream().map(Investment::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add)
                     : null;
@@ -161,11 +158,10 @@ public class DashboardServiceImpl implements DashboardService {
             List<DashboardResponse.IncomeLine> incomeLines = incomes.stream()
                     .map(i -> DashboardResponse.IncomeLine.builder()
                             .id(i.getId())
-                            .amount(i.getAmount())
-                            .currency(i.getCurrency())
-                            .source(i.getSource())
-                            .category(i.getCategory())
-                            .description(i.getDescription())
+                            .amount(i.getAmountReceived())
+                            .currency(i.getCurrency().name())
+                            .reason(i.getReason())
+                            .category(i.getCategory().name())
                             .incomeDate(i.getIncomeDate())
                             .createdByUserId(i.getCreatedByUserId())
                             .createdByUsername(usernameOrNull(i.getCreatedByUserId(), usernameById))
@@ -175,11 +171,10 @@ public class DashboardServiceImpl implements DashboardService {
             List<DashboardResponse.ExpenseLine> expenseLines = expenses.stream()
                     .map(e -> DashboardResponse.ExpenseLine.builder()
                             .id(e.getId())
-                            .amount(e.getAmount())
-                            .currency(e.getCurrency())
-                            .category(e.getCategory())
-                            .vendor(e.getVendor())
-                            .description(e.getDescription())
+                            .amount(e.getAmountPaid())
+                            .currency(e.getCurrency().name())
+                            .reason(e.getReason())
+                            .category(e.getCategory().name())
                             .expenseDate(e.getExpenseDate())
                             .createdByUserId(e.getCreatedByUserId())
                             .createdByUsername(usernameOrNull(e.getCreatedByUserId(), usernameById))

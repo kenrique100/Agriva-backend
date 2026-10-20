@@ -4,7 +4,9 @@ import com.agriva.TestcontainersConfiguration;
 import com.agriva.model.dto.auth.AuthResponse;
 import com.agriva.model.dto.auth.MasterRegisterRequest;
 import com.agriva.model.dto.expense.*;
+import com.agriva.model.entity.Currency;
 import com.agriva.model.entity.Expense;
+import com.agriva.model.entity.ExpenseCategory;
 import com.agriva.model.entity.StagedExpense;
 import com.agriva.model.entity.StagedExpenseStatus;
 import com.agriva.repository.AuthRepository;
@@ -62,12 +64,14 @@ class ExpenseServiceIT {
     @Test
     void submitExpense_movesToExpenseTable() {
         ExpenseRequest req = new ExpenseRequest();
-        req.setAmount(new BigDecimal("250.00"));
-        req.setCurrency("USD");
-        req.setCategory("Feed");
-        req.setVendor("Agro Supply");
-        req.setDescription("Bag of feed");
+        req.setAmountPaid(new BigDecimal("250.00"));
+        req.setExpectedAmount(new BigDecimal("250.00"));
+        req.setQtyPurchased(1);
+        req.setCurrency(Currency.USD);
+        req.setCategory(ExpenseCategory.ANIMAL_FEED);
+        req.setReason("Agro Supply");
         req.setExpenseDate(LocalDate.now().minusDays(2));
+        req.setReceipt("REC-001");
 
         ExpenseSubmissionAck ack = expenseService.submitExpense(
                 req, farmId, null, "expense@test.local");
@@ -85,8 +89,9 @@ class ExpenseServiceIT {
         assertThat(staged.getStatus()).isEqualTo(StagedExpenseStatus.MOVED);
 
         Expense saved = expenseRepo.findAll().get(0);
-        assertThat(saved.getAmount()).isEqualByComparingTo("250.00");
-        assertThat(saved.getVendor()).isEqualTo("Agro Supply");
+        assertThat(saved.getAmountPaid()).isEqualByComparingTo("250.00");
+        assertThat(saved.getReason()).isEqualTo("Agro Supply");
+        assertThat(saved.getQtyPurchased()).isEqualTo(1);
     }
 
     @Test
@@ -94,9 +99,12 @@ class ExpenseServiceIT {
         UUID userId = authRepository.findByEmail("expense@test.local").orElseThrow().getId();
 
         ExpenseRequest req = new ExpenseRequest();
-        req.setAmount(new BigDecimal("100"));
-        req.setCurrency("USD");
-        req.setVendor("Vendor A");
+        req.setAmountPaid(new BigDecimal("100"));
+        req.setExpectedAmount(new BigDecimal("100"));
+        req.setQtyPurchased(1);
+        req.setCurrency(Currency.USD);
+        req.setCategory(ExpenseCategory.MISCELLANEOUS);
+        req.setReason("Vendor A");
         req.setExpenseDate(LocalDate.now().minusDays(1));
 
         var created = expenseService.createDirect(req, farmId, userId);

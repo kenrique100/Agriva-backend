@@ -170,12 +170,12 @@ public class TransactionServiceImpl implements TransactionService {
 
     private BigDecimal sumIncome(UUID txId) {
         return incomeRepo.findByTransactionId(txId).stream()
-                .map(Income::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+                .map(Income::getAmountReceived).reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     private BigDecimal sumExpense(UUID txId) {
         return expenseRepo.findByTransactionId(txId).stream()
-                .map(Expense::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+                .map(Expense::getAmountPaid).reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     private BigDecimal sumInvestment(UUID txId) {

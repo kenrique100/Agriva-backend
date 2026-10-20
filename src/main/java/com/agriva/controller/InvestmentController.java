@@ -51,6 +51,17 @@ public class InvestmentController {
                 PageRequest.of(page, size, parseSort(sort))));
     }
 
+    @GetMapping("/active")
+    public ResponseEntity<InvestmentResponse> getActive(
+            @RequestHeader("Authorization") String authHeader) {
+        TokenValidationResponse token = authService.validateToken(authHeader);
+        // Accessible to ALL farm roles — expense submitters need this for UI banners
+        InvestmentResponse active = investmentService.getActive(token.getFarmId());
+        return active == null
+                ? ResponseEntity.noContent().build()
+                : ResponseEntity.ok(active);
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<InvestmentResponse> getOne(
             @RequestHeader("Authorization") String authHeader,
@@ -79,6 +90,24 @@ public class InvestmentController {
         requireMasterOrAdmin(token);
         investmentService.deleteInvestment(id, token.getFarmId());
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{id}/activate")
+    public ResponseEntity<InvestmentResponse> activate(
+            @RequestHeader("Authorization") String authHeader,
+            @PathVariable UUID id) {
+        TokenValidationResponse token = authService.validateToken(authHeader);
+        requireMasterOrAdmin(token);
+        return ResponseEntity.ok(investmentService.activate(id, token.getFarmId()));
+    }
+
+    @PostMapping("/{id}/deactivate")
+    public ResponseEntity<InvestmentResponse> deactivate(
+            @RequestHeader("Authorization") String authHeader,
+            @PathVariable UUID id) {
+        TokenValidationResponse token = authService.validateToken(authHeader);
+        requireMasterOrAdmin(token);
+        return ResponseEntity.ok(investmentService.deactivate(id, token.getFarmId()));
     }
 
     private void requireMasterOrAdmin(TokenValidationResponse token) {

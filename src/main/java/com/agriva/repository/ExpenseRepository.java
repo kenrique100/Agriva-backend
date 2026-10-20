@@ -21,8 +21,8 @@ public interface ExpenseRepository extends JpaRepository<Expense, UUID> {
 
     Optional<Expense> findByIdAndFarmId(UUID id, UUID farmId);
 
-    boolean existsByFarmIdAndAmountAndExpenseDateAndVendor(
-            UUID farmId, BigDecimal amount, LocalDate expenseDate, String vendor);
+    boolean existsByFarmIdAndAmountPaidAndExpenseDateAndReason(
+            UUID farmId, BigDecimal amountPaid, LocalDate expenseDate, String reason);
 
     List<Expense> findByTransactionId(UUID transactionId);
 
@@ -30,12 +30,16 @@ public interface ExpenseRepository extends JpaRepository<Expense, UUID> {
 
     long countByFarmIdAndCreatedByUserId(UUID farmId, UUID userId);
 
-    @Query("SELECT SUM(e.amount) FROM Expense e WHERE e.farmId = :farmId")
+    @Query("SELECT SUM(e.amountPaid) FROM Expense e WHERE e.farmId = :farmId")
     BigDecimal sumAmountByFarmId(@Param("farmId") UUID farmId);
 
-    @Query("SELECT SUM(e.amount) FROM Expense e WHERE e.farmId = :farmId AND e.createdByUserId = :userId")
+    @Query("SELECT SUM(e.amountPaid) FROM Expense e WHERE e.farmId = :farmId AND e.createdByUserId = :userId")
     BigDecimal sumAmountByFarmIdAndCreatedByUserId(@Param("farmId") UUID farmId,
                                                    @Param("userId") UUID userId);
+
+    @Query("SELECT e.createdByUserId, SUM(e.amountPaid) FROM Expense e " +
+            "WHERE e.farmId = :farmId GROUP BY e.createdByUserId")
+    List<Object[]> sumAmountGroupedByUser(@Param("farmId") UUID farmId);
 
     default BigDecimal sumAmountByFarmIdOrZero(UUID farmId) {
         BigDecimal v = sumAmountByFarmId(farmId);

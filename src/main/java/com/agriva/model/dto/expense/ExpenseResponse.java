@@ -1,5 +1,7 @@
 package com.agriva.model.dto.expense;
 
+import com.agriva.model.entity.Currency;
+import com.agriva.model.entity.ExpenseCategory;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -16,15 +18,23 @@ public class ExpenseResponse {
     private UUID id;
     private UUID farmId;
     private UUID transactionId;
-    private BigDecimal amount;
-    private String currency;
-    private String category;
-    private String vendor;
-    private String description;
+
+    private String reason;
+    private int qtyPurchased;
+    private BigDecimal amountPaid;
+    private BigDecimal expectedAmount;
+    private BigDecimal dueBalance;
+    private String receipt;
+
+    private Currency currency;
+    private ExpenseCategory category;
     private LocalDate expenseDate;
+
     private UUID createdByUserId;
     private String createdByUsername;
     private String createdByEmail;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
+    private UUID investmentId;
 }

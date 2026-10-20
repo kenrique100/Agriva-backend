@@ -183,4 +183,18 @@ public class GlobalExceptionHandler {
         );
         return ResponseEntity.status(status).body(error);
     }
+
+    @ExceptionHandler(NoActiveInvestmentException.class)
+    public ResponseEntity<ErrorResponse> handleNoActiveInvestment(
+            NoActiveInvestmentException ex, WebRequest request) {
+        log.warn("No active investment: {}", ex.getMessage());
+        return build(HttpStatus.CONFLICT, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(InvestmentLimitExceededException.class)
+    public ResponseEntity<ErrorResponse> handleInvestmentLimit(
+            InvestmentLimitExceededException ex, WebRequest request) {
+        log.warn("Investment limit exceeded: {}", ex.getMessage());
+        return build(HttpStatus.CONFLICT, ex.getMessage(), request);
+    }
 }

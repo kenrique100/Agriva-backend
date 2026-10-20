@@ -56,7 +56,7 @@ class InvestmentServiceIT {
     void createAndList() {
         InvestmentRequest req = new InvestmentRequest();
         req.setAmount(new BigDecimal("5000"));
-        req.setCurrency("USD");
+        req.setCurrency("USD"); // String, as per InvestmentRequest definition
         req.setInvestorName("East Africa Agri Fund");
         req.setType("EQUIPMENT");
         req.setDescription("Industrial water pump");

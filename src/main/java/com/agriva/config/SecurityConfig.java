@@ -56,7 +56,8 @@ public class SecurityConfig {
                                 "/swagger-resources",
                                 "/webjars/**",
                                 "/actuator/health",
-                                "/actuator/info"
+                                "/actuator/info",
+                                "/api/v1/files/**"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )

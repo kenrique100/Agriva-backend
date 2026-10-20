@@ -1,5 +1,7 @@
 package com.agriva.model.dto.income;
 
+import com.agriva.model.entity.Currency;
+import com.agriva.model.entity.IncomeCategory;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -16,12 +18,18 @@ public class IncomeResponse {
     private UUID id;
     private UUID farmId;
     private UUID transactionId;
-    private BigDecimal amount;
-    private String currency;
-    private String source;
-    private String category;
-    private String description;
+
+    private String reason;
+    private int quantity;
+    private BigDecimal amountReceived;
+    private BigDecimal expectedAmount;
+    private BigDecimal dueBalance;
+    private String receipt;
+
+    private Currency currency;
+    private IncomeCategory category;
     private LocalDate incomeDate;
+
     private UUID createdByUserId;
     private String createdByUsername;
     private String createdByEmail;

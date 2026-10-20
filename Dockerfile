@@ -10,11 +10,15 @@ RUN groupadd --system --gid 1001 appgroup && \
 
 COPY target/agriva.jar app.jar
 
-RUN chown appuser:appgroup app.jar
+# Create the uploads directory and hand the whole /app tree to appuser
+# BEFORE switching user. Fixes the no-volume case outright.
+RUN mkdir -p /app/uploads \
+ && chown -R appuser:appgroup /app
 
 USER appuser
 
 EXPOSE 8080
+
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
   CMD wget --quiet --tries=1 --spider http://localhost:8080/actuator/health || exit 1
 

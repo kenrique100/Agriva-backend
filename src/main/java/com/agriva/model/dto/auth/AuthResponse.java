@@ -12,6 +12,8 @@ import java.util.UUID;
 public class AuthResponse {
     private String token;
     private String email;
+    private String username;
     private String role;
     private UUID farmId;
+    private String farmName;
 }

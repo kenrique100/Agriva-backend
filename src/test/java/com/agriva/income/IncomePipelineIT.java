@@ -5,7 +5,9 @@ import com.agriva.model.dto.auth.AuthResponse;
 import com.agriva.model.dto.auth.MasterRegisterRequest;
 import com.agriva.model.dto.income.IncomeRequest;
 import com.agriva.model.dto.income.IncomeSubmissionAck;
+import com.agriva.model.entity.Currency;
 import com.agriva.model.entity.Income;
+import com.agriva.model.entity.IncomeCategory;
 import com.agriva.model.entity.StagedIncome;
 import com.agriva.model.entity.StagedIncomeStatus;
 import com.agriva.repository.AuthRepository;
@@ -64,12 +66,14 @@ class IncomePipelineIT {
     @Test
     void submitIncome_flowsThroughKafka_thenValidator_movesToIncomeTable() {
         IncomeRequest req = new IncomeRequest();
-        req.setAmount(new BigDecimal("1500.50"));
-        req.setCurrency("USD");
-        req.setSource("Milk sales");
-        req.setCategory("Dairy");
-        req.setDescription("Test batch");
+        req.setAmountReceived(new BigDecimal("1500.50"));
+        req.setExpectedAmount(new BigDecimal("1500.50"));
+        req.setQuantity(1);
+        req.setCurrency(Currency.USD);
+        req.setReason("Maize sales");
+        req.setCategory(IncomeCategory.CROP_SALES);
         req.setIncomeDate(LocalDate.now().minusDays(1));
+        req.setReceipt("REC-001");
 
         IncomeSubmissionAck ack = incomeService.submitIncome(
                 req, farmId, null, "income@test.local");
@@ -92,17 +96,20 @@ class IncomePipelineIT {
 
             List<Income> incomes = incomeRepo.findAll();
             assertThat(incomes).hasSize(1);
-            assertThat(incomes.get(0).getAmount()).isEqualByComparingTo("1500.50");
-            assertThat(incomes.get(0).getSource()).isEqualTo("Milk sales");
+            assertThat(incomes.get(0).getAmountReceived()).isEqualByComparingTo("1500.50");
+            assertThat(incomes.get(0).getReason()).isEqualTo("Maize sales");
         });
     }
 
     @Test
     void invalidIncome_getsRetriedThenFailed() {
         IncomeRequest req = new IncomeRequest();
-        req.setAmount(new BigDecimal("-1"));
-        req.setCurrency("USD");
-        req.setSource("Bad source");
+        req.setAmountReceived(new BigDecimal("-1")); // Invalid negative amount
+        req.setExpectedAmount(new BigDecimal("100.00"));
+        req.setQuantity(1);
+        req.setCurrency(Currency.USD);
+        req.setReason("Bad source");
+        req.setCategory(IncomeCategory.MISCELLANEOUS);
         req.setIncomeDate(LocalDate.now().minusDays(1));
 
         IncomeSubmissionAck ack = incomeService.submitIncome(

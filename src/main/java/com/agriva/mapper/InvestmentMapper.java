@@ -5,6 +5,7 @@ import com.agriva.model.entity.Investment;
 import com.agriva.model.entity.User;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.util.Map;
 import java.util.UUID;
 
@@ -12,6 +13,10 @@ import java.util.UUID;
 public class InvestmentMapper {
 
     public InvestmentResponse toResponse(Investment inv, Map<UUID, User> userById) {
+        return toResponse(inv, userById, BigDecimal.ZERO);
+    }
+
+    public InvestmentResponse toResponse(Investment inv, Map<UUID, User> userById, BigDecimal spentAmount) {
         User creator = inv.getCreatedByUserId() == null
                 ? null
                 : userById.get(inv.getCreatedByUserId());
@@ -23,6 +28,11 @@ public class InvestmentMapper {
             username = "deleted-user";
             email = inv.getCreatedByUserId() + "@orphaned";
         }
+
+        BigDecimal spent = spentAmount == null ? BigDecimal.ZERO : spentAmount;
+        BigDecimal remaining = inv.getAmount() == null
+                ? BigDecimal.ZERO
+                : inv.getAmount().subtract(spent);
 
         return new InvestmentResponse(
                 inv.getId(),
@@ -38,7 +48,11 @@ public class InvestmentMapper {
                 username,
                 email,
                 inv.getCreatedAt(),
-                inv.getUpdatedAt()
+                inv.getUpdatedAt(),
+                inv.isActive(),
+                inv.getActivatedAt(),
+                spent,
+                remaining
         );
     }
 }

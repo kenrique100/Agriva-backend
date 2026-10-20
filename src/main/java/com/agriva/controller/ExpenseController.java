@@ -4,6 +4,7 @@ import com.agriva.model.dto.auth.TokenValidationResponse;
 import com.agriva.model.dto.expense.*;
 import com.agriva.service.AuthService;
 import com.agriva.service.ExpenseService;
+import com.agriva.service.FileStorageService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -11,6 +12,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -26,18 +28,26 @@ public class ExpenseController {
 
     private final ExpenseService expenseService;
     private final AuthService authService;
+    private final FileStorageService fileStorageService;
 
-    @PostMapping
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
     public ResponseEntity<ExpenseSubmissionAck> submit(
             @RequestHeader("Authorization") String authHeader,
-            @Valid @RequestBody ExpenseRequest request) {
+            @Valid @RequestPart("request") ExpenseRequest request,
+            @RequestPart(value = "file", required = false) MultipartFile file) {
+
         TokenValidationResponse token = authService.validateToken(authHeader);
+
+        if (file != null && !file.isEmpty()) {
+            request.setReceipt(fileStorageService.storeFile(file));
+        }
+
         return ResponseEntity.accepted().body(expenseService.submitExpense(
                 request, token.getFarmId(), token.getUserId(), token.getUsername()));
     }
 
-    @PostMapping(value = "/bulk", consumes = "multipart/form-data")
+    @PostMapping(value = "/bulk", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
     public ResponseEntity<ExpenseBulkUploadResponse> bulkUpload(
             @RequestHeader("Authorization") String authHeader,
@@ -67,12 +77,19 @@ public class ExpenseController {
         return ResponseEntity.ok(expenseService.getExpense(id, token.getFarmId()));
     }
 
-    @PutMapping("/{id}")
+    @PutMapping(value = "/{id}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ExpenseResponse> update(
             @RequestHeader("Authorization") String authHeader,
             @PathVariable UUID id,
-            @Valid @RequestBody ExpenseRequest request) {
+            @Valid @RequestPart("request") ExpenseRequest request,
+            @RequestPart(value = "file", required = false) MultipartFile file) {
+
         TokenValidationResponse token = authService.validateToken(authHeader);
+
+        if (file != null && !file.isEmpty()) {
+            request.setReceipt(fileStorageService.storeFile(file));
+        }
+
         return ResponseEntity.ok(expenseService.updateExpense(id, request, token.getFarmId()));
     }
 

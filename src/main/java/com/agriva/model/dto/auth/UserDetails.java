@@ -11,6 +11,8 @@ import java.util.UUID;
 @AllArgsConstructor
 public class UserDetails {
     private String email;
+    private String username;
     private String role;
     private UUID farmId;
+    private String farmName;
 }

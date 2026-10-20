@@ -16,6 +16,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -45,26 +47,35 @@ public class InvestmentServiceImpl implements InvestmentService {
                 .description(request.getDescription())
                 .investmentDate(request.getInvestmentDate())
                 .createdByUserId(userId)
+                .active(false)
                 .build();
 
-        // saveAndFlush ensures Hibernate populates @CreationTimestamp before mapping
         Investment saved = investmentRepo.saveAndFlush(investment);
-        log.info("Investment {} created for farm {}", saved.getId(), farmId);
-        return mapper.toResponse(saved, lookupUsers(List.of(saved)));
+
+        if (request.isActivate()) {
+            saved = doActivate(saved);
+        }
+
+        log.info("Investment {} created for farm {} (active={})",
+                saved.getId(), farmId, saved.isActive());
+        return toResponseWithSpend(saved);
     }
 
     @Override
     public Page<InvestmentResponse> listInvestments(UUID farmId, Pageable pageable) {
         Page<Investment> page = investmentRepo.findByFarmId(farmId, pageable);
         Map<UUID, User> userById = lookupUsers(page.getContent());
-        return page.map(inv -> mapper.toResponse(inv, userById));
+        return page.map(inv -> mapper.toResponse(
+                inv,
+                userById,
+                investmentRepo.sumExpensesByInvestmentIdOrZero(inv.getId())));
     }
 
     @Override
     public InvestmentResponse getInvestment(UUID id, UUID farmId) {
         Investment investment = investmentRepo.findByIdAndFarmId(id, farmId)
                 .orElseThrow(() -> new InvestmentNotFoundException("Investment not found with ID: " + id));
-        return mapper.toResponse(investment, lookupUsers(List.of(investment)));
+        return toResponseWithSpend(investment);
     }
 
     @Override
@@ -72,6 +83,13 @@ public class InvestmentServiceImpl implements InvestmentService {
     public InvestmentResponse updateInvestment(UUID id, InvestmentRequest request, UUID farmId) {
         Investment investment = investmentRepo.findByIdAndFarmId(id, farmId)
                 .orElseThrow(() -> new InvestmentNotFoundException("Investment not found with ID: " + id));
+
+        // Guard: cannot shrink below already-spent amount
+        BigDecimal spent = investmentRepo.sumExpensesByInvestmentIdOrZero(id);
+        if (request.getAmount().compareTo(spent) < 0) {
+            throw new IllegalArgumentException(
+                    "Cannot reduce investment below already-spent amount of " + spent.toPlainString());
+        }
 
         investment.setAmount(request.getAmount());
         investment.setTransactionId(request.getTransactionId());
@@ -82,8 +100,13 @@ public class InvestmentServiceImpl implements InvestmentService {
         investment.setInvestmentDate(request.getInvestmentDate());
 
         Investment saved = investmentRepo.saveAndFlush(investment);
+
+        if (request.isActivate() && !saved.isActive()) {
+            saved = doActivate(saved);
+        }
+
         log.info("Investment {} updated for farm {}", id, farmId);
-        return mapper.toResponse(saved, lookupUsers(List.of(saved)));
+        return toResponseWithSpend(saved);
     }
 
     @Override
@@ -91,8 +114,74 @@ public class InvestmentServiceImpl implements InvestmentService {
     public void deleteInvestment(UUID id, UUID farmId) {
         Investment investment = investmentRepo.findByIdAndFarmId(id, farmId)
                 .orElseThrow(() -> new InvestmentNotFoundException("Investment not found with ID: " + id));
+
+        BigDecimal spent = investmentRepo.sumExpensesByInvestmentIdOrZero(id);
+        if (spent.compareTo(BigDecimal.ZERO) > 0) {
+            throw new IllegalArgumentException(
+                    "Cannot delete investment with linked expenses. Spent: " + spent.toPlainString());
+        }
+
         investmentRepo.delete(investment);
         log.info("Investment {} deleted from farm {}", id, farmId);
+    }
+
+    @Override
+    @Transactional
+    public InvestmentResponse activate(UUID id, UUID farmId) {
+        Investment investment = investmentRepo.findByIdAndFarmId(id, farmId)
+                .orElseThrow(() -> new InvestmentNotFoundException("Investment not found with ID: " + id));
+        return toResponseWithSpend(doActivate(investment));
+    }
+
+    @Override
+    @Transactional
+    public InvestmentResponse deactivate(UUID id, UUID farmId) {
+        Investment investment = investmentRepo.findByIdAndFarmId(id, farmId)
+                .orElseThrow(() -> new InvestmentNotFoundException("Investment not found with ID: " + id));
+        if (investment.isActive()) {
+            investment.setActive(false);
+            investment.setActivatedAt(null);
+            investmentRepo.saveAndFlush(investment);
+            log.info("Investment {} deactivated for farm {}", id, farmId);
+        }
+        return toResponseWithSpend(investment);
+    }
+
+    @Override
+    public InvestmentResponse getActive(UUID farmId) {
+        return investmentRepo.findFirstByFarmIdAndActiveTrue(farmId)
+                .map(this::toResponseWithSpend)
+                .orElse(null);
+    }
+
+    // -------------------------------------------------------------------
+
+    /**
+     * Deactivates the current active investment (if any) and activates the given one.
+     * Runs two flushes to satisfy the partial unique index (one active per farm).
+     */
+    private Investment doActivate(Investment target) {
+        if (target.isActive()) {
+            return target;
+        }
+
+        investmentRepo.findFirstByFarmIdAndActiveTrue(target.getFarmId()).ifPresent(current -> {
+            current.setActive(false);
+            current.setActivatedAt(null);
+            investmentRepo.saveAndFlush(current);
+        });
+
+        target.setActive(true);
+        target.setActivatedAt(LocalDateTime.now());
+        Investment saved = investmentRepo.saveAndFlush(target);
+        log.info("Investment {} is now the active investment for farm {}",
+                saved.getId(), saved.getFarmId());
+        return saved;
+    }
+
+    private InvestmentResponse toResponseWithSpend(Investment inv) {
+        BigDecimal spent = investmentRepo.sumExpensesByInvestmentIdOrZero(inv.getId());
+        return mapper.toResponse(inv, lookupUsers(List.of(inv)), spent);
     }
 
     private Map<UUID, User> lookupUsers(List<Investment> investments) {

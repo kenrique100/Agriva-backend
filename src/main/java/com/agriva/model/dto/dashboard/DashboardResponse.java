@@ -32,8 +32,6 @@ public class DashboardResponse {
     private List<UserActivity> users;
     private List<TransactionSummary> transactions;
 
-    // ---------------- Totals ----------------
-
     @Data
     @Builder
     @NoArgsConstructor
@@ -54,8 +52,6 @@ public class DashboardResponse {
         private BigDecimal netPosition;
     }
 
-    // ---------------- Per-user activity ----------------
-
     @Data
     @Builder
     @NoArgsConstructor
@@ -68,8 +64,6 @@ public class DashboardResponse {
         private String role;
         private Totals activitySummary;
     }
-
-    // ---------------- Transactions with line items ----------------
 
     @Data
     @Builder
@@ -87,7 +81,6 @@ public class DashboardResponse {
         private String recordedByUsername;
         private String recordedByRole;
 
-        // aggregate amounts
         private BigDecimal income;
         private BigDecimal expense;
         private BigDecimal investment;
@@ -97,7 +90,6 @@ public class DashboardResponse {
         private Integer expenseCount;
         private Integer investmentCount;
 
-        // individual rows, added
         private List<IncomeLine> incomeLines;
         private List<ExpenseLine> expenseLines;
         private List<InvestmentLine> investmentLines;
@@ -112,9 +104,8 @@ public class DashboardResponse {
         private UUID id;
         private BigDecimal amount;
         private String currency;
-        private String source;
+        private String reason;
         private String category;
-        private String description;
         private LocalDate incomeDate;
         private UUID createdByUserId;
         private String createdByUsername;
@@ -129,9 +120,8 @@ public class DashboardResponse {
         private UUID id;
         private BigDecimal amount;
         private String currency;
+        private String reason;
         private String category;
-        private String vendor;
-        private String description;
         private LocalDate expenseDate;
         private UUID createdByUserId;
         private String createdByUsername;

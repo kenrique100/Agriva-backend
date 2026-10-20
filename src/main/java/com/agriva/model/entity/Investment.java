@@ -53,6 +53,13 @@ public class Investment {
     @Column(name = "created_by_user_id")
     private UUID createdByUserId;
 
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean active = false;
+
+    @Column(name = "activated_at")
+    private LocalDateTime activatedAt;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

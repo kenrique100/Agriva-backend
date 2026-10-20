@@ -15,55 +15,27 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ExpenseValidator {
 
-    private static final BigDecimal MAX_AMOUNT = new BigDecimal("100000000");
-    private static final int MAX_YEARS_OLD = 10;
-
     private final ExpenseRepository expenseRepository;
 
     public List<String> validate(ExpenseRequest request, UUID farmId) {
         List<String> errors = new ArrayList<>();
+        if (request == null) return List.of("Request payload is empty");
 
-        if (request == null) {
-            errors.add("Request payload is empty");
-            return errors;
+        if (request.getAmountPaid() == null || request.getAmountPaid().compareTo(BigDecimal.ZERO) <= 0) {
+            errors.add("Amount paid must be positive");
+        }
+        if (request.getExpenseDate() == null || request.getExpenseDate().isAfter(LocalDate.now())) {
+            errors.add("Expense date cannot be in the future");
         }
 
-        if (request.getAmount() == null) {
-            errors.add("Amount is required");
-        } else {
-            if (request.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
-                errors.add("Amount must be positive");
-            }
-            if (request.getAmount().compareTo(MAX_AMOUNT) > 0) {
-                errors.add("Amount cannot exceed " + MAX_AMOUNT);
-            }
-        }
-
-        if (request.getExpenseDate() == null) {
-            errors.add("Expense date is required");
-        } else {
-            LocalDate today = LocalDate.now();
-            if (request.getExpenseDate().isAfter(today)) {
-                errors.add("Expense date cannot be in the future");
-            }
-            if (request.getExpenseDate().isBefore(today.minusYears(MAX_YEARS_OLD))) {
-                errors.add("Expense date cannot be older than " + MAX_YEARS_OLD + " years");
+        // Duplicate Check
+        if (farmId != null && request.getAmountPaid() != null && request.getExpenseDate() != null && request.getReason() != null) {
+            boolean exists = expenseRepository.existsByFarmIdAndAmountPaidAndExpenseDateAndReason(
+                    farmId, request.getAmountPaid(), request.getExpenseDate(), request.getReason());
+            if (exists) {
+                errors.add("Duplicate expense: same amount, date and reason already exists for this farm");
             }
         }
-
-        if (request.getCurrency() != null && request.getCurrency().length() != 3) {
-            errors.add("Currency must be a 3-letter ISO code");
-        }
-
-        if (farmId != null
-                && request.getAmount() != null
-                && request.getExpenseDate() != null
-                && request.getVendor() != null
-                && expenseRepository.existsByFarmIdAndAmountAndExpenseDateAndVendor(
-                farmId, request.getAmount(), request.getExpenseDate(), request.getVendor())) {
-            errors.add("Duplicate expense: same amount, date and vendor already exists for this farm");
-        }
-
         return errors;
     }
 }

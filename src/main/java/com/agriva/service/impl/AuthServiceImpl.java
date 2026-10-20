@@ -53,7 +53,6 @@ public class AuthServiceImpl implements AuthService {
     @Value("${agriva.security.password-reset.ttl-seconds:900}")
     private long resetTokenTtlSeconds;
 
-    // ---------- Authentication ----------
 
     @Override
     public String login(LoginRequest request) {
@@ -71,10 +70,24 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public UserDetails getUserDetails(String email) {
-        User user = authRepository.findByEmailOrUsername(email, email)
+    public UserDetails getUserDetails(String emailOrUsername) {
+        User user = authRepository.findByEmailOrUsername(emailOrUsername, emailOrUsername)
                 .orElseThrow(() -> new BusinessException("User not found"));
-        return new UserDetails(user.getEmail(), user.getRole(), user.getFarmId());
+
+        String farmName = null;
+        if (user.getFarmId() != null) {
+            farmName = farmRepository.findById(user.getFarmId())
+                    .map(Farm::getName)
+                    .orElse(null);
+        }
+
+        return new UserDetails(
+                user.getEmail(),
+                user.getUsername(),
+                user.getRole(),
+                user.getFarmId(),
+                farmName
+        );
     }
 
     @Override
@@ -132,7 +145,15 @@ public class AuthServiceImpl implements AuthService {
 
         log.info("Master registered: {} for farm {}", master.getEmail(), farm.getName());
         String token = jwtUtil.generateToken(master);
-        return new AuthResponse(token, master.getEmail(), master.getRole(), master.getFarmId());
+
+        return new AuthResponse(
+                token,
+                master.getEmail(),
+                master.getUsername(),
+                master.getRole(),
+                master.getFarmId(),
+                farm.getName()
+        );
     }
 
     @Override
