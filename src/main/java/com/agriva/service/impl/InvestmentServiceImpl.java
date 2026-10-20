@@ -4,6 +4,7 @@ import com.agriva.exception.InvestmentNotFoundException;
 import com.agriva.mapper.InvestmentMapper;
 import com.agriva.model.dto.investment.InvestmentRequest;
 import com.agriva.model.dto.investment.InvestmentResponse;
+import com.agriva.model.entity.Currency;
 import com.agriva.model.entity.Investment;
 import com.agriva.model.entity.User;
 import com.agriva.repository.AuthRepository;
@@ -41,7 +42,7 @@ public class InvestmentServiceImpl implements InvestmentService {
                 .farmId(farmId)
                 .transactionId(request.getTransactionId())
                 .amount(request.getAmount())
-                .currency(request.getCurrency() == null ? "USD" : request.getCurrency())
+                .currency(request.getCurrency() == null ? Currency.XAF : request.getCurrency())
                 .investorName(request.getInvestorName())
                 .type(request.getType())
                 .description(request.getDescription())
@@ -93,7 +94,7 @@ public class InvestmentServiceImpl implements InvestmentService {
 
         investment.setAmount(request.getAmount());
         investment.setTransactionId(request.getTransactionId());
-        investment.setCurrency(request.getCurrency() == null ? "USD" : request.getCurrency());
+        investment.setCurrency(request.getCurrency() == null ? Currency.XAF : request.getCurrency());
         investment.setInvestorName(request.getInvestorName());
         investment.setType(request.getType());
         investment.setDescription(request.getDescription());

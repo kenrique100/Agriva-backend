@@ -34,9 +34,11 @@ public class Investment {
     @Column(nullable = false, precision = 19, scale = 4)
     private BigDecimal amount;
 
+    // FIX: was String — now the shared Currency enum, matching Income/Expense
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 3)
     @Builder.Default
-    private String currency = "USD";
+    private Currency currency = Currency.USD;
 
     @Column(name = "investor_name", nullable = false, length = 100)
     private String investorName;

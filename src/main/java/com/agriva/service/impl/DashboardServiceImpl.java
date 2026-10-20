@@ -5,6 +5,7 @@ import com.agriva.model.entity.Expense;
 import com.agriva.model.entity.Farm;
 import com.agriva.model.entity.Income;
 import com.agriva.model.entity.Investment;
+import com.agriva.model.entity.Transaction;
 import com.agriva.model.entity.User;
 import com.agriva.repository.AuthRepository;
 import com.agriva.repository.DashboardQueryRepository;
@@ -17,7 +18,8 @@ import com.agriva.security.RoleConstants;
 import com.agriva.service.DashboardService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -33,6 +35,13 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Slf4j
 public class DashboardServiceImpl implements DashboardService {
+
+    /**
+     * FIX: cap transaction history on the dashboard to the most recent N to avoid
+     * loading the entire farm history on every request. 50 keeps the UI useful
+     * without introducing N+1 queries or unbounded memory use.
+     */
+    private static final int DASHBOARD_TX_LIMIT = 50;
 
     private final DashboardQueryRepository dashboardQueryRepo;
     private final FarmRepository farmRepository;
@@ -120,35 +129,84 @@ public class DashboardServiceImpl implements DashboardService {
                 .build();
     }
 
+    /**
+     * FIX: previously this loaded EVERY transaction (Pageable.unpaged()) and then
+     * issued 4 additional queries per transaction (N+1). Now:
+     *   1. Fetch the most recent DASHBOARD_TX_LIMIT transactions (one query).
+     *   2. Batch-load all incomes / expenses / investments for those ids (one query each).
+     *   3. Batch-load all distinct creator users (one query).
+     *   4. Assemble in memory — no per-transaction round trips.
+     */
     private List<DashboardResponse.TransactionSummary> buildTransactionSummaries(
             UUID farmId, boolean canSeeInvestments) {
 
-        List<DashboardResponse.TransactionSummary> out = new ArrayList<>();
+        if (farmId == null) {
+            return List.of();
+        }
 
-        txRepo.findByFarmId(farmId, Pageable.unpaged()).forEach(tx -> {
-            List<Income> incomes = incomeRepo.findByTransactionId(tx.getId());
-            List<Expense> expenses = expenseRepo.findByTransactionId(tx.getId());
-            List<Investment> investments = canSeeInvestments
-                    ? investmentRepo.findByTransactionId(tx.getId())
-                    : List.of();
+        List<Transaction> transactions = txRepo.findByFarmId(
+                        farmId,
+                        PageRequest.of(0, DASHBOARD_TX_LIMIT,
+                                Sort.by(Sort.Direction.DESC, "occurredAt")))
+                .getContent();
 
-            Set<UUID> creatorIds = new HashSet<>();
-            incomes.forEach(i -> { if (i.getCreatedByUserId() != null) creatorIds.add(i.getCreatedByUserId()); });
-            expenses.forEach(e -> { if (e.getCreatedByUserId() != null) creatorIds.add(e.getCreatedByUserId()); });
-            investments.forEach(v -> { if (v.getCreatedByUserId() != null) creatorIds.add(v.getCreatedByUserId()); });
+        if (transactions.isEmpty()) {
+            return List.of();
+        }
+
+        List<UUID> txIds = transactions.stream().map(Transaction::getId).toList();
+
+        // Batch loads — one query per table, regardless of how many transactions
+        Map<UUID, List<Income>> incomesByTx = incomeRepo.findByTransactionIdIn(txIds)
+                .stream()
+                .collect(Collectors.groupingBy(Income::getTransactionId));
+
+        Map<UUID, List<Expense>> expensesByTx = expenseRepo.findByTransactionIdIn(txIds)
+                .stream()
+                .collect(Collectors.groupingBy(Expense::getTransactionId));
+
+        Map<UUID, List<Investment>> investmentsByTx = canSeeInvestments
+                ? investmentRepo.findByTransactionIdIn(txIds)
+                  .stream()
+                  .collect(Collectors.groupingBy(Investment::getTransactionId))
+                : Map.of();
+
+        // Batch-load all referenced users at once
+        Set<UUID> creatorIds = new HashSet<>();
+        incomesByTx.values().forEach(list -> list.forEach(i -> {
+            if (i.getCreatedByUserId() != null) creatorIds.add(i.getCreatedByUserId());
+        }));
+        expensesByTx.values().forEach(list -> list.forEach(e -> {
+            if (e.getCreatedByUserId() != null) creatorIds.add(e.getCreatedByUserId());
+        }));
+        investmentsByTx.values().forEach(list -> list.forEach(v -> {
+            if (v.getCreatedByUserId() != null) creatorIds.add(v.getCreatedByUserId());
+        }));
+        transactions.forEach(tx -> {
             if (tx.getCreatedByUserId() != null) creatorIds.add(tx.getCreatedByUserId());
+        });
 
-            Map<UUID, String> usernameById = creatorIds.isEmpty()
-                    ? Map.of()
-                    : authRepository.findAllById(creatorIds).stream()
-                      .collect(Collectors.toMap(User::getId, User::getUsername, (a, b) -> a));
+        Map<UUID, User> userById = creatorIds.isEmpty()
+                ? Map.of()
+                : authRepository.findAllById(creatorIds).stream()
+                  .collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+
+        List<DashboardResponse.TransactionSummary> out = new ArrayList<>(transactions.size());
+        for (Transaction tx : transactions) {
+            List<Income> incomes = incomesByTx.getOrDefault(tx.getId(), List.of());
+            List<Expense> expenses = expensesByTx.getOrDefault(tx.getId(), List.of());
+            List<Investment> investments = investmentsByTx.getOrDefault(tx.getId(), List.of());
 
             BigDecimal totalIncome = incomes.stream()
-                    .map(Income::getAmountReceived).reduce(BigDecimal.ZERO, BigDecimal::add);
+                    .map(Income::getAmountReceived)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
             BigDecimal totalExpense = expenses.stream()
-                    .map(Expense::getAmountPaid).reduce(BigDecimal.ZERO, BigDecimal::add);
+                    .map(Expense::getAmountPaid)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
             BigDecimal totalInvestment = canSeeInvestments
-                    ? investments.stream().map(Investment::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add)
+                    ? investments.stream()
+                      .map(Investment::getAmount)
+                      .reduce(BigDecimal.ZERO, BigDecimal::add)
                     : null;
 
             BigDecimal netPosition = canSeeInvestments
@@ -164,7 +222,7 @@ public class DashboardServiceImpl implements DashboardService {
                             .category(i.getCategory().name())
                             .incomeDate(i.getIncomeDate())
                             .createdByUserId(i.getCreatedByUserId())
-                            .createdByUsername(usernameOrNull(i.getCreatedByUserId(), usernameById))
+                            .createdByUsername(usernameOrNull(i.getCreatedByUserId(), userById))
                             .build())
                     .toList();
 
@@ -177,7 +235,7 @@ public class DashboardServiceImpl implements DashboardService {
                             .category(e.getCategory().name())
                             .expenseDate(e.getExpenseDate())
                             .createdByUserId(e.getCreatedByUserId())
-                            .createdByUsername(usernameOrNull(e.getCreatedByUserId(), usernameById))
+                            .createdByUsername(usernameOrNull(e.getCreatedByUserId(), userById))
                             .build())
                     .toList();
 
@@ -186,16 +244,20 @@ public class DashboardServiceImpl implements DashboardService {
                       .map(v -> DashboardResponse.InvestmentLine.builder()
                                 .id(v.getId())
                                 .amount(v.getAmount())
-                                .currency(v.getCurrency())
+                                .currency(v.getCurrency().name())
                                 .investorName(v.getInvestorName())
                                 .type(v.getType())
                                 .description(v.getDescription())
                                 .investmentDate(v.getInvestmentDate())
                                 .createdByUserId(v.getCreatedByUserId())
-                                .createdByUsername(usernameOrNull(v.getCreatedByUserId(), usernameById))
+                                .createdByUsername(usernameOrNull(v.getCreatedByUserId(), userById))
                                 .build())
                       .toList()
                     : null;
+
+            User txCreator = tx.getCreatedByUserId() == null
+                    ? null
+                    : userById.get(tx.getCreatedByUserId());
 
             out.add(DashboardResponse.TransactionSummary.builder()
                     .id(tx.getId())
@@ -204,11 +266,8 @@ public class DashboardServiceImpl implements DashboardService {
                     .status(tx.getStatus().name())
                     .notes(tx.getNotes())
                     .recordedByUserId(tx.getCreatedByUserId())
-                    .recordedByUsername(usernameOrNull(tx.getCreatedByUserId(), usernameById))
-                    .recordedByRole(tx.getCreatedByUserId() == null
-                            ? null
-                            : authRepository.findById(tx.getCreatedByUserId())
-                              .map(User::getRole).orElse(null))
+                    .recordedByUsername(usernameOrNull(tx.getCreatedByUserId(), userById))
+                    .recordedByRole(txCreator == null ? null : txCreator.getRole())
                     .income(totalIncome)
                     .expense(totalExpense)
                     .investment(totalInvestment)
@@ -220,7 +279,7 @@ public class DashboardServiceImpl implements DashboardService {
                     .expenseLines(expenseLines.isEmpty() ? null : expenseLines)
                     .investmentLines(investmentLines == null || investmentLines.isEmpty() ? null : investmentLines)
                     .build());
-        });
+        }
 
         return out;
     }
@@ -257,8 +316,10 @@ public class DashboardServiceImpl implements DashboardService {
                 .build();
     }
 
-    private String usernameOrNull(UUID userId, Map<UUID, String> usernameById) {
-        return userId == null ? null : usernameById.getOrDefault(userId, "deleted-user");
+    private String usernameOrNull(UUID userId, Map<UUID, User> userById) {
+        if (userId == null) return null;
+        User u = userById.get(userId);
+        return u != null ? u.getUsername() : "deleted-user";
     }
 
     private boolean isMasterOrAdmin(String role) {

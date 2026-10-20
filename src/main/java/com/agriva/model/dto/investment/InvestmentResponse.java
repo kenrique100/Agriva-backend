@@ -1,5 +1,6 @@
 package com.agriva.model.dto.investment;
 
+import com.agriva.model.entity.Currency;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -17,7 +18,7 @@ public class InvestmentResponse {
     private UUID farmId;
     private UUID transactionId;
     private BigDecimal amount;
-    private String currency;
+    private Currency currency;
     private String investorName;
     private String type;
     private String description;

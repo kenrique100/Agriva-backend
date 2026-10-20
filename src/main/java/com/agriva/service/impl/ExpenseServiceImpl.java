@@ -111,7 +111,7 @@ public class ExpenseServiceImpl implements ExpenseService {
         if (spent.add(request.getAmountPaid()).compareTo(active.getAmount()) > 0) {
             throw new InvestmentLimitExceededException(String.format(
                     "Investment limit exceeded. Remaining: %s %s.",
-                    active.getAmount().subtract(spent).toPlainString(), active.getCurrency()));
+                    active.getAmount().subtract(spent).toPlainString(), active.getCurrency().name()));
         }
 
         Expense expense = Expense.builder()

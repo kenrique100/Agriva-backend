@@ -70,7 +70,7 @@ public class StagedExpenseValidator {
             ExpenseRequest request =
                     objectMapper.readValue(staged.getPayloadJson(), ExpenseRequest.class);
 
-            // 1) Field-level validation (existing behaviour)
+            // 1) Field-level validation (existing behavior)
             List<String> errors = expenseValidator.validate(request, staged.getFarmId());
             if (!errors.isEmpty()) {
                 onFailure(staged, errors);
@@ -97,8 +97,8 @@ public class StagedExpenseValidator {
                 markTerminal(staged, String.format(
                         "Investment limit exceeded. Remaining balance: %s %s. "
                                 + "Expense amount paid: %s %s.",
-                        remaining.toPlainString(), active.getCurrency(),
-                        request.getAmountPaid().toPlainString(), request.getCurrency()));
+                        remaining.toPlainString(), active.getCurrency().name(),
+                        request.getAmountPaid().toPlainString(), request.getCurrency().name()));
                 return;
             }
 

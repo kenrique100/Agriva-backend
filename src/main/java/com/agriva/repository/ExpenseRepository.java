@@ -10,6 +10,7 @@ import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -25,6 +26,9 @@ public interface ExpenseRepository extends JpaRepository<Expense, UUID> {
             UUID farmId, BigDecimal amountPaid, LocalDate expenseDate, String reason);
 
     List<Expense> findByTransactionId(UUID transactionId);
+
+    // FIX: batched lookup used by DashboardServiceImpl (was mistakenly on the service)
+    List<Expense> findByTransactionIdIn(Collection<UUID> transactionIds);
 
     long countByFarmId(UUID farmId);
 

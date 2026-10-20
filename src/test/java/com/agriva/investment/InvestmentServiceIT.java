@@ -5,6 +5,7 @@ import com.agriva.model.dto.auth.AuthResponse;
 import com.agriva.model.dto.auth.MasterRegisterRequest;
 import com.agriva.model.dto.investment.InvestmentRequest;
 import com.agriva.model.dto.investment.InvestmentResponse;
+import com.agriva.model.entity.Currency;
 import com.agriva.repository.AuthRepository;
 import com.agriva.repository.FarmRepository;
 import com.agriva.repository.InvestmentRepository;
@@ -56,7 +57,7 @@ class InvestmentServiceIT {
     void createAndList() {
         InvestmentRequest req = new InvestmentRequest();
         req.setAmount(new BigDecimal("5000"));
-        req.setCurrency("USD"); // String, as per InvestmentRequest definition
+        req.setCurrency(Currency.USD); // FIX: enum, not String
         req.setInvestorName("East Africa Agri Fund");
         req.setType("EQUIPMENT");
         req.setDescription("Industrial water pump");
@@ -65,6 +66,7 @@ class InvestmentServiceIT {
         InvestmentResponse created = investmentService.createInvestment(req, farmId, userId);
         assertThat(created.getId()).isNotNull();
         assertThat(created.getAmount()).isEqualByComparingTo("5000");
+        assertThat(created.getCurrency()).isEqualTo(Currency.USD);
 
         var page = investmentService.listInvestments(
                 farmId, org.springframework.data.domain.Pageable.unpaged());

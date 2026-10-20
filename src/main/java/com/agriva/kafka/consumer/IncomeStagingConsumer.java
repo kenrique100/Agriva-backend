@@ -21,7 +21,8 @@ public class IncomeStagingConsumer {
     @KafkaListener(
             topics = IncomeKafkaConfig.STAGING_TOPIC,
             groupId = IncomeKafkaConfig.STAGING_CONSUMER_GROUP,
-            containerFactory = "kafkaListenerContainerFactory"
+            // FIX: was "kafkaListenerContainerFactory" (BeanNotFoundException at runtime)
+            containerFactory = "incomeKafkaListenerContainerFactory"
     )
     public void onIncomeSubmitted(
             @Payload IncomeSubmissionEvent event,
@@ -31,14 +32,13 @@ public class IncomeStagingConsumer {
         log.info("Received income submission {} from partition={}, offset={}",
                 event.getSubmissionId(), partition, offset);
 
-        // Do NOT put @Transactional on this method.
-        // The service method below opens its own short-lived transaction.
         try {
             incomeStagingService.persistStaged(event);
         } catch (Exception ex) {
             log.error("Failed to persist staged income {}: {}",
                     event.getSubmissionId(), ex.getMessage(), ex);
-            // Optionally throw here to trigger the Kafka error handler / DLT.
+            // Rethrow so the Kafka error handler / DLT kicks in instead of silently dropping
+            throw ex;
         }
     }
 }

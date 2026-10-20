@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -18,17 +19,18 @@ import java.util.UUID;
 @Repository
 public interface InvestmentRepository extends JpaRepository<Investment, UUID> {
 
-
     Page<Investment> findByFarmId(UUID farmId, Pageable pageable);
 
     Optional<Investment> findByIdAndFarmId(UUID id, UUID farmId);
 
     List<Investment> findByTransactionId(UUID transactionId);
 
+    // FIX: batched lookup used by DashboardServiceImpl (was mistakenly on the service)
+    List<Investment> findByTransactionIdIn(Collection<UUID> transactionIds);
+
     long countByFarmId(UUID farmId);
 
     long countByFarmIdAndCreatedByUserId(UUID farmId, UUID userId);
-
 
     @Query("SELECT SUM(i.amount) FROM Investment i WHERE i.farmId = :farmId")
     BigDecimal sumAmountByFarmId(@Param("farmId") UUID farmId);
@@ -49,15 +51,9 @@ public interface InvestmentRepository extends JpaRepository<Investment, UUID> {
 
     Optional<Investment> findFirstByFarmIdAndActiveTrue(UUID farmId);
 
-    /**
-     * Pessimistic write lock — used by StagedExpenseValidator and
-     * ExpenseServiceImpl.createDirect so concurrent expense submissions
-     * cannot overspend the same investment.
-     */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT i FROM Investment i WHERE i.farmId = :farmId AND i.active = true")
     Optional<Investment> findActiveForUpdate(@Param("farmId") UUID farmId);
-
 
     @Query("SELECT SUM(e.amountPaid) FROM Expense e WHERE e.investmentId = :investmentId")
     BigDecimal sumExpensesByInvestmentId(@Param("investmentId") UUID investmentId);

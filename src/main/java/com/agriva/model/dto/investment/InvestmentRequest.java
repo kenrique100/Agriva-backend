@@ -1,5 +1,6 @@
 package com.agriva.model.dto.investment;
 
+import com.agriva.model.entity.Currency;
 import jakarta.validation.constraints.*;
 import lombok.Data;
 
@@ -15,8 +16,9 @@ public class InvestmentRequest {
     @Digits(integer = 15, fraction = 4, message = "Amount must have at most 15 integer digits and 4 decimals")
     private BigDecimal amount;
 
-    @Size(min = 3, max = 3, message = "Currency must be a 3-letter ISO code")
-    private String currency = "USD";
+    // FIX: enum for proper validation and to match Income/Expense
+    @NotNull(message = "Currency is required")
+    private Currency currency = Currency.USD;
 
     @NotBlank(message = "Investor name is required")
     @Size(max = 100, message = "Investor name must not exceed 100 characters")
