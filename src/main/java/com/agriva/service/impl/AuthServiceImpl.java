@@ -56,10 +56,6 @@ public class AuthServiceImpl implements AuthService {
     @Value("${agriva.security.password-reset.ttl-seconds:900}")
     private long resetTokenTtlSeconds;
 
-    // ---------------------------------------------------------------------
-    // Login / token
-    // ---------------------------------------------------------------------
-
     @Override
     public String login(LoginRequest request) {
         User user = authRepository.findByEmailOrUsername(
@@ -109,10 +105,6 @@ public class AuthServiceImpl implements AuthService {
         tokenBlacklistService.blacklist(stripBearer(authHeader));
     }
 
-    // ---------------------------------------------------------------------
-    // Registration — Personnel auto-created
-    // ---------------------------------------------------------------------
-
     @Override
     @Transactional
     public AuthResponse registerMaster(MasterRegisterRequest request) {
@@ -152,12 +144,7 @@ public class AuthServiceImpl implements AuthService {
         farm.setMasterId(master.getId());
         farmRepository.save(farm);
 
-        // FIX: MASTER is a Personnel too — auto-create the HR profile.
-        createPersonnelForUser(
-                master,
-                request.getName(),
-                Department.ADMINISTRATION
-        );
+        createPersonnelForUser(master, request.getName(), Department.ADMINISTRATION);
 
         log.info("Master registered: {} for farm {}", master.getEmail(), farm.getName());
         String token = jwtUtil.generateToken(master);
@@ -200,23 +187,16 @@ public class AuthServiceImpl implements AuthService {
                 .address(request.getAddress())
                 .build());
 
-        // FIX: SUB_USER is a Personnel too — auto-create the HR profile.
         createPersonnelForUser(
                 subUser,
                 request.getName(),
-                Department.ADMINISTRATION
+                request.getDepartment() != null ? request.getDepartment() : Department.ADMINISTRATION
         );
 
         log.info("Sub-user registered: {} for farm {}", subUser.getEmail(), subUser.getFarmId());
         return "Sub-user registered: " + subUser.getEmail();
     }
 
-    /**
-     * FIX: every MASTER/SUB_USER gets exactly one Personnel row, created here.
-     * name falls back to username → email prefix → "Unnamed".
-     * Only gender/dateOfBirth/phoneNumber are copied because they already
-     * exist on the User. Department is a placeholder; MASTER refines it later.
-     */
     private Personnel createPersonnelForUser(User user, String preferredName, Department department) {
         String name = preferredName != null && !preferredName.isBlank()
                 ? preferredName.trim()
@@ -248,10 +228,6 @@ public class AuthServiceImpl implements AuthService {
         return p;
     }
 
-    // ---------------------------------------------------------------------
-    // User reads
-    // ---------------------------------------------------------------------
-
     @Override public UserResponse getUserById(UUID userId) {
         return userMapper.toResponse(loadUser(userId));
     }
@@ -261,10 +237,6 @@ public class AuthServiceImpl implements AuthService {
     @Override public List<UserListResponse> getAllUsers() {
         return userMapper.toListResponse(authRepository.findAll());
     }
-
-    // ---------------------------------------------------------------------
-    // Farm reads
-    // ---------------------------------------------------------------------
 
     @Override
     public FarmDetailsResponse getFarmDetails(UUID farmId) {
@@ -281,10 +253,6 @@ public class AuthServiceImpl implements AuthService {
         }
         return farmMapper.toList(details);
     }
-
-    // ---------------------------------------------------------------------
-    // User updates
-    // ---------------------------------------------------------------------
 
     @Override
     @Transactional
@@ -348,10 +316,6 @@ public class AuthServiceImpl implements AuthService {
         return userMapper.toResponse(authRepository.save(user));
     }
 
-    // ---------------------------------------------------------------------
-    // Deletions — DB cascade removes Personnel automatically
-    // ---------------------------------------------------------------------
-
     @Override
     @Transactional
     public void deleteUserByAdmin(UUID userId) {
@@ -365,7 +329,6 @@ public class AuthServiceImpl implements AuthService {
         if (RoleConstants.MASTER.equals(user.getRole()) && user.getFarmId() != null) {
             deleteFarmAndAllUsersInternal(user.getFarmId());
         } else {
-            // FK ON DELETE CASCADE from users → personnel cleans everything up
             authRepository.delete(user);
         }
     }
@@ -408,10 +371,6 @@ public class AuthServiceImpl implements AuthService {
         return count;
     }
 
-    // ---------------------------------------------------------------------
-    // Password reset
-    // ---------------------------------------------------------------------
-
     @Override
     public ForgotPasswordResponse forgotPassword(ForgotPasswordRequest request) {
         String token = passwordResetService.initiateReset(request.getEmail());
@@ -427,10 +386,6 @@ public class AuthServiceImpl implements AuthService {
     public void resetPassword(ResetPasswordRequest request) {
         passwordResetService.resetPassword(request.getToken(), request.getNewPassword());
     }
-
-    // ---------------------------------------------------------------------
-    // Helpers
-    // ---------------------------------------------------------------------
 
     private void applyProfileUpdates(User user, UpdateUserRequest request, UUID userId) {
         if (request.getEmail() != null && !request.getEmail().equals(user.getEmail())) {
@@ -509,7 +464,7 @@ public class AuthServiceImpl implements AuthService {
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new BusinessException("Farm not found with ID: " + farmId));
         List<User> farmUsers = authRepository.findByFarmId(farmId);
-        authRepository.deleteAll(farmUsers);   // cascades to Personnel
+        authRepository.deleteAll(farmUsers);
         farmRepository.delete(farm);
         log.info("Deleted farm {} with {} users", farm.getName(), farmUsers.size());
     }

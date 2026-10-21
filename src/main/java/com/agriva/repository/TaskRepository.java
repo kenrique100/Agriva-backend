@@ -25,6 +25,8 @@ public interface TaskRepository extends JpaRepository<Task, UUID> {
 
     List<Task> findByDeadlineBeforeAndStatus(LocalDate deadline, TaskStatus status);
 
+    List<Task> findByStatus(TaskStatus status);
+
     @EntityGraph(attributePaths = {"personnel"})
     Page<Task> findByFarmId(UUID farmId, Pageable pageable);
 

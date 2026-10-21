@@ -3,7 +3,9 @@ package com.agriva.service;
 import com.agriva.model.dto.task.*;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.util.Map;
 import java.util.UUID;
 
 public interface TaskService {
@@ -15,6 +17,9 @@ public interface TaskService {
     TaskResponse validate(UUID id, UUID farmId, UUID adminUserId, boolean approve);
     void delete(UUID id, UUID farmId);
     ProductivityStatsResponse productivity(UUID personnelId, UUID farmId);
+    TaskBulkUploadResponse bulkUpload(MultipartFile file, UUID farmId, UUID userId, String email);
+    Page<StagedTaskResponse> listStaging(UUID farmId, String status, Pageable pageable);
+    Map<String, Long> stagingStats(UUID farmId);
     void processExpiredTasks();
     void processUnvalidatedTasks();
     void updateDailyProductivity();

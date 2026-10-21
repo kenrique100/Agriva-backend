@@ -28,4 +28,6 @@ public interface PersonnelService {
     PersonnelResponse uploadPicture(UUID id, UUID farmId, MultipartFile file);
 
     PersonnelProfileResponse getOwnProfile(UUID userId);
+
+    void deletePicture(UUID id, UUID farmId);
 }

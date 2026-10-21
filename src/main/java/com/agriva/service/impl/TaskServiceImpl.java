@@ -1,23 +1,29 @@
 package com.agriva.service.impl;
 
 import com.agriva.exception.*;
+import com.agriva.kafka.producer.TaskProducer;
 import com.agriva.mapper.TaskMapper;
 import com.agriva.model.dto.task.*;
 import com.agriva.model.entity.*;
 import com.agriva.repository.*;
 import com.agriva.service.TaskService;
+import com.agriva.utils.TaskExcelParser;
 import com.agriva.utils.TaskValidator;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -27,8 +33,12 @@ public class TaskServiceImpl implements TaskService {
 
     private final TaskRepository taskRepository;
     private final PersonnelRepository personnelRepository;
+    private final StagedTaskRepository stagedRepo;
     private final TaskValidator validator;
     private final TaskMapper mapper;
+    private final TaskProducer taskProducer;
+    private final TaskExcelParser excelParser;
+    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional
@@ -50,12 +60,6 @@ public class TaskServiceImpl implements TaskService {
         return mapper.toResponse(taskRepository.save(t));
     }
 
-    /**
-     * FIX: wrap in readOnly=true so the Hibernate Session stays open
-     * while TaskMapper.toResponse() touches the lazily-loaded
-     * Task.personnel proxy. Without this, spring.jpa.open-in-view=false
-     * closes the session before mapping → LazyInitializationException.
-     */
     @Override
     @Transactional(readOnly = true)
     public Page<TaskResponse> list(UUID farmId, UUID personnelId, Pageable pageable) {
@@ -93,10 +97,11 @@ public class TaskServiceImpl implements TaskService {
     public TaskResponse action(UUID id, UUID farmId, UUID actorUserId, boolean isMaster, String action) {
         Task t = load(id, farmId);
 
-        if (!isMaster && t.getPersonnel().getUserId() != null
-                && !actorUserId.equals(t.getPersonnel().getUserId())) {
-            throw new PersonnelAccessDeniedException(
-                    "You can only act on your own tasks");
+        if (!isMaster) {
+            Personnel own = t.getPersonnel();
+            if (own.getUserId() == null || !actorUserId.equals(own.getUserId())) {
+                throw new PersonnelAccessDeniedException("You can only act on your own tasks");
+            }
         }
 
         validator.validateAction(t, action);
@@ -109,31 +114,38 @@ public class TaskServiceImpl implements TaskService {
                 t.setStartTime(now);
                 t.setLastResumeTime(now);
             }
+            case "PAUSE" -> {
+                accumulateSegment(t, now);
+                t.setStopTime(now);
+                t.setStatus(TaskStatus.PAUSED);
+            }
+            case "RESUME", "CONTINUE" -> {
+                t.setLastResumeTime(now);
+                t.setStopTime(null);
+                t.setStatus(TaskStatus.IN_PROGRESS);
+            }
             case "STOP" -> {
                 accumulateSegment(t, now);
                 t.setStopTime(now);
                 t.setStatus(TaskStatus.STOPPED);
             }
-            case "CONTINUE" -> {
-                t.setLastResumeTime(now);
-                t.setStopTime(null);
-                t.setStatus(TaskStatus.IN_PROGRESS);
-            }
             case "SUBMIT" -> {
-                accumulateSegment(t, now);
-                t.setStopTime(now);
+                if (t.getStatus() == TaskStatus.IN_PROGRESS || t.getStatus() == TaskStatus.PAUSED) {
+                    accumulateSegment(t, now);
+                    t.setStopTime(now);
+                }
                 t.setIsSubmitted(true);
+                t.setStatus(TaskStatus.SUBMITTED);
             }
             case "CANCEL" -> {
                 t.setStatus(TaskStatus.CANCELLED);
                 t.setStopTime(now);
             }
         }
-        log.info("Task {} action={} by user={}", id, a, actorUserId);
+        log.info("Task {} action={} by user={} isMaster={}", id, a, actorUserId, isMaster);
         return mapper.toResponse(taskRepository.save(t));
     }
 
-    /** Fixes the KBF double-count bug — only the last segment is added. */
     private void accumulateSegment(Task t, LocalDateTime now) {
         LocalDateTime segmentStart = t.getLastResumeTime() != null
                 ? t.getLastResumeTime()
@@ -232,7 +244,7 @@ public class TaskServiceImpl implements TaskService {
         LocalDateTime startOfDay = LocalDate.now().atStartOfDay();
         LocalDateTime endOfDay = LocalDate.now().atTime(23, 59, 59);
         List<Task> unvalidated = taskRepository.findSubmittedTasksWithStopTimeBetween(
-                TaskStatus.IN_PROGRESS, startOfDay, endOfDay);
+                TaskStatus.SUBMITTED, startOfDay, endOfDay);
         unvalidated.forEach(t -> {
             t.setStatus(TaskStatus.UNCOMPLETED);
             t.setIsValidated(false);
@@ -280,6 +292,82 @@ public class TaskServiceImpl implements TaskService {
             personnelRepository.save(p);
         });
         log.info("Reset 30-day productivity metrics for all active personnel");
+    }
+
+    // ------------------------------------------------------------------
+    // Bulk upload
+    // ------------------------------------------------------------------
+
+    @Override
+    public TaskBulkUploadResponse bulkUpload(MultipartFile file, UUID farmId, UUID userId, String email) {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Excel file is required");
+        }
+
+        List<TaskExcelParser.ParsedRow> rows;
+        try {
+            rows = excelParser.parse(file.getInputStream(), farmId);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to read Excel file: " + e.getMessage(), e);
+        }
+
+        TaskBulkUploadResponse response = new TaskBulkUploadResponse();
+        response.setTotalRows(rows.size());
+
+        for (TaskExcelParser.ParsedRow row : rows) {
+            if (row.isError()) {
+                response.setFailed(response.getFailed() + 1);
+                response.getResults().add(new TaskBulkUploadResponse.RowResult(
+                        row.rowNumber(), null, "FAILED", row.error()));
+                continue;
+            }
+
+            UUID submissionId = UUID.randomUUID();
+            try {
+                String payload = objectMapper.writeValueAsString(row.request());
+                taskProducer.publish(new TaskSubmissionEvent(
+                        submissionId, farmId, userId, email, payload, LocalDateTime.now()));
+                response.setQueued(response.getQueued() + 1);
+                response.getResults().add(new TaskBulkUploadResponse.RowResult(
+                        row.rowNumber(), submissionId, "QUEUED", null));
+            } catch (Exception e) {
+                response.setFailed(response.getFailed() + 1);
+                response.getResults().add(new TaskBulkUploadResponse.RowResult(
+                        row.rowNumber(), null, "FAILED", e.getMessage()));
+            }
+        }
+
+        log.info("Bulk task upload for farm {}: total={}, queued={}, failed={}",
+                farmId, response.getTotalRows(), response.getQueued(), response.getFailed());
+        return response;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<StagedTaskResponse> listStaging(UUID farmId, String status, Pageable pageable) {
+        Page<StagedTask> page;
+        if (status != null && !status.isBlank()) {
+            page = stagedRepo.findByFarmIdAndStatus(
+                    farmId, StagedTaskStatus.valueOf(status.toUpperCase()), pageable);
+        } else {
+            page = stagedRepo.findByFarmId(farmId, pageable);
+        }
+        return page.map(s -> new StagedTaskResponse(
+                s.getId(), s.getFarmId(), s.getStatus().name(),
+                s.getValidationErrors(), s.getPayloadJson(),
+                s.getSubmittedByUserId(), s.getSubmittedByEmail(),
+                s.getSubmittedAt(), s.getLastAttemptAt(), s.getNextRetryAt(),
+                s.getProcessedAt(), s.getMovedTaskId(), s.getRetryCount()));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Long> stagingStats(UUID farmId) {
+        Map<String, Long> out = new LinkedHashMap<>();
+        for (StagedTaskStatus s : StagedTaskStatus.values()) {
+            out.put(s.name(), stagedRepo.countByFarmIdAndStatus(farmId, s));
+        }
+        return out;
     }
 
     private Task load(UUID id, UUID farmId) {

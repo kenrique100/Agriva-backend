@@ -1,6 +1,7 @@
 package com.agriva.service.impl;
 
 import com.agriva.exception.*;
+import com.agriva.kafka.producer.SalaryProducer;
 import com.agriva.mapper.SalaryMapper;
 import com.agriva.model.dto.expense.ExpenseRequest;
 import com.agriva.model.dto.expense.ExpenseResponse;
@@ -10,18 +11,24 @@ import com.agriva.repository.*;
 import com.agriva.service.ExpenseService;
 import com.agriva.service.PdfReceiptService;
 import com.agriva.service.SalaryService;
+import com.agriva.utils.SalaryExcelParser;
 import com.agriva.utils.SalaryValidator;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -34,10 +41,15 @@ public class SalaryServiceImpl implements SalaryService {
     private final TaskRepository taskRepository;
     private final ExpenseRepository expenseRepository;
     private final InvestmentRepository investmentRepository;
+    private final FarmRepository farmRepository;
+    private final StagedSalaryRepository stagedRepo;
     private final ExpenseService expenseService;
     private final SalaryValidator validator;
     private final SalaryMapper mapper;
     private final PdfReceiptService pdfReceiptService;
+    private final SalaryProducer salaryProducer;
+    private final SalaryExcelParser excelParser;
+    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional
@@ -91,11 +103,6 @@ public class SalaryServiceImpl implements SalaryService {
         return candidate;
     }
 
-    /**
-     * FIX: readOnly=true keeps the Hibernate Session open while
-     * SalaryMapper.toResponse() reads SalaryPayment.personnel (lazy proxy).
-     * Without this, open-in-view=false closes the session → LazyInitializationException.
-     */
     @Override
     @Transactional(readOnly = true)
     public Page<SalaryPaymentResponse> list(UUID farmId, UUID personnelId, Pageable pageable) {
@@ -126,6 +133,18 @@ public class SalaryServiceImpl implements SalaryService {
     public SalaryReceiptResponse getReceipt(UUID id, UUID farmId) {
         SalaryPayment sp = load(id, farmId);
         Personnel p = sp.getPersonnel();
+
+        // Fetch Farm and Master details for the receipt header
+        Farm farm = farmRepository.findById(farmId).orElse(null);
+        String farmName = farm != null ? farm.getName() : "Agriva Farm";
+
+        String managerName = "Farm Manager";
+        if (farm != null && farm.getMasterId() != null) {
+            Personnel masterPersonnel = personnelRepository.findByUserId(farm.getMasterId()).orElse(null);
+            if (masterPersonnel != null) {
+                managerName = masterPersonnel.getName();
+            }
+        }
 
         List<Task> tasks = taskRepository.findByPersonnelIdAndStatusAndValidationTimeBetween(
                 p.getId(),
@@ -167,6 +186,8 @@ public class SalaryServiceImpl implements SalaryService {
         return SalaryReceiptResponse.builder()
                 .receiptNumber("RCPT-" + sp.getPaymentReference())
                 .issueDate(LocalDate.now())
+                .farmName(farmName)
+                .managerName(managerName)
                 .personnelName(p.getName())
                 .personnelNationalId(p.getNationalId())
                 .department(p.getDepartment() != null ? p.getDepartment().name() : null)
@@ -187,6 +208,78 @@ public class SalaryServiceImpl implements SalaryService {
     @Transactional(readOnly = true)
     public byte[] getReceiptPdf(UUID id, UUID farmId) {
         return pdfReceiptService.generate(getReceipt(id, farmId));
+    }
+
+    @Override
+    public SalaryBulkUploadResponse bulkUpload(MultipartFile file, UUID farmId, UUID userId, String email) {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Excel file is required");
+        }
+
+        List<SalaryExcelParser.ParsedRow> rows;
+        try {
+            rows = excelParser.parse(file.getInputStream(), farmId);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to read Excel file: " + e.getMessage(), e);
+        }
+
+        SalaryBulkUploadResponse response = new SalaryBulkUploadResponse();
+        response.setTotalRows(rows.size());
+
+        for (SalaryExcelParser.ParsedRow row : rows) {
+            if (row.isError()) {
+                response.setFailed(response.getFailed() + 1);
+                response.getResults().add(new SalaryBulkUploadResponse.RowResult(
+                        row.rowNumber(), null, "FAILED", row.error()));
+                continue;
+            }
+
+            UUID submissionId = UUID.randomUUID();
+            try {
+                String payload = objectMapper.writeValueAsString(row.request());
+                salaryProducer.publish(new SalarySubmissionEvent(
+                        submissionId, farmId, userId, email, payload, LocalDateTime.now()));
+                response.setQueued(response.getQueued() + 1);
+                response.getResults().add(new SalaryBulkUploadResponse.RowResult(
+                        row.rowNumber(), submissionId, "QUEUED", null));
+            } catch (Exception e) {
+                response.setFailed(response.getFailed() + 1);
+                response.getResults().add(new SalaryBulkUploadResponse.RowResult(
+                        row.rowNumber(), null, "FAILED", e.getMessage()));
+            }
+        }
+
+        log.info("Bulk salary upload for farm {}: total={}, queued={}, failed={}",
+                farmId, response.getTotalRows(), response.getQueued(), response.getFailed());
+        return response;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<StagedSalaryResponse> listStaging(UUID farmId, String status, Pageable pageable) {
+        Page<StagedSalary> page;
+        if (status != null && !status.isBlank()) {
+            page = stagedRepo.findByFarmIdAndStatus(
+                    farmId, StagedSalaryStatus.valueOf(status.toUpperCase()), pageable);
+        } else {
+            page = stagedRepo.findByFarmId(farmId, pageable);
+        }
+        return page.map(s -> new StagedSalaryResponse(
+                s.getId(), s.getFarmId(), s.getStatus().name(),
+                s.getValidationErrors(), s.getPayloadJson(),
+                s.getSubmittedByUserId(), s.getSubmittedByEmail(),
+                s.getSubmittedAt(), s.getLastAttemptAt(), s.getNextRetryAt(),
+                s.getProcessedAt(), s.getMovedSalaryId(), s.getRetryCount()));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Long> stagingStats(UUID farmId) {
+        Map<String, Long> out = new LinkedHashMap<>();
+        for (StagedSalaryStatus s : StagedSalaryStatus.values()) {
+            out.put(s.name(), stagedRepo.countByFarmIdAndStatus(farmId, s));
+        }
+        return out;
     }
 
     private SalaryPayment load(UUID id, UUID farmId) {

@@ -30,9 +30,6 @@ public class PersonnelController {
     private final PersonnelService personnelService;
     private final AuthService authService;
 
-    // NOTE: POST /personnel REMOVED — Personnel is auto-created when a
-    // MASTER/SUB_USER registers via /api/v1/users/register/*.
-
     @GetMapping
     public ResponseEntity<Page<PersonnelResponse>> list(
             @RequestHeader("Authorization") String authHeader,
@@ -60,9 +57,7 @@ public class PersonnelController {
             @RequestHeader("Authorization") String authHeader,
             @PathVariable UUID id) {
         TokenValidationResponse token = authService.validateToken(authHeader);
-        boolean isMaster = RoleConstants.MASTER.equals(token.getRole())
-                || RoleConstants.ADMIN.equals(token.getRole());
-        if (!isMaster) {
+        if (!isMasterOrAdmin(token)) {
             PersonnelProfileResponse own = personnelService.getOwnProfile(token.getUserId());
             if (!own.getPersonnel().getId().equals(id)) {
                 throw new PersonnelAccessDeniedException("Access denied");
@@ -112,15 +107,29 @@ public class PersonnelController {
         return ResponseEntity.ok(personnelService.getStatusHistory(id, token.getFarmId()));
     }
 
+    @DeleteMapping("/{id}/picture")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public ResponseEntity<Void> deletePicture(
+            @RequestHeader("Authorization") String authHeader,
+            @PathVariable UUID id) {
+        TokenValidationResponse token = authService.validateToken(authHeader);
+        if (!isMasterOrAdmin(token)) {
+            PersonnelProfileResponse own = personnelService.getOwnProfile(token.getUserId());
+            if (!own.getPersonnel().getId().equals(id)) {
+                throw new PersonnelAccessDeniedException("You can only delete your own profile picture");
+            }
+        }
+        personnelService.deletePicture(id, token.getFarmId());
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping(value = "/{id}/picture", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<PersonnelResponse> uploadPicture(
             @RequestHeader("Authorization") String authHeader,
             @PathVariable UUID id,
             @RequestPart("file") MultipartFile file) {
         TokenValidationResponse token = authService.validateToken(authHeader);
-        boolean isMaster = RoleConstants.MASTER.equals(token.getRole())
-                || RoleConstants.ADMIN.equals(token.getRole());
-        if (!isMaster) {
+        if (!isMasterOrAdmin(token)) {
             PersonnelProfileResponse own = personnelService.getOwnProfile(token.getUserId());
             if (!own.getPersonnel().getId().equals(id)) {
                 throw new PersonnelAccessDeniedException(
@@ -130,9 +139,13 @@ public class PersonnelController {
         return ResponseEntity.ok(personnelService.uploadPicture(id, token.getFarmId(), file));
     }
 
+    private boolean isMasterOrAdmin(TokenValidationResponse token) {
+        return RoleConstants.MASTER.equals(token.getRole())
+                || RoleConstants.ADMIN.equals(token.getRole());
+    }
+
     private void requireMaster(TokenValidationResponse token) {
-        if (!RoleConstants.MASTER.equals(token.getRole())
-                && !RoleConstants.ADMIN.equals(token.getRole())) {
+        if (!isMasterOrAdmin(token)) {
             throw new PersonnelAccessDeniedException("MASTER or ADMIN required");
         }
     }

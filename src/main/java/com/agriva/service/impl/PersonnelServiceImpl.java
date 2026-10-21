@@ -209,4 +209,16 @@ public class PersonnelServiceImpl implements PersonnelService {
                 .orElseThrow(() -> new PersonnelNotFoundException(
                         "Personnel not found with ID: " + id));
     }
+
+    @Override
+    @Transactional
+    public void deletePicture(UUID id, UUID farmId) {
+        Personnel p = load(id, farmId);
+        if (p.getProfilePicturePath() != null) {
+            fileStorageService.delete(p.getProfilePicturePath());
+            p.setProfilePicturePath(null);
+            personnelRepository.save(p);
+            log.info("Personnel {} profile picture deleted", id);
+        }
+    }
 }

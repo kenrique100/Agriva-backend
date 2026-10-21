@@ -2,9 +2,11 @@ package com.agriva.controller;
 
 import com.agriva.exception.PersonnelAccessDeniedException;
 import com.agriva.model.dto.auth.TokenValidationResponse;
+import com.agriva.model.dto.personnel.PersonnelProfileResponse;
 import com.agriva.model.dto.salary.*;
 import com.agriva.security.RoleConstants;
 import com.agriva.service.AuthService;
+import com.agriva.service.PersonnelService;
 import com.agriva.service.SalaryService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -13,7 +15,9 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -23,6 +27,7 @@ public class SalaryController {
 
     private final SalaryService salaryService;
     private final AuthService authService;
+    private final PersonnelService personnelService;
 
     @PostMapping
     public ResponseEntity<SalaryPaymentResponse> create(
@@ -34,6 +39,18 @@ public class SalaryController {
                 .body(salaryService.create(request, token.getFarmId(), token.getUserId()));
     }
 
+    @PostMapping(value = "/bulk", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public ResponseEntity<SalaryBulkUploadResponse> bulkUpload(
+            @RequestHeader("Authorization") String authHeader,
+            @RequestPart("file") MultipartFile file) {
+        TokenValidationResponse token = authService.validateToken(authHeader);
+        requireMaster(token);
+        return ResponseEntity.accepted().body(salaryService.bulkUpload(
+                file, token.getFarmId(), token.getUserId(),
+                authService.getUserById(token.getUserId()).getEmail()));
+    }
+
     @GetMapping
     public ResponseEntity<Page<SalaryPaymentResponse>> list(
             @RequestHeader("Authorization") String authHeader,
@@ -41,9 +58,13 @@ public class SalaryController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMaster(token);
+        UUID filter = personnelId;
+        if (!isMasterOrAdmin(token)) {
+            PersonnelProfileResponse own = personnelService.getOwnProfile(token.getUserId());
+            filter = own.getPersonnel().getId();
+        }
         return ResponseEntity.ok(salaryService.list(
-                token.getFarmId(), personnelId,
+                token.getFarmId(), filter,
                 PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "paymentDate"))));
     }
 
@@ -81,7 +102,6 @@ public class SalaryController {
             @RequestParam(defaultValue = "false") boolean preview) {
         TokenValidationResponse token = authService.validateToken(authHeader);
         byte[] pdf = salaryService.getReceiptPdf(id, token.getFarmId());
-
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_PDF);
         headers.setContentDisposition(preview
@@ -91,10 +111,32 @@ public class SalaryController {
         return new ResponseEntity<>(pdf, headers, HttpStatus.OK);
     }
 
+    @GetMapping("/staging")
+    public ResponseEntity<Page<StagedSalaryResponse>> listStaging(
+            @RequestHeader("Authorization") String authHeader,
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        TokenValidationResponse token = authService.validateToken(authHeader);
+        requireMaster(token);
+        return ResponseEntity.ok(salaryService.listStaging(
+                token.getFarmId(), status,
+                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "submittedAt"))));
+    }
+
+    @GetMapping("/staging/stats")
+    public ResponseEntity<Map<String, Long>> stagingStats(
+            @RequestHeader("Authorization") String authHeader) {
+        TokenValidationResponse token = authService.validateToken(authHeader);
+        requireMaster(token);
+        return ResponseEntity.ok(salaryService.stagingStats(token.getFarmId()));
+    }
+
+    private boolean isMasterOrAdmin(TokenValidationResponse t) {
+        return RoleConstants.MASTER.equals(t.getRole()) || RoleConstants.ADMIN.equals(t.getRole());
+    }
+
     private void requireMaster(TokenValidationResponse token) {
-        if (!RoleConstants.MASTER.equals(token.getRole())
-                && !RoleConstants.ADMIN.equals(token.getRole())) {
-            throw new PersonnelAccessDeniedException("MASTER or ADMIN required");
-        }
+        if (!isMasterOrAdmin(token)) throw new PersonnelAccessDeniedException("MASTER or ADMIN required");
     }
 }

@@ -1,10 +1,13 @@
 package com.agriva.service.impl;
 
+import com.agriva.model.dto.dashboard.DashboardProductivityResponse;
 import com.agriva.model.dto.dashboard.DashboardResponse;
 import com.agriva.model.entity.Expense;
 import com.agriva.model.entity.Farm;
 import com.agriva.model.entity.Income;
 import com.agriva.model.entity.Investment;
+import com.agriva.model.entity.Personnel;
+import com.agriva.model.entity.Task;
 import com.agriva.model.entity.Transaction;
 import com.agriva.model.entity.User;
 import com.agriva.repository.AuthRepository;
@@ -13,14 +16,18 @@ import com.agriva.repository.ExpenseRepository;
 import com.agriva.repository.FarmRepository;
 import com.agriva.repository.IncomeRepository;
 import com.agriva.repository.InvestmentRepository;
+import com.agriva.repository.PersonnelRepository;
+import com.agriva.repository.TaskRepository;
 import com.agriva.repository.TransactionRepository;
 import com.agriva.security.RoleConstants;
 import com.agriva.service.DashboardService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -36,11 +43,6 @@ import java.util.stream.Collectors;
 @Slf4j
 public class DashboardServiceImpl implements DashboardService {
 
-    /**
-     * FIX: cap transaction history on the dashboard to the most recent N to avoid
-     * loading the entire farm history on every request. 50 keeps the UI useful
-     * without introducing N+1 queries or unbounded memory use.
-     */
     private static final int DASHBOARD_TX_LIMIT = 50;
 
     private final DashboardQueryRepository dashboardQueryRepo;
@@ -50,6 +52,8 @@ public class DashboardServiceImpl implements DashboardService {
     private final ExpenseRepository expenseRepo;
     private final InvestmentRepository investmentRepo;
     private final TransactionRepository txRepo;
+    private final PersonnelRepository personnelRepository;
+    private final TaskRepository taskRepository;
 
     @Override
     public DashboardResponse personalDashboard(UUID userId, UUID farmId, String role) {
@@ -130,13 +134,46 @@ public class DashboardServiceImpl implements DashboardService {
     }
 
     /**
-     * FIX: previously this loaded EVERY transaction (Pageable.unpaged()) and then
-     * issued 4 additional queries per transaction (N+1). Now:
-     *   1. Fetch the most recent DASHBOARD_TX_LIMIT transactions (one query).
-     *   2. Batch-load all incomes / expenses / investments for those ids (one query each).
-     *   3. Batch-load all distinct creator users (one query).
-     *   4. Assemble in memory — no per-transaction round trips.
+     * Productivity overview. MASTER/ADMIN get every personnel in the farm;
+     * SUB_USER gets only their own row. Used by the dashboard chart.
      */
+    @Override
+    @Transactional(readOnly = true)
+    public DashboardProductivityResponse productivity(UUID userId, UUID farmId, String role) {
+        boolean isMaster = isMasterOrAdmin(role);
+        List<DashboardProductivityResponse.UserProductivity> rows = new ArrayList<>();
+
+        if (isMaster) {
+            Pageable unpaged = Pageable.unpaged();
+            for (Personnel p : personnelRepository.findByFarmId(farmId, unpaged).getContent()) {
+                rows.add(toProductivity(p));
+            }
+        } else {
+            personnelRepository.findByUserId(userId).ifPresent(p -> rows.add(toProductivity(p)));
+        }
+        return DashboardProductivityResponse.builder().users(rows).build();
+    }
+
+    private DashboardProductivityResponse.UserProductivity toProductivity(Personnel p) {
+        List<Task> tasks = taskRepository.findByPersonnelIdAndIsValidated(p.getId(), true);
+        double hours = tasks.stream()
+                .mapToDouble(t -> t.getActualHours() != null ? t.getActualHours() : 0.0)
+                .sum();
+        double expected = tasks.stream()
+                .mapToDouble(t -> t.getExpectedHours() != null ? t.getExpectedHours() : 0)
+                .sum();
+        double pct = expected > 0 ? (hours / expected) * 100.0 : 0.0;
+
+        return DashboardProductivityResponse.UserProductivity.builder()
+                .personnelId(p.getId())
+                .name(p.getName())
+                .department(p.getDepartment() != null ? p.getDepartment().name() : null)
+                .totalHoursWorked(hours)
+                .workingDays(p.getWorkingDaysCount() == null ? 0 : p.getWorkingDaysCount())
+                .productivityPercentage(pct)
+                .build();
+    }
+
     private List<DashboardResponse.TransactionSummary> buildTransactionSummaries(
             UUID farmId, boolean canSeeInvestments) {
 
@@ -156,7 +193,6 @@ public class DashboardServiceImpl implements DashboardService {
 
         List<UUID> txIds = transactions.stream().map(Transaction::getId).toList();
 
-        // Batch loads — one query per table, regardless of how many transactions
         Map<UUID, List<Income>> incomesByTx = incomeRepo.findByTransactionIdIn(txIds)
                 .stream()
                 .collect(Collectors.groupingBy(Income::getTransactionId));
@@ -171,7 +207,6 @@ public class DashboardServiceImpl implements DashboardService {
                   .collect(Collectors.groupingBy(Investment::getTransactionId))
                 : Map.of();
 
-        // Batch-load all referenced users at once
         Set<UUID> creatorIds = new HashSet<>();
         incomesByTx.values().forEach(list -> list.forEach(i -> {
             if (i.getCreatedByUserId() != null) creatorIds.add(i.getCreatedByUserId());

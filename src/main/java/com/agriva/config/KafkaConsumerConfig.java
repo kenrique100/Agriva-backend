@@ -2,6 +2,8 @@ package com.agriva.config;
 
 import com.agriva.model.dto.expense.ExpenseSubmissionEvent;
 import com.agriva.model.dto.income.IncomeSubmissionEvent;
+import com.agriva.model.dto.salary.SalarySubmissionEvent;
+import com.agriva.model.dto.task.TaskSubmissionEvent;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.beans.factory.annotation.Value;
@@ -54,6 +56,42 @@ public class KafkaConsumerConfig {
         ConcurrentKafkaListenerContainerFactory<String, ExpenseSubmissionEvent> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(expenseConsumerFactory());
+        factory.setConcurrency(3);
+        return factory;
+    }
+
+    @Bean
+    public ConsumerFactory<String, TaskSubmissionEvent> taskConsumerFactory() {
+        Map<String, Object> props = baseProps();
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, "agriva-task-staging-consumer");
+        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, TaskSubmissionEvent.class.getName());
+        return new DefaultKafkaConsumerFactory<>(props);
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, TaskSubmissionEvent>
+    taskKafkaListenerContainerFactory() {
+        ConcurrentKafkaListenerContainerFactory<String, TaskSubmissionEvent> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(taskConsumerFactory());
+        factory.setConcurrency(3);
+        return factory;
+    }
+
+    @Bean
+    public ConsumerFactory<String, SalarySubmissionEvent> salaryConsumerFactory() {
+        Map<String, Object> props = baseProps();
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, "agriva-salary-staging-consumer");
+        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, SalarySubmissionEvent.class.getName());
+        return new DefaultKafkaConsumerFactory<>(props);
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, SalarySubmissionEvent>
+    salaryKafkaListenerContainerFactory() {
+        ConcurrentKafkaListenerContainerFactory<String, SalarySubmissionEvent> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(salaryConsumerFactory());
         factory.setConcurrency(3);
         return factory;
     }

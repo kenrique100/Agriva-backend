@@ -36,4 +36,12 @@ public class DashboardController {
         return ResponseEntity.ok(dashboardService.farmDashboard(
                 token.getFarmId(), token.getUserId()));
     }
+
+    @GetMapping("/productivity")
+    public ResponseEntity<com.agriva.model.dto.dashboard.DashboardProductivityResponse> productivity(
+            @RequestHeader("Authorization") String authHeader) {
+        var token = authService.validateToken(authHeader);
+        return ResponseEntity.ok(dashboardService.productivity(
+                token.getUserId(), token.getFarmId(), token.getRole()));
+    }
 }

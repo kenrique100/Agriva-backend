@@ -4,13 +4,14 @@ import jakarta.persistence.EntityManagerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
+import org.springframework.data.web.config.EnableSpringDataWebSupport;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
 
 @Configuration
+@EnableSpringDataWebSupport(pageSerializationMode = EnableSpringDataWebSupport.PageSerializationMode.VIA_DTO)
 public class JpaTransactionConfig {
 
-    // Primary so @Transactional always picks the JPA manager, never Kafka.
     @Bean
     @Primary
     public PlatformTransactionManager transactionManager(EntityManagerFactory emf) {

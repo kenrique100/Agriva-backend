@@ -1,6 +1,5 @@
 package com.agriva.model.dto.salary;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -14,22 +13,25 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class SalaryReceiptResponse {
-
     private String receiptNumber;
     private LocalDate issueDate;
+    private String farmName;
+    private String managerName;
 
+    // Personnel block
     private String personnelName;
     private String personnelNationalId;
     private String department;
     private LocalDate employmentDate;
 
+    // Salary block
     private BigDecimal amount;
     private LocalDate paymentDate;
     private String paymentReference;
     private String status;
 
+    // Productivity block
     private List<SalaryReceiptLineItem> tasks;
     private BigDecimal totalExpectedHours;
     private BigDecimal totalActualHours;
