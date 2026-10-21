@@ -94,4 +94,37 @@ public class FileStorageService {
                     "Could not store file " + newFileName + ". Please try again!");
         }
     }
+
+    /**
+     * NEW: deletes a previously stored file by name (the UUID-based filename
+     * that storeFile() returned). Missing files are silently ignored so that
+     * re-uploads do not fail because a stale path no longer exists on disk.
+     * Includes the same path-traversal guard as the GET endpoint in
+     * FileController — a malicious stored value cannot escape the uploads dir.
+     */
+    public void delete(String storedFileName) {
+        if (storedFileName == null || storedFileName.isBlank()) {
+            return;
+        }
+
+        try {
+            Path filePath = this.fileStorageLocation.resolve(storedFileName).normalize();
+
+            if (!filePath.startsWith(this.fileStorageLocation)) {
+                log.warn("Rejected path traversal on delete: {}", storedFileName);
+                throw new BusinessException("Invalid file path: " + storedFileName);
+            }
+
+            if (Files.exists(filePath)) {
+                Files.delete(filePath);
+                log.info("Deleted file: {}", storedFileName);
+            } else {
+                log.debug("Delete skipped — file not found: {}", storedFileName);
+            }
+        } catch (IOException ex) {
+            log.error("Failed to delete file {}: {}", storedFileName, ex.getMessage());
+            throw new BusinessException(
+                    "Could not delete file " + storedFileName + ": " + ex.getMessage());
+        }
+    }
 }

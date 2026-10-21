@@ -197,4 +197,67 @@ public class GlobalExceptionHandler {
         log.warn("Investment limit exceeded: {}", ex.getMessage());
         return build(HttpStatus.CONFLICT, ex.getMessage(), request);
     }
+
+    @ExceptionHandler(PersonnelNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handlePersonnelNotFound(
+            PersonnelNotFoundException ex, WebRequest request) {
+        log.warn("Personnel not found: {}", ex.getMessage());
+        return build(HttpStatus.NOT_FOUND, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(TaskNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleTaskNotFound(
+            TaskNotFoundException ex, WebRequest request) {
+        log.warn("Task not found: {}", ex.getMessage());
+        return build(HttpStatus.NOT_FOUND, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(SalaryPaymentNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleSalaryNotFound(
+            SalaryPaymentNotFoundException ex, WebRequest request) {
+        log.warn("Salary payment not found: {}", ex.getMessage());
+        return build(HttpStatus.NOT_FOUND, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(DuplicatePersonnelException.class)
+    public ResponseEntity<ErrorResponse> handleDuplicatePersonnel(
+            DuplicatePersonnelException ex, WebRequest request) {
+        log.warn("Duplicate personnel: {}", ex.getMessage());
+        return build(HttpStatus.CONFLICT, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(InvalidPersonnelStatusException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidPersonnelStatus(
+            InvalidPersonnelStatusException ex, WebRequest request) {
+        log.warn("Invalid personnel status: {}", ex.getMessage());
+        return build(HttpStatus.BAD_REQUEST, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(InvalidTaskActionException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidTaskAction(
+            InvalidTaskActionException ex, WebRequest request) {
+        log.warn("Invalid task action: {}", ex.getMessage());
+        return build(HttpStatus.BAD_REQUEST, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(InvalidTaskStateException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidTaskState(
+            InvalidTaskStateException ex, WebRequest request) {
+        log.warn("Invalid task state: {}", ex.getMessage());
+        return build(HttpStatus.CONFLICT, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(PersonnelAccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handlePersonnelAccessDenied(
+            PersonnelAccessDeniedException ex, WebRequest request) {
+        log.warn("Personnel access denied: {}", ex.getReason());
+        return build(HttpStatus.FORBIDDEN, ex.getReason(), request);
+    }
+
+    @ExceptionHandler(SalaryPaymentException.class)
+    public ResponseEntity<ErrorResponse> handleSalaryException(
+            SalaryPaymentException ex, WebRequest request) {
+        log.warn("Salary payment error: {}", ex.getMessage());
+        return build(HttpStatus.BAD_REQUEST, ex.getMessage(), request);
+    }
 }
