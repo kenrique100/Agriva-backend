@@ -38,4 +38,18 @@ public interface StagedSalaryRepository extends JpaRepository<StagedSalary, UUID
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT s FROM StagedSalary s WHERE s.id = :id")
     Optional<StagedSalary> findByIdForUpdate(@Param("id") UUID id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT s FROM StagedSalary s
+            WHERE s.id = :id
+              AND (s.status = :pending
+                   OR (s.status = :retrying
+                       AND (s.nextRetryAt IS NULL OR s.nextRetryAt <= :now)))
+            """)
+    Optional<StagedSalary> findDueByIdForUpdate(
+            @Param("id") UUID id,
+            @Param("now") LocalDateTime now,
+            @Param("pending") StagedSalaryStatus pending,
+            @Param("retrying") StagedSalaryStatus retrying);
 }

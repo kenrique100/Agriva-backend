@@ -58,11 +58,13 @@ public class StagedSalaryValidator {
     }
 
     private void processOne(UUID stagedId) {
-        StagedSalary staged = stagedRepo.findByIdForUpdate(stagedId).orElse(null);
-        if (staged == null || !isDue(staged, LocalDateTime.now())) {
+        LocalDateTime now = LocalDateTime.now();
+        StagedSalary staged = stagedRepo.findDueByIdForUpdate(
+                stagedId, now, StagedSalaryStatus.PENDING, StagedSalaryStatus.RETRYING).orElse(null);
+        if (staged == null) {
             return;
         }
-        staged.setLastAttemptAt(LocalDateTime.now());
+        staged.setLastAttemptAt(now);
         try {
             SalaryPaymentRequest req = objectMapper.readValue(
                     staged.getPayloadJson(), SalaryPaymentRequest.class);
@@ -86,12 +88,6 @@ public class StagedSalaryValidator {
             log.error("Staged salary {} threw: {}", staged.getId(), e.getMessage(), e);
             onFailure(staged, List.of("Processing error: " + e.getMessage()));
         }
-    }
-
-    private static boolean isDue(StagedSalary staged, LocalDateTime now) {
-        if (staged.getStatus() == StagedSalaryStatus.PENDING) return true;
-        if (staged.getStatus() != StagedSalaryStatus.RETRYING) return false;
-        return staged.getNextRetryAt() == null || !staged.getNextRetryAt().isAfter(now);
     }
 
     private String validate(SalaryPaymentRequest req, java.util.UUID farmId) {
