@@ -142,8 +142,8 @@ public class CropManagementController {
     public ResponseEntity<List<CropActivityResponse>> getActivities(
             @RequestHeader("Authorization") String authHeader,
             @PathVariable UUID id) {
-        authService.validateToken(authHeader);
-        return ResponseEntity.ok(cropService.getActivities(id));
+        TokenValidationResponse token = authService.validateToken(authHeader);
+        return ResponseEntity.ok(cropService.getActivities(id, token.getFarmId()));
     }
 
     @PostMapping("/cycles/{id}/activities")

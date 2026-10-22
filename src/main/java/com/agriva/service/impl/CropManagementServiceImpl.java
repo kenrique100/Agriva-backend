@@ -254,7 +254,8 @@ public class CropManagementServiceImpl implements CropManagementService {
 
     // --- Activities ---
     @Override @Transactional(readOnly = true)
-    public List<CropActivityResponse> getActivities(UUID cycleId) {
+    public List<CropActivityResponse> getActivities(UUID cycleId, UUID farmId) {
+        loadCycle(cycleId, farmId);
         return activityRepo.findByCropCycleIdOrderByActivityDateDesc(cycleId).stream()
                 .map(mapper::toResponse).collect(Collectors.toList());
     }

@@ -27,7 +27,7 @@ public interface CropManagementService {
     Page<StagedCropCycleResponse> listStaging(UUID farmId, String status, Pageable pageable);
     Map<String, Long> stagingStats(UUID farmId);
 
-    List<CropActivityResponse> getActivities(UUID cycleId);
+    List<CropActivityResponse> getActivities(UUID cycleId, UUID farmId);
     CropActivityResponse logActivity(UUID cycleId, CropActivityRequest req, UUID farmId, UUID userId);
 
     HarvestResponse logHarvest(UUID cycleId, HarvestRequest req, UUID farmId);
