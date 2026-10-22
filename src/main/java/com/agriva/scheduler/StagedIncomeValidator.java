@@ -62,7 +62,18 @@ public class StagedIncomeValidator {
     }
 
     private void processOne(StagedIncome staged) {
-        staged.setLastAttemptAt(LocalDateTime.now());
+        StagedIncome locked = stagedRepo.findByIdForUpdate(staged.getId()).orElse(null);
+        if (locked == null) {
+            return;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        if (!isDueForProcessing(locked, now)) {
+            return;
+        }
+
+        staged = locked;
+        staged.setLastAttemptAt(now);
         try {
             IncomeRequest request =
                     objectMapper.readValue(staged.getPayloadJson(), IncomeRequest.class);
@@ -131,5 +142,17 @@ public class StagedIncomeValidator {
     private static String truncate(String s) {
         if (s == null) return null;
         return s.length() <= ERROR_FIELD_LIMIT ? s : s.substring(0, ERROR_FIELD_LIMIT);
+    }
+
+    private static boolean isDueForProcessing(StagedIncome staged, LocalDateTime now) {
+        if (staged.getStatus() == StagedIncomeStatus.PENDING) {
+            return true;
+        }
+
+        if (staged.getStatus() != StagedIncomeStatus.RETRYING) {
+            return false;
+        }
+
+        return staged.getNextRetryAt() == null || !staged.getNextRetryAt().isAfter(now);
     }
 }
