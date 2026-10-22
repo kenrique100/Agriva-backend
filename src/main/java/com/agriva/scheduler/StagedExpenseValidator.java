@@ -21,6 +21,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
@@ -59,24 +60,22 @@ public class StagedExpenseValidator {
 
         for (StagedExpense staged : due) {
             transactionTemplate.execute(status -> {
-                processOne(staged);
+                processOne(staged.getId());
                 return null;
             });
         }
     }
 
-    private void processOne(StagedExpense staged) {
-        StagedExpense locked = stagedRepo.findByIdForUpdate(staged.getId()).orElse(null);
-        if (locked == null) {
+    private void processOne(UUID stagedId) {
+        StagedExpense staged = stagedRepo.findByIdForUpdate(stagedId).orElse(null);
+        if (staged == null) {
             return;
         }
 
         LocalDateTime now = LocalDateTime.now();
-        if (!isDueForProcessing(locked, now)) {
+        if (!isDueForProcessing(staged, now)) {
             return;
         }
-
-        staged = locked;
         staged.setLastAttemptAt(now);
         try {
             ExpenseRequest request =
