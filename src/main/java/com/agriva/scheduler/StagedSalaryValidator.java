@@ -21,6 +21,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
@@ -52,11 +53,15 @@ public class StagedSalaryValidator {
         if (due.isEmpty()) return;
         log.info("StagedSalaryValidator: {} row(s) due", due.size());
         for (StagedSalary staged : due) {
-            transactionTemplate.execute(status -> { processOne(staged); return null; });
+            transactionTemplate.execute(status -> { processOne(staged.getId()); return null; });
         }
     }
 
-    private void processOne(StagedSalary staged) {
+    private void processOne(UUID stagedId) {
+        StagedSalary staged = stagedRepo.findByIdForUpdate(stagedId).orElse(null);
+        if (staged == null || !isDue(staged, LocalDateTime.now())) {
+            return;
+        }
         staged.setLastAttemptAt(LocalDateTime.now());
         try {
             SalaryPaymentRequest req = objectMapper.readValue(
@@ -81,6 +86,12 @@ public class StagedSalaryValidator {
             log.error("Staged salary {} threw: {}", staged.getId(), e.getMessage(), e);
             onFailure(staged, List.of("Processing error: " + e.getMessage()));
         }
+    }
+
+    private static boolean isDue(StagedSalary staged, LocalDateTime now) {
+        if (staged.getStatus() == StagedSalaryStatus.PENDING) return true;
+        if (staged.getStatus() != StagedSalaryStatus.RETRYING) return false;
+        return staged.getNextRetryAt() == null || !staged.getNextRetryAt().isAfter(now);
     }
 
     private String validate(SalaryPaymentRequest req, java.util.UUID farmId) {
