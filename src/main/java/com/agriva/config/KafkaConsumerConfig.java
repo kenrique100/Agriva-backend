@@ -2,6 +2,7 @@ package com.agriva.config;
 
 import com.agriva.model.dto.expense.ExpenseSubmissionEvent;
 import com.agriva.model.dto.income.IncomeSubmissionEvent;
+import com.agriva.model.dto.crop.CropCycleSubmissionEvent;
 import com.agriva.model.dto.salary.SalarySubmissionEvent;
 import com.agriva.model.dto.task.TaskSubmissionEvent;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -30,6 +31,24 @@ public class KafkaConsumerConfig {
         props.put(ConsumerConfig.GROUP_ID_CONFIG, "agriva-income-staging-consumer");
         props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, IncomeSubmissionEvent.class.getName());
         return new DefaultKafkaConsumerFactory<>(props);
+    }
+
+    @Bean
+    public ConsumerFactory<String, CropCycleSubmissionEvent> cropConsumerFactory() {
+        Map<String, Object> props = baseProps();
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, "agriva-crop-staging-consumer");
+        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, CropCycleSubmissionEvent.class.getName());
+        return new DefaultKafkaConsumerFactory<>(props);
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, CropCycleSubmissionEvent>
+    cropKafkaListenerContainerFactory() {
+        ConcurrentKafkaListenerContainerFactory<String, CropCycleSubmissionEvent> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(cropConsumerFactory());
+        factory.setConcurrency(3);
+        return factory;
     }
 
     @Bean
