@@ -10,7 +10,7 @@ import com.agriva.model.entity.Expense;
 import com.agriva.model.entity.Income;
 import com.agriva.model.entity.Investment;
 import com.agriva.model.entity.Transaction;
-import com.agriva.model.entity.TransactionStatus;
+import com.agriva.model.entity.enums.TransactionStatus;
 import com.agriva.model.entity.User;
 import com.agriva.repository.*;
 import com.agriva.service.TransactionService;

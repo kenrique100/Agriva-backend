@@ -2,7 +2,7 @@ package com.agriva.service.impl;
 
 import com.agriva.model.dto.income.IncomeSubmissionEvent;
 import com.agriva.model.entity.StagedIncome;
-import com.agriva.model.entity.StagedIncomeStatus;
+import com.agriva.model.entity.enums.StagedIncomeStatus;
 import com.agriva.repository.StagedIncomeRepository;
 import com.agriva.service.IncomeStagingService;
 import lombok.RequiredArgsConstructor;

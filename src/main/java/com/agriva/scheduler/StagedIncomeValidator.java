@@ -3,7 +3,7 @@ package com.agriva.scheduler;
 import com.agriva.model.dto.income.IncomeRequest;
 import com.agriva.model.entity.Income;
 import com.agriva.model.entity.StagedIncome;
-import com.agriva.model.entity.StagedIncomeStatus;
+import com.agriva.model.entity.enums.StagedIncomeStatus;
 import com.agriva.repository.IncomeRepository;
 import com.agriva.repository.StagedIncomeRepository;
 import com.agriva.utils.IncomeValidator;
@@ -43,9 +43,11 @@ public class StagedIncomeValidator {
 
     @Scheduled(cron = "${agriva.income.validator.cron:0 * * * * *}")
     public void processStagedIncomes() {
-        List<StagedIncome> due =
-                stagedRepo.findDueForProcessing(LocalDateTime.now(),
-                        PageRequest.of(0, batchSize));
+        List<StagedIncome> due = stagedRepo.findDueForProcessing(
+                LocalDateTime.now(),
+                StagedIncomeStatus.PENDING,
+                StagedIncomeStatus.RETRYING,
+                PageRequest.of(0, batchSize));
 
         if (due.isEmpty()) return;
 
@@ -61,13 +63,11 @@ public class StagedIncomeValidator {
 
     private void processOne(StagedIncome staged) {
         staged.setLastAttemptAt(LocalDateTime.now());
-
         try {
             IncomeRequest request =
                     objectMapper.readValue(staged.getPayloadJson(), IncomeRequest.class);
 
             List<String> errors = incomeValidator.validate(request, staged.getFarmId());
-
             if (!errors.isEmpty()) {
                 onFailure(staged, errors);
                 return;
@@ -88,7 +88,6 @@ public class StagedIncomeValidator {
                     .build();
 
             income.calculateDueBalance();
-
             Income saved = incomeRepo.save(income);
 
             staged.setStatus(StagedIncomeStatus.MOVED);

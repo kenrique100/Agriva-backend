@@ -9,7 +9,7 @@ import com.agriva.model.dto.expense.*;
 import com.agriva.model.entity.Expense;
 import com.agriva.model.entity.Investment;
 import com.agriva.model.entity.StagedExpense;
-import com.agriva.model.entity.StagedExpenseStatus;
+import com.agriva.model.entity.enums.StagedExpenseStatus;
 import com.agriva.model.entity.User;
 import com.agriva.repository.AuthRepository;
 import com.agriva.repository.ExpenseRepository;

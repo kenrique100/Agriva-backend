@@ -1,4 +1,4 @@
-package com.agriva.model.entity;
+package com.agriva.model.entity.enums;
 
 /**
  * Lifecycle of a staged income row.
