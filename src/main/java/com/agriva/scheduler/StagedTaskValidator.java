@@ -17,6 +17,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
@@ -51,15 +52,26 @@ public class StagedTaskValidator {
 
         log.info("StagedTaskValidator: {} row(s) due for processing", due.size());
         for (StagedTask staged : due) {
+            UUID stagedId = staged.getId();
             transactionTemplate.execute(status -> {
-                processOne(staged);
+                processOne(stagedId);
                 return null;
             });
         }
     }
 
-    private void processOne(StagedTask staged) {
-        staged.setLastAttemptAt(LocalDateTime.now());
+    private void processOne(UUID stagedId) {
+        StagedTask staged = stagedRepo.findByIdForUpdate(stagedId).orElse(null);
+        if (staged == null) {
+            return;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        if (!isDueForProcessing(staged, now)) {
+            return;
+        }
+
+        staged.setLastAttemptAt(now);
         try {
             TaskCreateRequest request = objectMapper.readValue(
                     staged.getPayloadJson(), TaskCreateRequest.class);
@@ -131,5 +143,17 @@ public class StagedTaskValidator {
     private static String truncate(String s) {
         if (s == null) return null;
         return s.length() <= ERROR_FIELD_LIMIT ? s : s.substring(0, ERROR_FIELD_LIMIT);
+    }
+
+    private static boolean isDueForProcessing(StagedTask staged, LocalDateTime now) {
+        if (staged.getStatus() == StagedTaskStatus.PENDING) {
+            return true;
+        }
+
+        if (staged.getStatus() != StagedTaskStatus.RETRYING) {
+            return false;
+        }
+
+        return staged.getNextRetryAt() == null || !staged.getNextRetryAt().isAfter(now);
     }
 }
