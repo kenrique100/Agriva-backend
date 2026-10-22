@@ -28,6 +28,10 @@ public interface PersonnelRepository extends JpaRepository<Personnel, UUID> {
 
     boolean existsByFarmIdAndNationalIdAndIdNot(UUID farmId, String nationalId, UUID id);
 
+    boolean existsByFarmIdAndProfilePicturePath(UUID farmId, String profilePicturePath);
+
+    boolean existsByFarmIdAndProfilePictureThumbnailPath(UUID farmId, String profilePictureThumbnailPath);
+
     long countByFarmId(UUID farmId);
 
     List<Personnel> findByStatusExpirationBeforeAndStatusIn(

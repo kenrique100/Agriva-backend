@@ -32,6 +32,8 @@ public interface IncomeRepository extends JpaRepository<Income, UUID> {
 
     List<Income> findByFarmIdAndTransactionIdIsNull(UUID farmId);
 
+    boolean existsByFarmIdAndReceipt(UUID farmId, String receipt);
+
     long countByFarmId(UUID farmId);
 
     long countByFarmIdAndCreatedByUserId(UUID farmId, UUID userId);

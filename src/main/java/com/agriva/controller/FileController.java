@@ -1,15 +1,22 @@
 package com.agriva.controller;
 
+import com.agriva.model.dto.auth.TokenValidationResponse;
+import com.agriva.repository.ExpenseRepository;
+import com.agriva.repository.IncomeRepository;
+import com.agriva.repository.PersonnelRepository;
+import com.agriva.service.AuthService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.*;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/files")
@@ -17,13 +24,36 @@ import java.nio.file.Paths;
 public class FileController {
 
     private final Path fileStorageLocation;
+    private final AuthService authService;
+    private final IncomeRepository incomeRepository;
+    private final ExpenseRepository expenseRepository;
+    private final PersonnelRepository personnelRepository;
 
-    public FileController(@org.springframework.beans.factory.annotation.Value("${agriva.uploads.dir}") String uploadDir) {
+    public FileController(
+            @org.springframework.beans.factory.annotation.Value("${agriva.uploads.dir}") String uploadDir,
+            AuthService authService,
+            IncomeRepository incomeRepository,
+            ExpenseRepository expenseRepository,
+            PersonnelRepository personnelRepository
+    ) {
         this.fileStorageLocation = Paths.get(uploadDir).toAbsolutePath().normalize();
+        this.authService = authService;
+        this.incomeRepository = incomeRepository;
+        this.expenseRepository = expenseRepository;
+        this.personnelRepository = personnelRepository;
     }
 
     @GetMapping("/{fileName:.+}")
-    public ResponseEntity<Resource> downloadFile(@PathVariable String fileName) {
+    public ResponseEntity<Resource> downloadFile(
+            @PathVariable String fileName,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authHeader
+    ) {
+        TokenValidationResponse token = authService.validateToken(authHeader);
+        UUID farmId = token.getFarmId();
+        if (farmId == null || !isOwnedByFarm(fileName, farmId)) {
+            throw new AccessDeniedException("Access denied");
+        }
+
         try {
             Path filePath = this.fileStorageLocation.resolve(fileName).normalize();
 
@@ -64,5 +94,12 @@ public class FileController {
             log.error("Failed to serve file {}: {}", fileName, ex.getMessage());
             return ResponseEntity.internalServerError().build();
         }
+    }
+
+    private boolean isOwnedByFarm(String fileName, UUID farmId) {
+        return incomeRepository.existsByFarmIdAndReceipt(farmId, fileName)
+                || expenseRepository.existsByFarmIdAndReceipt(farmId, fileName)
+                || personnelRepository.existsByFarmIdAndProfilePicturePath(farmId, fileName)
+                || personnelRepository.existsByFarmIdAndProfilePictureThumbnailPath(farmId, fileName);
     }
 }

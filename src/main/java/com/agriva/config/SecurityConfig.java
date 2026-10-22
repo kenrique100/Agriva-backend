@@ -57,8 +57,7 @@ public class SecurityConfig {
                                 "/webjars/**",
                                 "/actuator/health",
                                 "/actuator/health/**",
-                                "/actuator/info",
-                                "/api/v1/files/**"
+                                "/actuator/info"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
