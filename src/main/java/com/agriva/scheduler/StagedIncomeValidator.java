@@ -18,6 +18,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
@@ -54,15 +55,16 @@ public class StagedIncomeValidator {
         log.info("StagedIncomeValidator: {} row(s) due for processing", due.size());
 
         for (StagedIncome staged : due) {
+            UUID stagedId = staged.getId();
             transactionTemplate.execute(status -> {
-                processOne(staged);
+                processOne(stagedId);
                 return null;
             });
         }
     }
 
-    private void processOne(StagedIncome staged) {
-        StagedIncome locked = stagedRepo.findByIdForUpdate(staged.getId()).orElse(null);
+    private void processOne(UUID stagedId) {
+        StagedIncome locked = stagedRepo.findByIdForUpdate(stagedId).orElse(null);
         if (locked == null) {
             return;
         }
