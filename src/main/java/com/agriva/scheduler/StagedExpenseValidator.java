@@ -66,7 +66,18 @@ public class StagedExpenseValidator {
     }
 
     private void processOne(StagedExpense staged) {
-        staged.setLastAttemptAt(LocalDateTime.now());
+        StagedExpense locked = stagedRepo.findByIdForUpdate(staged.getId()).orElse(null);
+        if (locked == null) {
+            return;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        if (!isDueForProcessing(locked, now)) {
+            return;
+        }
+
+        staged = locked;
+        staged.setLastAttemptAt(now);
         try {
             ExpenseRequest request =
                     objectMapper.readValue(staged.getPayloadJson(), ExpenseRequest.class);
@@ -170,5 +181,17 @@ public class StagedExpenseValidator {
     private static String truncate(String s) {
         if (s == null) return null;
         return s.length() <= ERROR_FIELD_LIMIT ? s : s.substring(0, ERROR_FIELD_LIMIT);
+    }
+
+    private static boolean isDueForProcessing(StagedExpense staged, LocalDateTime now) {
+        if (staged.getStatus() == StagedExpenseStatus.PENDING) {
+            return true;
+        }
+
+        if (staged.getStatus() != StagedExpenseStatus.RETRYING) {
+            return false;
+        }
+
+        return staged.getNextRetryAt() == null || !staged.getNextRetryAt().isAfter(now);
     }
 }
