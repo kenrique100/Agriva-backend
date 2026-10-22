@@ -1,6 +1,6 @@
 package com.agriva.model.dto.investment;
 
-import com.agriva.model.entity.Currency;
+import com.agriva.model.entity.enums.Currency;
 import jakarta.validation.constraints.*;
 import lombok.Data;
 

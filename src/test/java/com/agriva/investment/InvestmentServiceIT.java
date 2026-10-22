@@ -5,7 +5,7 @@ import com.agriva.model.dto.auth.AuthResponse;
 import com.agriva.model.dto.auth.MasterRegisterRequest;
 import com.agriva.model.dto.investment.InvestmentRequest;
 import com.agriva.model.dto.investment.InvestmentResponse;
-import com.agriva.model.entity.Currency;
+import com.agriva.model.entity.enums.Currency;
 import com.agriva.repository.AuthRepository;
 import com.agriva.repository.FarmRepository;
 import com.agriva.repository.InvestmentRepository;

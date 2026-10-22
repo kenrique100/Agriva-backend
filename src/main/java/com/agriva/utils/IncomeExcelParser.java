@@ -2,8 +2,8 @@ package com.agriva.utils;
 
 import com.agriva.exception.ExcelProcessingException;
 import com.agriva.model.dto.income.IncomeRequest;
-import com.agriva.model.entity.Currency;
-import com.agriva.model.entity.IncomeCategory;
+import com.agriva.model.entity.enums.Currency;
+import com.agriva.model.entity.enums.IncomeCategory;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;

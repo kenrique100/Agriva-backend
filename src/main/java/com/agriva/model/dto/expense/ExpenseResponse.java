@@ -1,7 +1,7 @@
 package com.agriva.model.dto.expense;
 
-import com.agriva.model.entity.Currency;
-import com.agriva.model.entity.ExpenseCategory;
+import com.agriva.model.entity.enums.Currency;
+import com.agriva.model.entity.enums.ExpenseCategory;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
