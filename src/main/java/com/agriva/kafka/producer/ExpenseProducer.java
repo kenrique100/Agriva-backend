@@ -35,6 +35,6 @@ public class ExpenseProducer {
                         result.getRecordMetadata().partition(),
                         result.getRecordMetadata().offset());
             }
-        });
+        }).join();
     }
 }
