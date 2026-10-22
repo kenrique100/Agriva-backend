@@ -37,7 +37,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@agriva.local}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-agriva-admin}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change_me}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD?ADMIN_PASSWORD is required}
     volumes:
       - agriva-uploads:/app/uploads
     depends_on:
