@@ -36,7 +36,7 @@ public class TokenBlacklistServiceImpl implements TokenBlacklistService {
 
             log.info("Blacklisted token until {}", expiration);
         } catch (Exception e) {
-            log.warn("Failed to blacklist token: {}", e.getMessage());
+            throw new IllegalStateException("Token revocation could not be persisted", e);
         }
     }
 
