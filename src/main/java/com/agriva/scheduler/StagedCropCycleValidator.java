@@ -15,6 +15,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
@@ -36,8 +37,20 @@ public class StagedCropCycleValidator {
                 StagedCropCycleStatus.RETRYING,
                 PageRequest.of(0, 100));
         for (StagedCropCycle s : due) {
-            txTemplate.execute(status -> { processOne(s); return null; });
+            UUID stagedId = s.getId();
+            txTemplate.execute(status -> {
+                stagedRepo.findByIdForUpdate(stagedId)
+                        .filter(this::isProcessableStatus)
+                        .ifPresent(this::processOne);
+                return null;
+            });
         }
+    }
+
+    private boolean isProcessableStatus(StagedCropCycle stagedCropCycle) {
+        if (stagedCropCycle.getStatus() == StagedCropCycleStatus.PENDING) return true;
+        return stagedCropCycle.getStatus() == StagedCropCycleStatus.RETRYING
+                && (stagedCropCycle.getNextRetryAt() == null || !stagedCropCycle.getNextRetryAt().isAfter(LocalDateTime.now()));
     }
 
     private void processOne(StagedCropCycle s) {
