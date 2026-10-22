@@ -3,7 +3,7 @@ package com.agriva.controller;
 import com.agriva.exception.PersonnelAccessDeniedException;
 import com.agriva.model.dto.auth.TokenValidationResponse;
 import com.agriva.model.dto.personnel.*;
-import com.agriva.model.entity.PersonnelStatus;
+import com.agriva.model.entity.enums.PersonnelStatus;
 import com.agriva.security.RoleConstants;
 import com.agriva.service.AuthService;
 import com.agriva.service.PersonnelService;

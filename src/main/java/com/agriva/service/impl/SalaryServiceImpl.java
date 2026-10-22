@@ -7,6 +7,7 @@ import com.agriva.model.dto.expense.ExpenseRequest;
 import com.agriva.model.dto.expense.ExpenseResponse;
 import com.agriva.model.dto.salary.*;
 import com.agriva.model.entity.*;
+import com.agriva.model.entity.enums.*;
 import com.agriva.repository.*;
 import com.agriva.service.ExpenseService;
 import com.agriva.service.PdfReceiptService;

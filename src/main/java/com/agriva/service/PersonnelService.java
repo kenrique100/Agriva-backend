@@ -1,7 +1,7 @@
 package com.agriva.service;
 
 import com.agriva.model.dto.personnel.*;
-import com.agriva.model.entity.PersonnelStatus;
+import com.agriva.model.entity.enums.PersonnelStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.web.multipart.MultipartFile;

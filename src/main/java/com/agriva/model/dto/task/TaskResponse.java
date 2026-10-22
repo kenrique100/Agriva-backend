@@ -1,6 +1,6 @@
 package com.agriva.model.dto.task;
 
-import com.agriva.model.entity.TaskStatus;
+import com.agriva.model.entity.enums.TaskStatus;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;

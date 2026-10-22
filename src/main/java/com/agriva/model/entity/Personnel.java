@@ -1,5 +1,8 @@
 package com.agriva.model.entity;
 
+import com.agriva.model.entity.enums.Department;
+import com.agriva.model.entity.enums.Gender;
+import com.agriva.model.entity.enums.PersonnelStatus;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;

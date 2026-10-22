@@ -2,7 +2,7 @@ package com.agriva.service.impl;
 
 import com.agriva.model.dto.task.TaskSubmissionEvent;
 import com.agriva.model.entity.StagedTask;
-import com.agriva.model.entity.StagedTaskStatus;
+import com.agriva.model.entity.enums.StagedTaskStatus;
 import com.agriva.repository.StagedTaskRepository;
 import com.agriva.service.TaskStagingService;
 import lombok.RequiredArgsConstructor;

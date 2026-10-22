@@ -1,6 +1,6 @@
 package com.agriva.model.dto.personnel;
 
-import com.agriva.model.entity.PersonnelStatus;
+import com.agriva.model.entity.enums.PersonnelStatus;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 

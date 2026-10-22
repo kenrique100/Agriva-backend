@@ -6,6 +6,7 @@ import com.agriva.mapper.SalaryMapper;
 import com.agriva.mapper.TaskMapper;
 import com.agriva.model.dto.personnel.*;
 import com.agriva.model.entity.*;
+import com.agriva.model.entity.enums.PersonnelStatus;
 import com.agriva.repository.*;
 import com.agriva.security.RoleConstants;
 import com.agriva.service.FileStorageService;

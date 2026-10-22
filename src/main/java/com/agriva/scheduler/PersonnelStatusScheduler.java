@@ -1,7 +1,7 @@
 package com.agriva.scheduler;
 
 import com.agriva.model.entity.Personnel;
-import com.agriva.model.entity.PersonnelStatus;
+import com.agriva.model.entity.enums.PersonnelStatus;
 import com.agriva.model.entity.PersonnelStatusHistory;
 import com.agriva.repository.PersonnelRepository;
 import com.agriva.repository.PersonnelStatusHistoryRepository;

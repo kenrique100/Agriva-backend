@@ -3,7 +3,7 @@ package com.agriva.utils;
 import com.agriva.exception.InvalidTaskActionException;
 import com.agriva.exception.InvalidTaskStateException;
 import com.agriva.model.entity.Task;
-import com.agriva.model.entity.TaskStatus;
+import com.agriva.model.entity.enums.TaskStatus;
 import org.springframework.stereotype.Component;
 
 @Component

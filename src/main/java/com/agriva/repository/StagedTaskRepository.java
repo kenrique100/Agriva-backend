@@ -1,7 +1,7 @@
 package com.agriva.repository;
 
 import com.agriva.model.entity.StagedTask;
-import com.agriva.model.entity.StagedTaskStatus;
+import com.agriva.model.entity.enums.StagedTaskStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -24,10 +24,14 @@ public interface StagedTaskRepository extends JpaRepository<StagedTask, UUID> {
 
     @Query("""
             SELECT s FROM StagedTask s
-            WHERE s.status = com.agriva.model.entity.StagedTaskStatus.PENDING
-               OR (s.status = com.agriva.model.entity.StagedTaskStatus.RETRYING
+            WHERE s.status = :pending
+               OR (s.status = :retrying
                    AND (s.nextRetryAt IS NULL OR s.nextRetryAt <= :now))
             ORDER BY s.submittedAt ASC
             """)
-    List<StagedTask> findDueForProcessing(@Param("now") LocalDateTime now, Pageable pageable);
+    List<StagedTask> findDueForProcessing(
+            @Param("now") LocalDateTime now,
+            @Param("pending") StagedTaskStatus pending,
+            @Param("retrying") StagedTaskStatus retrying,
+            Pageable pageable);
 }

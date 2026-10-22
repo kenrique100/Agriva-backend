@@ -5,6 +5,7 @@ import com.agriva.exception.NoActiveInvestmentException;
 import com.agriva.model.dto.salary.SalaryPaymentRequest;
 import com.agriva.model.dto.salary.SalaryPaymentResponse;
 import com.agriva.model.entity.*;
+import com.agriva.model.entity.enums.StagedSalaryStatus;
 import com.agriva.repository.*;
 import com.agriva.service.SalaryService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -30,19 +31,24 @@ public class StagedSalaryValidator {
 
     private final StagedSalaryRepository stagedRepo;
     private final PersonnelRepository personnelRepo;
-    private final InvestmentRepository investmentRepo;
     private final SalaryService salaryService;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
 
-    @Value("${agriva.salary.validator.batch-size:100}") private int batchSize;
-    @Value("${agriva.salary.validator.max-attempts:4}") private int maxAttempts;
-    @Value("${agriva.salary.validator.retry-delay-minutes:1}") private long retryDelayMinutes;
+    @Value("${agriva.salary.validator.batch-size:100}")
+    private int batchSize;
+    @Value("${agriva.salary.validator.max-attempts:4}")
+    private int maxAttempts;
+    @Value("${agriva.salary.validator.retry-delay-minutes:1}")
+    private long retryDelayMinutes;
 
     @Scheduled(cron = "${agriva.salary.validator.cron:0 * * * * *}")
     public void processStagedSalaries() {
         List<StagedSalary> due = stagedRepo.findDueForProcessing(
-                LocalDateTime.now(), PageRequest.of(0, batchSize));
+                LocalDateTime.now(),
+                StagedSalaryStatus.PENDING,
+                StagedSalaryStatus.RETRYING,
+                PageRequest.of(0, batchSize));
         if (due.isEmpty()) return;
         log.info("StagedSalaryValidator: {} row(s) due", due.size());
         for (StagedSalary staged : due) {
@@ -70,7 +76,6 @@ public class StagedSalaryValidator {
             stagedRepo.save(staged);
             log.info("Staged salary {} MOVED -> salary {}", staged.getId(), resp.getId());
         } catch (NoActiveInvestmentException | InvestmentLimitExceededException e) {
-            // non-retryable terminal — user must fix investment
             markTerminal(staged, e.getMessage());
         } catch (Exception e) {
             log.error("Staged salary {} threw: {}", staged.getId(), e.getMessage(), e);

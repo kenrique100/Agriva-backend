@@ -1,5 +1,6 @@
 package com.agriva.model.entity;
 
+import com.agriva.model.entity.enums.StagedTaskStatus;
 import jakarta.persistence.*;
 import lombok.*;
 

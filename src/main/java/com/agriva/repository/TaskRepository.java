@@ -1,7 +1,7 @@
 package com.agriva.repository;
 
 import com.agriva.model.entity.Task;
-import com.agriva.model.entity.TaskStatus;
+import com.agriva.model.entity.enums.TaskStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;

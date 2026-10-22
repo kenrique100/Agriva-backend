@@ -1,7 +1,7 @@
 package com.agriva.model.dto.personnel;
 
-import com.agriva.model.entity.Department;
-import com.agriva.model.entity.Gender;
+import com.agriva.model.entity.enums.Department;
+import com.agriva.model.entity.enums.Gender;
 import jakarta.validation.constraints.*;
 import lombok.Data;
 
