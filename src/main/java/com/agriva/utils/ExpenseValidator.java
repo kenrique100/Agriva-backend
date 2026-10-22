@@ -21,6 +21,12 @@ public class ExpenseValidator {
         List<String> errors = new ArrayList<>();
         if (request == null) return List.of("Request payload is empty");
 
+        if (request.getQtyPurchased() < 1) {
+            errors.add("Quantity must be at least 1");
+        }
+        if (request.getExpectedAmount() == null || request.getExpectedAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            errors.add("Expected amount must be positive");
+        }
         if (request.getAmountPaid() == null || request.getAmountPaid().compareTo(BigDecimal.ZERO) <= 0) {
             errors.add("Amount paid must be positive");
         }
