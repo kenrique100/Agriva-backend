@@ -8,6 +8,8 @@ import com.agriva.model.dto.auth.*;
 import com.agriva.model.dto.farm.FarmDetailsResponse;
 import com.agriva.model.dto.farm.FarmListResponse;
 import com.agriva.model.entity.*;
+import com.agriva.model.entity.enums.Department;
+import com.agriva.model.entity.enums.PersonnelStatus;
 import com.agriva.repository.*;
 import com.agriva.security.JwtUtil;
 import com.agriva.security.RoleConstants;

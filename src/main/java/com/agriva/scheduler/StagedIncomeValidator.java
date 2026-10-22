@@ -64,17 +64,17 @@ public class StagedIncomeValidator {
     }
 
     private void processOne(UUID stagedId) {
-        StagedIncome locked = stagedRepo.findByIdForUpdate(stagedId).orElse(null);
-        if (locked == null) {
+        // FIX: renamed `locked` to `staged` so the rest of the method compiles cleanly
+        StagedIncome staged = stagedRepo.findByIdForUpdate(stagedId).orElse(null);
+        if (staged == null) {
             return;
         }
 
         LocalDateTime now = LocalDateTime.now();
-        if (!isDueForProcessing(locked, now)) {
+        if (!isDueForProcessing(staged, now)) {
             return;
         }
 
-        staged = locked;
         staged.setLastAttemptAt(now);
         try {
             IncomeRequest request =

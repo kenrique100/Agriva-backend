@@ -1,6 +1,6 @@
 package com.agriva.model.dto.auth;
 
-import com.agriva.model.entity.Gender;
+import com.agriva.model.entity.enums.Gender;
 import jakarta.validation.constraints.*;
 import lombok.Data;
 

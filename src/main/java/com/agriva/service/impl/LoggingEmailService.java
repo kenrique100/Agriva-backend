@@ -3,12 +3,22 @@ package com.agriva.service.impl;
 import com.agriva.service.EmailService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Profile;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
+/**
+ * Default EmailService — active whenever {@link SmtpEmailService} is not.
+ * <p>
+ * Writes password-reset links to the application log so that dev, test
+ * and docker environments work end-to-end without an SMTP server.
+ */
 @Service
-@Profile({"dev", "test"})
 @Slf4j
+@ConditionalOnProperty(
+        name = "agriva.mail.enabled",
+        havingValue = "false",
+        matchIfMissing = true
+)
 public class LoggingEmailService implements EmailService {
 
     @Value("${agriva.app.frontend-url:http://localhost:3000}")

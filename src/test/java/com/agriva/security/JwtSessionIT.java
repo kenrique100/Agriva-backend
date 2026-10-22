@@ -3,7 +3,7 @@ package com.agriva.security;
 import com.agriva.TestcontainersConfiguration;
 import com.agriva.model.dto.auth.LoginRequest;
 import com.agriva.model.dto.auth.MasterRegisterRequest;
-import com.agriva.model.entity.Gender;
+import com.agriva.model.entity.enums.Gender;
 import com.agriva.service.AuthService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
