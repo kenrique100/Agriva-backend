@@ -3,6 +3,8 @@ package com.agriva.repository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 @Repository
@@ -19,9 +21,9 @@ public class DashboardQueryRepositoryImpl implements DashboardQueryRepository {
                 incomeRepo.countByFarmId(farmId),
                 expenseRepo.countByFarmId(farmId),
                 investmentRepo.countByFarmId(farmId),
-                incomeRepo.sumAmountByFarmIdOrZero(farmId),
-                expenseRepo.sumAmountByFarmIdOrZero(farmId),
-                investmentRepo.sumAmountByFarmIdOrZero(farmId)
+                sumSingleCurrencyOrNull(incomeRepo.sumAmountGroupedByCurrency(farmId)),
+                sumSingleCurrencyOrNull(expenseRepo.sumAmountGroupedByCurrency(farmId)),
+                sumSingleCurrencyOrNull(investmentRepo.sumAmountGroupedByCurrency(farmId))
         );
     }
 
@@ -31,9 +33,19 @@ public class DashboardQueryRepositoryImpl implements DashboardQueryRepository {
                 incomeRepo.countByFarmIdAndCreatedByUserId(farmId, userId),
                 expenseRepo.countByFarmIdAndCreatedByUserId(farmId, userId),
                 investmentRepo.countByFarmIdAndCreatedByUserId(farmId, userId),
-                incomeRepo.sumAmountByFarmIdAndUserOrZero(farmId, userId),
-                expenseRepo.sumAmountByFarmIdAndUserOrZero(farmId, userId),
-                investmentRepo.sumAmountByFarmIdAndUserOrZero(farmId, userId)
+                sumSingleCurrencyOrNull(incomeRepo.sumAmountGroupedByCurrencyAndCreatedByUserId(farmId, userId)),
+                sumSingleCurrencyOrNull(expenseRepo.sumAmountGroupedByCurrencyAndCreatedByUserId(farmId, userId)),
+                sumSingleCurrencyOrNull(investmentRepo.sumAmountGroupedByCurrencyAndCreatedByUserId(farmId, userId))
         );
+    }
+
+    private BigDecimal sumSingleCurrencyOrNull(List<Object[]> sumsByCurrency) {
+        if (sumsByCurrency == null || sumsByCurrency.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        if (sumsByCurrency.size() > 1) {
+            return null;
+        }
+        return (BigDecimal) sumsByCurrency.get(0)[1];
     }
 }

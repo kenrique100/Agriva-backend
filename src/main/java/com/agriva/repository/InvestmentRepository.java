@@ -39,6 +39,15 @@ public interface InvestmentRepository extends JpaRepository<Investment, UUID> {
     BigDecimal sumAmountByFarmIdAndCreatedByUserId(@Param("farmId") UUID farmId,
                                                    @Param("userId") UUID userId);
 
+    @Query("SELECT i.currency, SUM(i.amount) FROM Investment i " +
+            "WHERE i.farmId = :farmId GROUP BY i.currency")
+    List<Object[]> sumAmountGroupedByCurrency(@Param("farmId") UUID farmId);
+
+    @Query("SELECT i.currency, SUM(i.amount) FROM Investment i " +
+            "WHERE i.farmId = :farmId AND i.createdByUserId = :userId GROUP BY i.currency")
+    List<Object[]> sumAmountGroupedByCurrencyAndCreatedByUserId(@Param("farmId") UUID farmId,
+                                                                @Param("userId") UUID userId);
+
     default BigDecimal sumAmountByFarmIdOrZero(UUID farmId) {
         BigDecimal v = sumAmountByFarmId(farmId);
         return v == null ? BigDecimal.ZERO : v;

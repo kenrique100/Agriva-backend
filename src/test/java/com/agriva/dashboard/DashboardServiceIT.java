@@ -4,6 +4,7 @@ import com.agriva.TestcontainersConfiguration;
 import com.agriva.model.dto.auth.*;
 import com.agriva.model.dto.dashboard.DashboardResponse;
 import com.agriva.model.dto.investment.InvestmentRequest;
+import com.agriva.model.entity.enums.Currency;
 import com.agriva.repository.*;
 import com.agriva.service.AuthService;
 import com.agriva.service.DashboardService;
@@ -92,5 +93,21 @@ class DashboardServiceIT {
         assertThat(resp.getFarm()).isNotNull();
         assertThat(resp.getUsers()).hasSize(2);
         assertThat(resp.getTransactions()).isNotNull();
+    }
+
+    @Test
+    void master_dashboard_setsTotalsToNullWhenCategoryHasMixedCurrencies() {
+        InvestmentRequest inv = new InvestmentRequest();
+        inv.setAmount(new BigDecimal("1200"));
+        inv.setCurrency(Currency.USD);
+        inv.setInvestorName("Fund B");
+        inv.setInvestmentDate(LocalDate.now().minusDays(2));
+        investmentService.createInvestment(inv, farmId, masterId);
+
+        DashboardResponse resp = dashboardService.personalDashboard(masterId, farmId, "MASTER");
+
+        assertThat(resp.getFarm()).isNotNull();
+        assertThat(resp.getFarm().getTotalInvestment()).isNull();
+        assertThat(resp.getFarm().getNetPosition()).isNull();
     }
 }

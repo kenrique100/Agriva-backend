@@ -49,6 +49,15 @@ public interface IncomeRepository extends JpaRepository<Income, UUID> {
             "WHERE i.farmId = :farmId GROUP BY i.createdByUserId")
     List<Object[]> sumAmountGroupedByUser(@Param("farmId") UUID farmId);
 
+    @Query("SELECT i.currency, SUM(i.amountReceived) FROM Income i " +
+            "WHERE i.farmId = :farmId GROUP BY i.currency")
+    List<Object[]> sumAmountGroupedByCurrency(@Param("farmId") UUID farmId);
+
+    @Query("SELECT i.currency, SUM(i.amountReceived) FROM Income i " +
+            "WHERE i.farmId = :farmId AND i.createdByUserId = :userId GROUP BY i.currency")
+    List<Object[]> sumAmountGroupedByCurrencyAndCreatedByUserId(@Param("farmId") UUID farmId,
+                                                                @Param("userId") UUID userId);
+
     default BigDecimal sumAmountByFarmIdOrZero(UUID farmId) {
         BigDecimal v = sumAmountByFarmId(farmId);
         return v == null ? BigDecimal.ZERO : v;

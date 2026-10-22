@@ -323,13 +323,17 @@ public class DashboardServiceImpl implements DashboardService {
                                               boolean canSeeInvestments) {
         if (src == null) return null;
 
-        BigDecimal netPosition = canSeeInvestments
+        boolean hasMixedCurrencyTotals = src.totalIncome() == null
+                || src.totalExpense() == null
+                || src.totalInvestment() == null;
+
+        BigDecimal netPosition = canSeeInvestments && !hasMixedCurrencyTotals
                 ? src.totalIncome().subtract(src.totalExpense()).subtract(src.totalInvestment())
                 : null;
 
         BigDecimal netGain = null;
         BigDecimal netLoss = null;
-        if (canSeeInvestments) {
+        if (canSeeInvestments && netPosition != null) {
             netGain = netPosition.signum() > 0 ? netPosition : BigDecimal.ZERO;
             netLoss = netPosition.signum() < 0 ? netPosition.abs() : BigDecimal.ZERO;
         }
