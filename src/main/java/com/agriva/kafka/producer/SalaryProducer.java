@@ -25,6 +25,6 @@ public class SalaryProducer {
                             event.getSubmissionId(),
                             r.getRecordMetadata().partition(),
                             r.getRecordMetadata().offset());
-                });
+                }).join();
     }
 }
