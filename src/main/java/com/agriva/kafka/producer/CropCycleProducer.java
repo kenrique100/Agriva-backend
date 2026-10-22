@@ -15,6 +15,6 @@ public class CropCycleProducer {
         kafkaTemplate.send(CropKafkaConfig.STAGING_TOPIC, key, event)
                 .whenComplete((r, ex) -> {
                     if (ex != null) log.error("Failed to publish crop cycle {}", event.getSubmissionId());
-                });
+                }).join();
     }
 }
