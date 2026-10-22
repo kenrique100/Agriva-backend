@@ -3,9 +3,11 @@ package com.agriva.service.impl;
 import com.agriva.service.EmailService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
 @Service
+@Profile({"dev", "test"})
 @Slf4j
 public class LoggingEmailService implements EmailService {
 
