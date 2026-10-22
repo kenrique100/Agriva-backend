@@ -4,7 +4,7 @@ import com.agriva.model.dto.expense.ExpenseRequest;
 import com.agriva.model.entity.Expense;
 import com.agriva.model.entity.Investment;
 import com.agriva.model.entity.StagedExpense;
-import com.agriva.model.entity.StagedExpenseStatus;
+import com.agriva.model.entity.enums.StagedExpenseStatus;
 import com.agriva.repository.ExpenseRepository;
 import com.agriva.repository.InvestmentRepository;
 import com.agriva.repository.StagedExpenseRepository;
@@ -47,9 +47,11 @@ public class StagedExpenseValidator {
 
     @Scheduled(cron = "${agriva.expense.validator.cron:0 * * * * *}")
     public void processStagedExpenses() {
-        List<StagedExpense> due =
-                stagedRepo.findDueForProcessing(LocalDateTime.now(),
-                        PageRequest.of(0, batchSize));
+        List<StagedExpense> due = stagedRepo.findDueForProcessing(
+                LocalDateTime.now(),
+                StagedExpenseStatus.PENDING,
+                StagedExpenseStatus.RETRYING,
+                PageRequest.of(0, batchSize));
 
         if (due.isEmpty()) return;
 
@@ -65,24 +67,20 @@ public class StagedExpenseValidator {
 
     private void processOne(StagedExpense staged) {
         staged.setLastAttemptAt(LocalDateTime.now());
-
         try {
             ExpenseRequest request =
                     objectMapper.readValue(staged.getPayloadJson(), ExpenseRequest.class);
 
-            // 1) Field-level validation (existing behavior)
             List<String> errors = expenseValidator.validate(request, staged.getFarmId());
             if (!errors.isEmpty()) {
                 onFailure(staged, errors);
                 return;
             }
 
-            // 2) Active-investment enforcement
             Investment active = investmentRepo.findActiveForUpdate(staged.getFarmId())
                     .orElse(null);
 
             if (active == null) {
-                // Terminal failure — user must create & activate a new investment.
                 markTerminal(staged, "No active investment for this farm. "
                         + "Create and activate an investment before recording expenses.");
                 return;
@@ -97,12 +95,11 @@ public class StagedExpenseValidator {
                 markTerminal(staged, String.format(
                         "Investment limit exceeded. Remaining balance: %s %s. "
                                 + "Expense amount paid: %s %s.",
-                        remaining.toPlainString(), active.getCurrency().name(),
-                        request.getAmountPaid().toPlainString(), request.getCurrency().name()));
+                        remaining.toPlainString(), active.getCurrency(),
+                        request.getAmountPaid().toPlainString(), request.getCurrency()));
                 return;
             }
 
-            // 3) Build + link + persist
             Expense expense = Expense.builder()
                     .farmId(staged.getFarmId())
                     .transactionId(request.getTransactionId())
@@ -138,10 +135,6 @@ public class StagedExpenseValidator {
         }
     }
 
-    /**
-     * Fail immediately — no retry. Used when retrying cannot resolve the issue
-     * (no active investment, budget exhausted).
-     */
     private void markTerminal(StagedExpense staged, String message) {
         staged.setRetryCount((staged.getRetryCount() == null ? 0 : staged.getRetryCount()) + 1);
         staged.setValidationErrors(truncate(message));

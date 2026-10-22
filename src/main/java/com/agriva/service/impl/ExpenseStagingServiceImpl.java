@@ -2,7 +2,7 @@ package com.agriva.service.impl;
 
 import com.agriva.model.dto.expense.ExpenseSubmissionEvent;
 import com.agriva.model.entity.StagedExpense;
-import com.agriva.model.entity.StagedExpenseStatus;
+import com.agriva.model.entity.enums.StagedExpenseStatus;
 import com.agriva.repository.StagedExpenseRepository;
 import com.agriva.service.ExpenseStagingService;
 import lombok.RequiredArgsConstructor;

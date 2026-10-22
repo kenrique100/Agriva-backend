@@ -1,5 +1,6 @@
 package com.agriva.model.entity;
 
+import com.agriva.model.entity.enums.Currency;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;

@@ -2,7 +2,7 @@ package com.agriva.utils;
 
 import com.agriva.exception.BusinessException;
 import com.agriva.model.entity.Personnel;
-import com.agriva.model.entity.PersonnelStatus;
+import com.agriva.model.entity.enums.PersonnelStatus;
 import org.springframework.stereotype.Component;
 
 @Component

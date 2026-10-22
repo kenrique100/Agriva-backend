@@ -2,7 +2,7 @@ package com.agriva.service.impl;
 
 import com.agriva.model.dto.salary.SalarySubmissionEvent;
 import com.agriva.model.entity.StagedSalary;
-import com.agriva.model.entity.StagedSalaryStatus;
+import com.agriva.model.entity.enums.StagedSalaryStatus;
 import com.agriva.repository.StagedSalaryRepository;
 import com.agriva.service.SalaryStagingService;
 import lombok.RequiredArgsConstructor;

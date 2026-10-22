@@ -1,5 +1,7 @@
 package com.agriva.model.entity;
 
+import com.agriva.model.entity.enums.Currency;
+import com.agriva.model.entity.enums.IncomeCategory;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;

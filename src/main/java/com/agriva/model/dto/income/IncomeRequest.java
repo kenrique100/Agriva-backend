@@ -1,7 +1,7 @@
 package com.agriva.model.dto.income;
 
-import com.agriva.model.entity.Currency;
-import com.agriva.model.entity.IncomeCategory;
+import com.agriva.model.entity.enums.Currency;
+import com.agriva.model.entity.enums.IncomeCategory;
 import jakarta.validation.constraints.*;
 import lombok.Data;
 

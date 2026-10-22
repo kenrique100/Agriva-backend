@@ -7,7 +7,7 @@ import com.agriva.mapper.IncomeMapper;
 import com.agriva.model.dto.income.*;
 import com.agriva.model.entity.Income;
 import com.agriva.model.entity.StagedIncome;
-import com.agriva.model.entity.StagedIncomeStatus;
+import com.agriva.model.entity.enums.StagedIncomeStatus;
 import com.agriva.model.entity.User;
 import com.agriva.repository.AuthRepository;
 import com.agriva.repository.IncomeRepository;

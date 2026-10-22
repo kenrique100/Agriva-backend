@@ -1,6 +1,6 @@
 package com.agriva.model.dto.salary;
 
-import com.agriva.model.entity.SalaryPaymentStatus;
+import com.agriva.model.entity.enums.SalaryPaymentStatus;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;

@@ -1,6 +1,6 @@
 package com.agriva.model.dto.investment;
 
-import com.agriva.model.entity.Currency;
+import com.agriva.model.entity.enums.Currency;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;

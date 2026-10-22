@@ -8,6 +8,8 @@ import com.agriva.model.dto.auth.MasterRegisterRequest;
 import com.agriva.model.dto.auth.SubUserRegisterRequest;
 import com.agriva.model.dto.task.*;
 import com.agriva.model.entity.*;
+import com.agriva.model.entity.enums.Gender;
+import com.agriva.model.entity.enums.TaskStatus;
 import com.agriva.repository.*;
 import com.agriva.service.AuthService;
 import com.agriva.service.TaskService;

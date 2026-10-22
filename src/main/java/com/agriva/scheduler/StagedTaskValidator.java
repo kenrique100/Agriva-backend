@@ -2,6 +2,8 @@ package com.agriva.scheduler;
 
 import com.agriva.model.dto.task.TaskCreateRequest;
 import com.agriva.model.entity.*;
+import com.agriva.model.entity.enums.StagedTaskStatus;
+import com.agriva.model.entity.enums.TaskStatus;
 import com.agriva.repository.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -41,7 +43,10 @@ public class StagedTaskValidator {
     @Scheduled(cron = "${agriva.task.validator.cron:0 * * * * *}")
     public void processStagedTasks() {
         List<StagedTask> due = stagedRepo.findDueForProcessing(
-                LocalDateTime.now(), PageRequest.of(0, batchSize));
+                LocalDateTime.now(),
+                StagedTaskStatus.PENDING,
+                StagedTaskStatus.RETRYING,
+                PageRequest.of(0, batchSize));
         if (due.isEmpty()) return;
 
         log.info("StagedTaskValidator: {} row(s) due for processing", due.size());
@@ -59,7 +64,6 @@ public class StagedTaskValidator {
             TaskCreateRequest request = objectMapper.readValue(
                     staged.getPayloadJson(), TaskCreateRequest.class);
 
-            // Validation
             String error = validate(request, staged.getFarmId());
             if (error != null) {
                 onFailure(staged, List.of(error));

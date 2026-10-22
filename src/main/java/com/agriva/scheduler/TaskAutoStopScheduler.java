@@ -1,7 +1,7 @@
 package com.agriva.scheduler;
 
 import com.agriva.model.entity.Task;
-import com.agriva.model.entity.TaskStatus;
+import com.agriva.model.entity.enums.TaskStatus;
 import com.agriva.repository.TaskRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
