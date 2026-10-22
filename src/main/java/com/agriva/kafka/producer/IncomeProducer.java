@@ -40,6 +40,6 @@ public class IncomeProducer {
                         result.getRecordMetadata().partition(),
                         result.getRecordMetadata().offset());
             }
-        });
+        }).join();
     }
 }
