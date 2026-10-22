@@ -26,6 +26,6 @@ public class TaskProducer {
                             event.getSubmissionId(),
                             r.getRecordMetadata().partition(),
                             r.getRecordMetadata().offset());
-                });
+                }).join();
     }
 }
