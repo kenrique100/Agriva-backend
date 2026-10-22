@@ -39,9 +39,7 @@ public class StagedCropCycleValidator {
         for (StagedCropCycle s : due) {
             UUID stagedId = s.getId();
             txTemplate.execute(status -> {
-                stagedRepo.findByIdForUpdate(stagedId)
-                        .filter(this::isProcessableStatus)
-                        .ifPresent(this::processOne);
+                processOne(stagedId);
                 return null;
             });
         }
@@ -53,7 +51,12 @@ public class StagedCropCycleValidator {
                 && (stagedCropCycle.getNextRetryAt() == null || !stagedCropCycle.getNextRetryAt().isAfter(LocalDateTime.now()));
     }
 
-    private void processOne(StagedCropCycle s) {
+    private void processOne(UUID stagedId) {
+        StagedCropCycle s = stagedRepo.findByIdForUpdate(stagedId)
+                .filter(this::isProcessableStatus)
+                .orElse(null);
+        if (s == null) return;
+
         s.setLastAttemptAt(LocalDateTime.now());
         try {
             CropCycleRequest req = objectMapper.readValue(s.getPayloadJson(), CropCycleRequest.class);
