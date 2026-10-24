@@ -27,7 +27,6 @@ public interface ExpenseRepository extends JpaRepository<Expense, UUID> {
 
     List<Expense> findByTransactionId(UUID transactionId);
 
-    // FIX: batched lookup used by DashboardServiceImpl (was mistakenly on the service)
     List<Expense> findByTransactionIdIn(Collection<UUID> transactionIds);
 
     boolean existsByFarmIdAndReceipt(UUID farmId, String receipt);

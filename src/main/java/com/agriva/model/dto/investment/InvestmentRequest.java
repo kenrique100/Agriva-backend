@@ -16,7 +16,6 @@ public class InvestmentRequest {
     @Digits(integer = 15, fraction = 4, message = "Amount must have at most 15 integer digits and 4 decimals")
     private BigDecimal amount;
 
-    // FIX: enum for proper validation and to match Income/Expense
     @NotNull(message = "Currency is required")
     private Currency currency = Currency.USD;
 

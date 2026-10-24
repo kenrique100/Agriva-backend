@@ -36,7 +36,6 @@ public interface TaskRepository extends JpaRepository<Task, UUID> {
     @EntityGraph(attributePaths = {"personnel"})
     Page<Task> findByFarmIdAndStatus(UUID farmId, TaskStatus status, Pageable pageable);
 
-    // Also (used by taskService.action / validate / get):
     @EntityGraph(attributePaths = {"personnel"})
     Optional<Task> findByIdAndFarmId(UUID id, UUID farmId);
 

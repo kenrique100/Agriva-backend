@@ -1,5 +1,6 @@
 package com.agriva.model.dto.auth;
 
+import com.agriva.model.entity.enums.Department;
 import com.agriva.model.entity.enums.Gender;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.*;
@@ -46,5 +47,5 @@ public class SubUserRegisterRequest {
     private String address;
 
     @Schema(description = "Department for the new sub-user")
-    private com.agriva.model.entity.enums.Department department;
+    private Department department;
 }

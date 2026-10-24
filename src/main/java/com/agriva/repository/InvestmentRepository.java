@@ -25,7 +25,6 @@ public interface InvestmentRepository extends JpaRepository<Investment, UUID> {
 
     List<Investment> findByTransactionId(UUID transactionId);
 
-    // FIX: batched lookup used by DashboardServiceImpl (was mistakenly on the service)
     List<Investment> findByTransactionIdIn(Collection<UUID> transactionIds);
 
     long countByFarmId(UUID farmId);

@@ -42,7 +42,6 @@ public interface PersonnelRepository extends JpaRepository<Personnel, UUID> {
 
     List<Personnel> findByFarmIdAndStatus(UUID farmId, PersonnelStatus status);
 
-    /** FIX: used by TaskServiceImpl.updateDailyProductivity / resetProductivityMetrics. */
     List<Personnel> findByStatus(PersonnelStatus status);
 
     void deleteByUserId(UUID userId);

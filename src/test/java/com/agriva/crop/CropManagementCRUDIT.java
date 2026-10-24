@@ -28,10 +28,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Synchronous CRUD for the Crop Management module.
- *
+ * <p>
  * Covers: fields, crops, cycles, activities, harvests — plus every
  * validation branch in CropManagementServiceImpl.
- *
+ * <p>
  * No Kafka involved; every assertion here exercises the request-response
  * path directly.
  */

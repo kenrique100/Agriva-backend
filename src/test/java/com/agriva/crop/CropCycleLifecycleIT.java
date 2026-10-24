@@ -26,10 +26,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Cycle state machine + harvest wiring.
- *
+ * <p>
  * PLANNED/PLANTED -> GROWING -> HARVESTED
  * PLANNED/PLANTED -> GROWING -> FAILED
- *
+ * <p>
  * Asserts both the returned DTO and the persisted entity.
  */
 @SpringBootTest

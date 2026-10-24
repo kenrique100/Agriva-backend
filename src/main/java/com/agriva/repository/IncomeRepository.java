@@ -27,7 +27,6 @@ public interface IncomeRepository extends JpaRepository<Income, UUID> {
 
     List<Income> findByTransactionId(UUID transactionId);
 
-    // FIX: batched lookup used by DashboardServiceImpl (was mistakenly on the service)
     List<Income> findByTransactionIdIn(Collection<UUID> transactionIds);
 
     List<Income> findByFarmIdAndTransactionIdIsNull(UUID farmId);

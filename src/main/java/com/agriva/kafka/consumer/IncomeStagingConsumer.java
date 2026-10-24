@@ -21,7 +21,6 @@ public class IncomeStagingConsumer {
     @KafkaListener(
             topics = IncomeKafkaConfig.STAGING_TOPIC,
             groupId = IncomeKafkaConfig.STAGING_CONSUMER_GROUP,
-            // FIX: was "kafkaListenerContainerFactory" (BeanNotFoundException at runtime)
             containerFactory = "incomeKafkaListenerContainerFactory"
     )
     public void onIncomeSubmitted(

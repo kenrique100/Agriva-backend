@@ -21,9 +21,6 @@ public class PersonnelValidator {
 
     private final PersonnelRepository personnelRepository;
 
-    // validateCreation(...) removed — Personnel is no longer created
-    // from a request body.
-
     public void validateUpdate(Personnel p, PersonnelUpdateRequest req) {
         if (req.getDateOfBirth() != null &&
                 Period.between(req.getDateOfBirth(), LocalDate.now()).getYears() < 18) {

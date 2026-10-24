@@ -12,9 +12,6 @@ ALTER TABLE personnel
     ALTER COLUMN total_hours_worked_last_30_days
         SET NOT NULL;
 
--- ---------------------------------------------------------------------
--- 2. investment.activated_at: TIMESTAMP -> TIMESTAMP
--- ---------------------------------------------------------------------
 ALTER TABLE investment
 ALTER COLUMN activated_at
         TYPE timestamp
