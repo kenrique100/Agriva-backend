@@ -1,16 +1,26 @@
 package com.agriva.repository;
 
 import com.agriva.model.entity.CropCycle;
-import com.agriva.model.entity.enums.CropCycleStatus;
-import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.EntityGraph;
-import java.util.*;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+@Repository
 public interface CropCycleRepository extends JpaRepository<CropCycle, UUID> {
-    @EntityGraph(attributePaths = {"field", "crop"})
-    List<CropCycle> findByFarmId(UUID farmId);
 
     @EntityGraph(attributePaths = {"field", "crop"})
-    Optional<CropCycle> findByIdAndFarmId(UUID id, UUID farmId);
+    @Query("SELECT c FROM CropCycle c WHERE c.farmId = :farmId AND c.deletedAt IS NULL")
+    List<CropCycle> findByFarmIdLive(@Param("farmId") UUID farmId);
 
-    List<CropCycle> findByFarmIdAndStatus(UUID farmId, CropCycleStatus status);
+    @EntityGraph(attributePaths = {"field", "crop"})
+    @Query("SELECT c FROM CropCycle c WHERE c.id = :id AND c.farmId = :farmId " +
+            "AND c.deletedAt IS NULL")
+    Optional<CropCycle> findByIdAndFarmIdLive(@Param("id") UUID id,
+                                              @Param("farmId") UUID farmId);
 }

@@ -1,17 +1,17 @@
 package com.agriva.controller;
 
-import com.agriva.model.dto.auth.TokenValidationResponse;
+import com.agriva.model.dto.common.PageResponse;
 import com.agriva.model.dto.transaction.*;
-import com.agriva.service.AuthService;
+import com.agriva.security.AuthenticatedUser;
 import com.agriva.service.TransactionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -24,72 +24,64 @@ import java.util.UUID;
 public class TransactionController {
 
     private final TransactionService transactionService;
-    private final AuthService authService;
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ResponseEntity<TransactionResponse> create(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @Valid @RequestBody TransactionRequest request) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
         return ResponseEntity.status(HttpStatus.CREATED).body(
-                transactionService.create(request, token.getFarmId(), token.getUserId()));
+                transactionService.create(request, u.farmId(), u.userId()));
     }
 
     @GetMapping
-    public ResponseEntity<Page<TransactionResponse>> list(
-            @RequestHeader("Authorization") String authHeader,
+    public ResponseEntity<PageResponse<TransactionResponse>> list(
+            @AuthenticationPrincipal AuthenticatedUser u,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        return ResponseEntity.ok(transactionService.list(
-                token.getFarmId(),
-                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "occurredAt"))));
+        return ResponseEntity.ok(PageResponse.of(transactionService.list(
+                u.farmId(),
+                PageRequest.of(page, Math.min(size, 100),
+                        Sort.by(Sort.Direction.DESC, "occurredAt")))));
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<TransactionResponse> getOne(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        return ResponseEntity.ok(transactionService.get(id, token.getFarmId()));
+        return ResponseEntity.ok(transactionService.get(id, u.farmId()));
     }
 
     @PutMapping("/{id}")
     public ResponseEntity<TransactionResponse> update(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id,
             @Valid @RequestBody TransactionRequest request) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        return ResponseEntity.ok(transactionService.update(id, request, token.getFarmId()));
+        return ResponseEntity.ok(transactionService.update(id, request, u.farmId()));
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public ResponseEntity<Void> delete(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        transactionService.delete(id, token.getFarmId());
+        transactionService.delete(id, u.farmId());
         return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/{id}/summary")
     public ResponseEntity<TransactionSummaryResponse> summary(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        return ResponseEntity.ok(transactionService.summary(id, token.getFarmId()));
+        return ResponseEntity.ok(transactionService.summary(id, u.farmId()));
     }
 
     @PostMapping("/backfill/from-income")
     public ResponseEntity<Map<String, Object>> backfillFromIncome(
-            @RequestHeader("Authorization") String authHeader) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        int created = transactionService.backfillFromIncome(
-                token.getFarmId(), token.getUserId());
+            @AuthenticationPrincipal AuthenticatedUser u) {
+        int created = transactionService.backfillFromIncome(u.farmId(), u.userId());
         return ResponseEntity.ok(Map.of(
-                "farmId", token.getFarmId(),
+                "farmId", u.farmId(),
                 "transactionsCreated", created
         ));
     }

@@ -2,6 +2,7 @@ package com.agriva.service.impl;
 
 import com.agriva.exception.BusinessException;
 import com.agriva.exception.InvalidCredentialsException;
+import com.agriva.exception.InvalidTokenException;
 import com.agriva.mapper.FarmMapper;
 import com.agriva.mapper.UserMapper;
 import com.agriva.model.dto.auth.*;
@@ -11,26 +12,26 @@ import com.agriva.model.entity.*;
 import com.agriva.model.entity.enums.Department;
 import com.agriva.model.entity.enums.PersonnelStatus;
 import com.agriva.repository.*;
+import com.agriva.security.AuthenticatedUser;
 import com.agriva.security.JwtUtil;
 import com.agriva.security.RoleConstants;
 import com.agriva.service.AuthService;
 import com.agriva.service.PasswordResetService;
+import com.agriva.service.RefreshTokenService;
 import com.agriva.service.TokenBlacklistService;
 import com.agriva.utils.PasswordValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -47,6 +48,7 @@ public class AuthServiceImpl implements AuthService {
     private final PersonnelStatusHistoryRepository personnelStatusHistoryRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final RefreshTokenService refreshTokenService;
     private final PasswordResetService passwordResetService;
     private final TokenBlacklistService tokenBlacklistService;
     private final UserMapper userMapper;
@@ -58,53 +60,88 @@ public class AuthServiceImpl implements AuthService {
     @Value("${agriva.security.password-reset.ttl-seconds:900}")
     private long resetTokenTtlSeconds;
 
+    /**
+     * S7: returns the full AuthResponse (token + details) so the controller
+     * does not need a second DB call to getUserDetails.
+     * S8: timing-safe — always runs one BCrypt comparison.
+     */
     @Override
-    public String login(LoginRequest request) {
-        User user = authRepository.findByEmailOrUsername(
-                        request.getEmailOrUsername(), request.getEmailOrUsername())
-                .orElseThrow(() -> new InvalidCredentialsException("Invalid credentials"));
+    public AuthResponse login(LoginRequest request) {
+        Optional<User> userOpt = authRepository.findByEmailOrUsernameLive(
+                request.getEmailOrUsername(), request.getEmailOrUsername());
 
-        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+        // Dummy hash keeps the failure path timing constant.
+        String storedHash = userOpt.map(User::getPassword).orElse(
+                "$2a$12$C6UzMDM.H6dfI/f/IKcEeO7ZBvnpCL6VgIi89oBW3eZ6y2r6WJZWi"); // bcrypt of garbage
+        boolean matches = passwordEncoder.matches(request.getPassword(), storedHash);
+
+        if (userOpt.isEmpty() || !matches) {
             log.warn("Failed login attempt for {}", request.getEmailOrUsername());
             throw new InvalidCredentialsException("Invalid credentials");
         }
-        log.info("Successful login for {} with role {}", user.getEmail(), user.getRole());
-        return jwtUtil.generateToken(user);
-    }
 
-    @Override
-    public UserDetails getUserDetails(String emailOrUsername) {
-        User user = authRepository.findByEmailOrUsername(emailOrUsername, emailOrUsername)
-                .orElseThrow(() -> new BusinessException("User not found"));
+        User user = userOpt.get();
+        String farmName = user.getFarmId() != null
+                ? farmRepository.findById(user.getFarmId()).map(Farm::getName).orElse(null)
+                : null;
 
-        String farmName = null;
-        if (user.getFarmId() != null) {
-            farmName = farmRepository.findById(user.getFarmId())
-                    .map(Farm::getName)
-                    .orElse(null);
-        }
-        return new UserDetails(
+        String jti = UUID.randomUUID().toString();
+        String accessToken = jwtUtil.generateToken(user, jti);
+        String refreshToken = refreshTokenService.issue(user.getId());
+
+        log.info("Successful login for {} role={}", user.getEmail(), user.getRole());
+
+        return new AuthResponse(
+                accessToken, refreshToken, jwtUtil.getAccessTtlSeconds(),
                 user.getEmail(), user.getUsername(), user.getRole(),
                 user.getFarmId(), farmName, user.getPreferredCurrency());
     }
 
     @Override
-    public TokenValidationResponse validateToken(String authHeader) {
-        String token = stripBearer(authHeader);
-        if (!jwtUtil.validateToken(token)) {
-            throw new InvalidCredentialsException("Invalid token");
+    public AuthResponse refresh(String refreshToken) {
+        UUID userId = refreshTokenService.consumeAndRotate(refreshToken);
+        User user = authRepository.findByIdLive(userId)
+                .orElseThrow(() -> new InvalidTokenException("Refresh token refers to a deleted user"));
+
+        String farmName = user.getFarmId() != null
+                ? farmRepository.findById(user.getFarmId()).map(Farm::getName).orElse(null)
+                : null;
+
+        String jti = UUID.randomUUID().toString();
+        String newAccess = jwtUtil.generateToken(user, jti);
+        String newRefresh = refreshTokenService.issue(user.getId());
+
+        return new AuthResponse(
+                newAccess, newRefresh, jwtUtil.getAccessTtlSeconds(),
+                user.getEmail(), user.getUsername(), user.getRole(),
+                user.getFarmId(), farmName, user.getPreferredCurrency());
+    }
+
+    @Override
+    public AuthenticatedUserInfo whoAmI() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !(auth.getPrincipal() instanceof AuthenticatedUser u)) {
+            throw new InvalidCredentialsException("Not authenticated");
         }
-        UUID userId = jwtUtil.extractUserId(token);
-        String username = userId == null ? null
-                : authRepository.findById(userId).map(User::getUsername).orElse(null);
-        return new TokenValidationResponse(
-                userId, jwtUtil.extractFarmId(token),
-                jwtUtil.extractRole(token), username);
+        return new AuthenticatedUserInfo(u.userId(), u.farmId(), u.email(), u.username(), u.role());
     }
 
     @Override
     public void logout(String authHeader) {
-        tokenBlacklistService.blacklist(stripBearer(authHeader));
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            throw new InvalidCredentialsException("Missing or invalid Authorization header");
+        }
+        String token = authHeader.substring(7);
+        String jti = jwtUtil.extractJti(token);
+        long ttl = jwtUtil.getSecondsUntilExpiry(token);
+        if (jti != null && ttl > 0) {
+            tokenBlacklistService.blacklist(jti, ttl);
+        }
+        // Also revoke refresh tokens so the session cannot be resurrected.
+        UUID userId = jwtUtil.extractUserId(token);
+        if (userId != null) {
+            refreshTokenService.revokeAllForUser(userId);
+        }
     }
 
     @Override
@@ -117,7 +154,7 @@ public class AuthServiceImpl implements AuthService {
         if (request.getDateOfBirth().plusYears(18).isAfter(LocalDate.now())) {
             throw new BusinessException("Master user must be at least 18 years old.");
         }
-        if (farmRepository.existsByName(request.getFarmName())) {
+        if (farmRepository.existsByNameLive(request.getFarmName())) {
             throw new BusinessException("Farm name already taken");
         }
 
@@ -147,34 +184,40 @@ public class AuthServiceImpl implements AuthService {
         farmRepository.save(farm);
 
         createPersonnelForUser(master, request.getName(), Department.ADMINISTRATION);
-
         log.info("Master registered: {} for farm {}", master.getEmail(), farm.getName());
-        String token = jwtUtil.generateToken(master);
+
+        String jti = UUID.randomUUID().toString();
         return new AuthResponse(
-                token,
-                master.getEmail(),
-                master.getUsername(),
-                master.getRole(),
-                master.getFarmId(),
-                farm.getName(),
-                master.getPreferredCurrency()
-        );
+                jwtUtil.generateToken(master, jti),
+                refreshTokenService.issue(master.getId()),
+                jwtUtil.getAccessTtlSeconds(),
+                master.getEmail(), master.getUsername(), master.getRole(),
+                master.getFarmId(), farm.getName(), master.getPreferredCurrency());
     }
 
+    /**
+     * called only by a MASTER/ADMIN principal.
+     * farmId comes from the caller's token, not from the request body.
+     */
     @Override
     @Transactional
-    public String registerSubUser(SubUserRegisterRequest request) {
+    public SubUserRegisteredResponse registerSubUser(SubUserRegisterRequest request,
+                                                     UUID masterFarmId,
+                                                     String masterRole) {
+        if (masterFarmId == null) {
+            throw new BusinessException("Caller has no farm context");
+        }
+        if (!RoleConstants.MASTER.equals(masterRole) && !RoleConstants.ADMIN.equals(masterRole)) {
+            throw new BusinessException("Only MASTER or ADMIN can register sub-users");
+        }
+
         PasswordValidator.validatePasswordStrength(request.getPassword());
         validateEmailNotExists(request.getEmail());
         validateUsernameNotExists(request.getUsername());
 
-        if (request.getDateOfBirth().plusYears(18).isAfter(LocalDate.now())) {
+        if (request.getDateOfBirth() == null ||
+                request.getDateOfBirth().plusYears(18).isAfter(LocalDate.now())) {
             throw new BusinessException("Sub-user must be at least 18 years old.");
-        }
-        boolean farmHasMaster = authRepository.existsByFarmIdAndRole(
-                request.getFarmId(), RoleConstants.MASTER);
-        if (!farmHasMaster) {
-            throw new BusinessException("Farm not found or invalid");
         }
 
         User subUser = authRepository.save(User.builder()
@@ -182,7 +225,7 @@ public class AuthServiceImpl implements AuthService {
                 .username(trimToNull(request.getUsername()))
                 .password(passwordEncoder.encode(request.getPassword()))
                 .role(RoleConstants.SUB_USER)
-                .farmId(request.getFarmId())
+                .farmId(masterFarmId)   // trust the token, not the body
                 .gender(request.getGender())
                 .dateOfBirth(request.getDateOfBirth())
                 .phoneNumber(request.getPhoneNumber())
@@ -190,13 +233,11 @@ public class AuthServiceImpl implements AuthService {
                 .build());
 
         createPersonnelForUser(
-                subUser,
-                request.getName(),
-                request.getDepartment() != null ? request.getDepartment() : Department.ADMINISTRATION
-        );
+                subUser, request.getName(),
+                request.getDepartment() != null ? request.getDepartment() : Department.ADMINISTRATION);
 
         log.info("Sub-user registered: {} for farm {}", subUser.getEmail(), subUser.getFarmId());
-        return "Sub-user registered: " + subUser.getEmail();
+        return new SubUserRegisteredResponse(subUser.getId(), subUser.getEmail(), masterFarmId);
     }
 
     private Personnel createPersonnelForUser(User user, String preferredName, Department department) {
@@ -230,19 +271,17 @@ public class AuthServiceImpl implements AuthService {
         return p;
     }
 
-    @Override public UserResponse getUserById(UUID userId) {
-        return userMapper.toResponse(loadUser(userId));
-    }
+    @Override public UserResponse getUserById(UUID userId) { return userMapper.toResponse(loadUser(userId)); }
     @Override public List<UserListResponse> getUsersByFarmId(UUID farmId) {
-        return userMapper.toListResponse(authRepository.findByFarmId(farmId));
+        return userMapper.toListResponse(authRepository.findByFarmIdLive(farmId));
     }
     @Override public List<UserListResponse> getAllUsers() {
-        return userMapper.toListResponse(authRepository.findAll());
+        return userMapper.toListResponse(authRepository.findAllLive());
     }
 
     @Override
     public FarmDetailsResponse getFarmDetails(UUID farmId) {
-        Farm farm = farmRepository.findById(farmId)
+        Farm farm = farmRepository.findByIdLive(farmId)
                 .orElseThrow(() -> new BusinessException("Farm not found with ID: " + farmId));
         return buildFarmDetails(farm);
     }
@@ -250,7 +289,7 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public FarmListResponse getAllFarms() {
         List<FarmDetailsResponse> details = new ArrayList<>();
-        for (Farm f : farmRepository.findAll()) {
+        for (Farm f : farmRepository.findAllLive()) {
             details.add(buildFarmDetails(f));
         }
         return farmMapper.toList(details);
@@ -278,6 +317,10 @@ public class AuthServiceImpl implements AuthService {
         PasswordValidator.validatePasswordStrength(request.getNewPassword());
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         authRepository.save(user);
+
+        // Revoke all tokens issued before this password change.
+        tokenBlacklistService.blacklistAllForUser(userId, jwtUtil.getAccessTtlSeconds());
+        refreshTokenService.revokeAllForUser(userId);
     }
 
     @Override
@@ -290,6 +333,8 @@ public class AuthServiceImpl implements AuthService {
         PasswordValidator.validatePasswordStrength(request.getNewPassword());
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         authRepository.save(user);
+        tokenBlacklistService.blacklistAllForUser(userId, jwtUtil.getAccessTtlSeconds());
+        refreshTokenService.revokeAllForUser(userId);
     }
 
     @Override
@@ -323,15 +368,13 @@ public class AuthServiceImpl implements AuthService {
     public void deleteUserByAdmin(UUID userId) {
         User user = loadUser(userId);
         if (RoleConstants.ADMIN.equals(user.getRole())) {
-            long adminCount = authRepository.findByRole(RoleConstants.ADMIN).size();
-            if (adminCount <= 1) {
-                throw new BusinessException("Cannot delete the only ADMIN user");
-            }
+            long adminCount = authRepository.countByRoleLive(RoleConstants.ADMIN);
+            if (adminCount <= 1) throw new BusinessException("Cannot delete the only ADMIN user");
         }
         if (RoleConstants.MASTER.equals(user.getRole()) && user.getFarmId() != null) {
             deleteFarmAndAllUsersInternal(user.getFarmId());
         } else {
-            authRepository.delete(user);
+            softDeleteUserAndRelated(user);
         }
     }
 
@@ -345,7 +388,31 @@ public class AuthServiceImpl implements AuthService {
         if (RoleConstants.MASTER.equals(subUser.getRole())) {
             throw new BusinessException("Cannot delete MASTER user");
         }
-        authRepository.delete(subUser);
+        softDeleteUserAndRelated(subUser);
+    }
+
+    @Override
+    @Transactional
+    public void deleteOwnAccount(UUID userId, String confirmationPhrase) {
+        if (!"DELETE_MY_ACCOUNT".equals(confirmationPhrase)) {
+            throw new BusinessException("Confirmation phrase is required: ?confirmation=DELETE_MY_ACCOUNT");
+        }
+        User user = loadUser(userId);
+
+        if (RoleConstants.MASTER.equals(user.getRole()) && user.getFarmId() != null) {
+            deleteFarmAndAllUsersInternal(user.getFarmId());
+        } else if (RoleConstants.ADMIN.equals(user.getRole())) {
+            long adminCount = authRepository.countByRoleLive(RoleConstants.ADMIN);
+            if (adminCount <= 1) throw new BusinessException("Cannot delete the only ADMIN user");
+            softDeleteUserAndRelated(user);
+        } else {
+            softDeleteUserAndRelated(user);
+        }
+
+        // Invalidate any remaining session tokens.
+        tokenBlacklistService.blacklistAllForUser(userId, jwtUtil.getAccessTtlSeconds());
+        refreshTokenService.revokeAllForUser(userId);
+        log.info("Account {} deleted by self-service", userId);
     }
 
     @Override
@@ -366,11 +433,10 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public int deleteAllSubUsers() {
-        List<User> subUsers = authRepository.findByRole(RoleConstants.SUB_USER);
-        int count = subUsers.size();
-        authRepository.deleteAll(subUsers);
-        log.info("Admin deleted {} sub-users", count);
-        return count;
+        List<User> subUsers = authRepository.findByRoleLive(RoleConstants.SUB_USER);
+        subUsers.forEach(this::softDeleteUserAndRelated);
+        log.info("Admin deleted {} sub-users", subUsers.size());
+        return subUsers.size();
     }
 
     @Override
@@ -387,6 +453,41 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public void resetPassword(ResetPasswordRequest request) {
         passwordResetService.resetPassword(request.getToken(), request.getNewPassword());
+    }
+
+    private void softDeleteUserAndRelated(User user) {
+        // Soft-delete the personnel record first (keeps FK integrity).
+        personnelRepository.findByUserId(user.getId()).ifPresent(p -> {
+            p.setDeletedAt(LocalDateTime.now());
+            personnelRepository.save(p);
+        });
+        user.setDeletedAt(LocalDateTime.now());
+        authRepository.save(user);
+        // Revoke tokens for the deleted user.
+        tokenBlacklistService.blacklistAllForUser(user.getId(), jwtUtil.getAccessTtlSeconds());
+        refreshTokenService.revokeAllForUser(user.getId());
+        log.info("Soft-deleted user {}", user.getId());
+    }
+
+    private void deleteFarmAndAllUsersInternal(UUID farmId) {
+        Farm farm = farmRepository.findByIdLive(farmId)
+                .orElseThrow(() -> new BusinessException("Farm not found with ID: " + farmId));
+
+        LocalDateTime now = LocalDateTime.now();
+        List<User> farmUsers = authRepository.findByFarmIdLive(farmId);
+        for (User u : farmUsers) {
+            personnelRepository.findByUserId(u.getId()).ifPresent(p -> {
+                p.setDeletedAt(now); personnelRepository.save(p);
+            });
+            u.setDeletedAt(now);
+            authRepository.save(u);
+            tokenBlacklistService.blacklistAllForUser(u.getId(), jwtUtil.getAccessTtlSeconds());
+            refreshTokenService.revokeAllForUser(u.getId());
+        }
+
+        farm.setDeletedAt(now);
+        farmRepository.save(farm);
+        log.info("Soft-deleted farm {} with {} user(s)", farm.getName(), farmUsers.size());
     }
 
     private void applyProfileUpdates(User user, UpdateUserRequest request, UUID userId) {
@@ -428,18 +529,18 @@ public class AuthServiceImpl implements AuthService {
 
     private User loadUser(UUID userId) {
         if (userId == null) throw new BusinessException("User ID cannot be null");
-        return authRepository.findById(userId)
+        return authRepository.findByIdLive(userId)
                 .orElseThrow(() -> new BusinessException("User not found with ID: " + userId));
     }
 
     private void validateEmailNotExists(String email) {
-        if (email != null && authRepository.existsByEmail(email)) {
+        if (email != null && authRepository.existsByEmailLive(email)) {
             throw new BusinessException("Email already in use");
         }
     }
 
     private void validateEmailUniqueness(String email, UUID currentUserId) {
-        authRepository.findByEmail(email).ifPresent(existing -> {
+        authRepository.findByEmailLive(email).ifPresent(existing -> {
             if (!existing.getId().equals(currentUserId)) {
                 throw new BusinessException("Email already in use");
             }
@@ -448,32 +549,23 @@ public class AuthServiceImpl implements AuthService {
 
     private void validateUsernameNotExists(String username) {
         if (username == null || username.isBlank()) return;
-        if (authRepository.findByUsername(username).isPresent()) {
+        if (authRepository.findByUsernameLive(username).isPresent()) {
             throw new BusinessException("Username already taken");
         }
     }
 
     private void validateUsernameUniqueness(String username, UUID currentUserId) {
         if (username == null || username.isBlank()) return;
-        authRepository.findByUsername(username).ifPresent(existing -> {
+        authRepository.findByUsernameLive(username).ifPresent(existing -> {
             if (!existing.getId().equals(currentUserId)) {
                 throw new BusinessException("Username already taken");
             }
         });
     }
 
-    private void deleteFarmAndAllUsersInternal(UUID farmId) {
-        Farm farm = farmRepository.findById(farmId)
-                .orElseThrow(() -> new BusinessException("Farm not found with ID: " + farmId));
-        List<User> farmUsers = authRepository.findByFarmId(farmId);
-        authRepository.deleteAll(farmUsers);
-        farmRepository.delete(farm);
-        log.info("Deleted farm {} with {} users", farm.getName(), farmUsers.size());
-    }
-
     private FarmDetailsResponse buildFarmDetails(Farm farm) {
         UUID farmId = farm.getId();
-        List<User> users = authRepository.findByFarmId(farmId);
+        List<User> users = authRepository.findByFarmIdLive(farmId);
 
         FarmMapper.FarmTotals totals = new FarmMapper.FarmTotals(
                 incomeRepository.countByFarmId(farmId),
@@ -485,25 +577,44 @@ public class AuthServiceImpl implements AuthService {
                 investmentRepository.sumAmountByFarmIdOrZero(farmId)
         );
 
+        // batch aggregate queries instead of 6 per user.
         Map<UUID, FarmMapper.UserActivity> activityByUser = new HashMap<>();
+        Map<UUID, long[]> incomeCounts = toUuidLongMap(incomeRepository.countByFarmIdGroupedByCreator(farmId));
+        Map<UUID, long[]> expenseCounts = toUuidLongMap(expenseRepository.countByFarmIdGroupedByCreator(farmId));
+        Map<UUID, long[]> investmentCounts = toUuidLongMap(investmentRepository.countByFarmIdGroupedByCreator(farmId));
+        Map<UUID, java.math.BigDecimal> incomeSums = toUuidDecimalMap(incomeRepository.sumGroupedByCreator(farmId));
+        Map<UUID, java.math.BigDecimal> expenseSums = toUuidDecimalMap(expenseRepository.sumGroupedByCreator(farmId));
+        Map<UUID, java.math.BigDecimal> investmentSums = toUuidDecimalMap(investmentRepository.sumGroupedByCreator(farmId));
+
         for (User u : users) {
+            long[] ic = incomeCounts.getOrDefault(u.getId(), new long[]{0L});
+            long[] ec = expenseCounts.getOrDefault(u.getId(), new long[]{0L});
+            long[] vc = investmentCounts.getOrDefault(u.getId(), new long[]{0L});
             activityByUser.put(u.getId(), new FarmMapper.UserActivity(
-                    incomeRepository.countByFarmIdAndCreatedByUserId(farmId, u.getId()),
-                    expenseRepository.countByFarmIdAndCreatedByUserId(farmId, u.getId()),
-                    investmentRepository.countByFarmIdAndCreatedByUserId(farmId, u.getId()),
-                    incomeRepository.sumAmountByFarmIdAndUserOrZero(farmId, u.getId()),
-                    expenseRepository.sumAmountByFarmIdAndUserOrZero(farmId, u.getId()),
-                    investmentRepository.sumAmountByFarmIdAndUserOrZero(farmId, u.getId())
+                    ic[0], ec[0], vc[0],
+                    incomeSums.getOrDefault(u.getId(), java.math.BigDecimal.ZERO),
+                    expenseSums.getOrDefault(u.getId(), java.math.BigDecimal.ZERO),
+                    investmentSums.getOrDefault(u.getId(), java.math.BigDecimal.ZERO)
             ));
         }
+
         return farmMapper.toDetails(farm, users, totals, activityByUser);
     }
 
-    private String stripBearer(String authHeader) {
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            throw new InvalidCredentialsException("Missing or invalid Authorization header");
+    private static Map<UUID, long[]> toUuidLongMap(List<Object[]> rows) {
+        Map<UUID, long[]> m = new HashMap<>();
+        for (Object[] r : rows) {
+            if (r[0] != null) m.put((UUID) r[0], new long[]{ ((Number) r[1]).longValue() });
         }
-        return authHeader.substring(7);
+        return m;
+    }
+
+    private static Map<UUID, java.math.BigDecimal> toUuidDecimalMap(List<Object[]> rows) {
+        Map<UUID, java.math.BigDecimal> m = new HashMap<>();
+        for (Object[] r : rows) {
+            if (r[0] != null && r[1] != null) m.put((UUID) r[0], (java.math.BigDecimal) r[1]);
+        }
+        return m;
     }
 
     private static String trimToNull(String s) {

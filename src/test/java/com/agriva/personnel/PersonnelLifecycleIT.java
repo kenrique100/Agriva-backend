@@ -71,15 +71,18 @@ class PersonnelLifecycleIT {
         reg.setGender(Gender.MALE);
         reg.setDateOfBirth(LocalDate.now().minusYears(35));
         reg.setPhoneNumber("+237600000000");
-        reg.setCountry("Cameroon"); reg.setState("Centre"); reg.setCity("Yaoundé");
-        reg.setAddress("Rue 1"); reg.setPostalCode("00000");
-        reg.setCurrency("XAF"); reg.setUserAgreement(true);
+        reg.setCountry("Cameroon");
+        reg.setState("Centre");
+        reg.setCity("Yaoundé");
+        reg.setAddress("Rue 1");
+        reg.setPostalCode("00000");
+        reg.setCurrency("XAF");
+        reg.setUserAgreement(true);
 
         AuthResponse master = authService.registerMaster(reg);
         farmId = master.getFarmId();
         masterUserId = authRepository.findByEmail("master@test.local").orElseThrow().getId();
 
-        // The registration should have auto-created a Personnel row.
         Personnel masterPersonnel = personnelRepository.findByUserId(masterUserId)
                 .orElseThrow(() -> new AssertionError("Personnel not auto-created for MASTER"));
         masterPersonnelId = masterPersonnel.getId();
@@ -104,7 +107,7 @@ class PersonnelLifecycleIT {
         assertThat(p.getFarmId()).isEqualTo(farmId);
         assertThat(p.getName()).isEqualTo("John Doe");
         assertThat(p.getStatus()).isEqualTo(PersonnelStatus.ACTIVE);
-        assertThat(personnelRepository.count()).isEqualTo(2); // master + sub
+        assertThat(personnelRepository.count()).isEqualTo(2);
     }
 
     @Test
@@ -114,7 +117,7 @@ class PersonnelLifecycleIT {
 
         var page = personnelService.list(farmId, null,
                 org.springframework.data.domain.PageRequest.of(0, 20));
-        assertThat(page.getTotalElements()).isEqualTo(3); // master + 2 subs
+        assertThat(page.getTotalElements()).isEqualTo(3);
     }
 
     @Test
@@ -125,7 +128,6 @@ class PersonnelLifecycleIT {
                 .filter(p -> p.getUserId().equals(subUserId))
                 .count()).isEqualTo(1);
     }
-
 
     @Test
     void updatePersonnel_fillsHrFieldsThatWereNullOnRegistration() {
@@ -163,7 +165,6 @@ class PersonnelLifecycleIT {
                 .hasMessageContaining("National ID");
     }
 
-
     @Test
     void subUser_canReadOwnProfile() {
         UUID subUserId = registerSubUser("own@test.local", "Self Service");
@@ -172,15 +173,27 @@ class PersonnelLifecycleIT {
         assertThat(profile.getPersonnel().getName()).isEqualTo("Self Service");
     }
 
+    /**
+     * Deletion is now soft: the row is preserved for audit, but Live finders no
+     * longer see it, and the caller-visible contract is the same as before.
+     */
     @Test
-    void deletePersonnel_deletesUserViaCascade() {
+    void deletePersonnel_softDeletesPersonnelAndUser() {
         UUID subUserId = registerSubUser("gone@test.local", "Gone Soon");
         Personnel p = personnelRepository.findByUserId(subUserId).orElseThrow();
 
         personnelService.delete(p.getId(), farmId);
 
-        assertThat(personnelRepository.findById(p.getId())).isEmpty();
-        assertThat(authRepository.findById(subUserId)).isEmpty();
+        // Live finders no longer see them.
+        assertThat(personnelRepository.findByIdAndFarmIdLive(p.getId(), farmId)).isEmpty();
+        assertThat(personnelRepository.findByUserIdLive(subUserId)).isEmpty();
+
+        // But the underlying rows survive with deletedAt set — audit trail preserved.
+        Personnel softDeleted = personnelRepository.findById(p.getId()).orElseThrow();
+        assertThat(softDeleted.getDeletedAt()).isNotNull();
+
+        User softDeletedUser = authRepository.findById(subUserId).orElseThrow();
+        assertThat(softDeletedUser.getDeletedAt()).isNotNull();
     }
 
     @Test
@@ -190,19 +203,17 @@ class PersonnelLifecycleIT {
                 .hasMessageContaining("MASTER");
     }
 
-
     private UUID registerSubUser(String email, String name) {
         SubUserRegisterRequest req = new SubUserRegisterRequest();
         req.setEmail(email);
         req.setName(name);
         req.setUsername(email.split("@")[0]);
         req.setPassword("SubPass123");
-        req.setFarmId(farmId);
         req.setGender(Gender.FEMALE);
         req.setDateOfBirth(LocalDate.now().minusYears(25));
         req.setPhoneNumber("+237600000001");
         req.setAddress("Rue 2");
-        authService.registerSubUser(req);
+        authService.registerSubUser(req, farmId, "MASTER");
         return authRepository.findByEmail(email).orElseThrow().getId();
     }
 }

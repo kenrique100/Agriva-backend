@@ -19,50 +19,73 @@ import java.util.UUID;
 @Repository
 public interface TaskRepository extends JpaRepository<Task, UUID> {
 
-    List<Task> findByPersonnelId(UUID personnelId);
-
-    List<Task> findByPersonnelIdAndIsValidated(UUID personnelId, Boolean isValidated);
-
-    List<Task> findByDeadlineBeforeAndStatus(LocalDate deadline, TaskStatus status);
-
-    List<Task> findByStatus(TaskStatus status);
+    @EntityGraph(attributePaths = {"personnel"})
+    @Query("SELECT t FROM Task t WHERE t.farmId = :farmId AND t.deletedAt IS NULL")
+    Page<Task> findByFarmIdLive(@Param("farmId") UUID farmId, Pageable pageable);
 
     @EntityGraph(attributePaths = {"personnel"})
-    Page<Task> findByFarmId(UUID farmId, Pageable pageable);
+    @Query("SELECT t FROM Task t WHERE t.farmId = :farmId AND t.personnel.id = :personnelId " +
+            "AND t.deletedAt IS NULL")
+    Page<Task> findByFarmIdAndPersonnelIdLive(@Param("farmId") UUID farmId,
+                                              @Param("personnelId") UUID personnelId,
+                                              Pageable pageable);
 
     @EntityGraph(attributePaths = {"personnel"})
-    Page<Task> findByFarmIdAndPersonnelId(UUID farmId, UUID personnelId, Pageable pageable);
+    @Query("SELECT t FROM Task t WHERE t.id = :id AND t.farmId = :farmId AND t.deletedAt IS NULL")
+    Optional<Task> findByIdAndFarmIdLive(@Param("id") UUID id, @Param("farmId") UUID farmId);
 
-    @EntityGraph(attributePaths = {"personnel"})
-    Page<Task> findByFarmIdAndStatus(UUID farmId, TaskStatus status, Pageable pageable);
+    @Query("SELECT t FROM Task t WHERE t.personnel.id = :personnelId AND t.deletedAt IS NULL")
+    List<Task> findByPersonnelIdLive(@Param("personnelId") UUID personnelId);
 
-    @EntityGraph(attributePaths = {"personnel"})
-    Optional<Task> findByIdAndFarmId(UUID id, UUID farmId);
+    @Query("SELECT t FROM Task t WHERE t.personnel.id = :personnelId " +
+            "AND t.isValidated = :validated AND t.deletedAt IS NULL")
+    List<Task> findByPersonnelIdAndIsValidatedLive(@Param("personnelId") UUID personnelId,
+                                                   @Param("validated") Boolean validated);
 
-    @Query("""
-            SELECT t FROM Task t
-            WHERE t.status = :status
-              AND t.isSubmitted = true
-              AND t.stopTime BETWEEN :start AND :end
-            """)
+    @Query("SELECT t FROM Task t WHERE t.deadline < :deadline AND t.status = :status " +
+            "AND t.deletedAt IS NULL")
+    List<Task> findByDeadlineBeforeAndStatus(@Param("deadline") LocalDate deadline,
+                                             @Param("status") TaskStatus status);
+
+    @Query("SELECT t FROM Task t WHERE t.status = :status AND t.isSubmitted = true " +
+            "AND t.stopTime BETWEEN :start AND :end AND t.deletedAt IS NULL")
     List<Task> findSubmittedTasksWithStopTimeBetween(
             @Param("status") TaskStatus status,
             @Param("start") LocalDateTime start,
             @Param("end") LocalDateTime end);
 
-    @Query("""
-            SELECT t FROM Task t
-            WHERE t.personnel.id = :personnelId
-              AND t.status = :status
-              AND t.validationTime BETWEEN :start AND :end
-            """)
+    @Query("SELECT t FROM Task t WHERE t.personnel.id = :personnelId " +
+            "AND t.status = :status AND t.validationTime BETWEEN :start AND :end " +
+            "AND t.deletedAt IS NULL")
     List<Task> findByPersonnelIdAndStatusAndValidationTimeBetween(
             @Param("personnelId") UUID personnelId,
             @Param("status") TaskStatus status,
             @Param("start") LocalDateTime start,
             @Param("end") LocalDateTime end);
 
-    void deleteByPersonnelId(UUID personnelId);
+    @Query(value = """
+        SELECT t.* FROM tasks t
+        WHERE t.status = 'IN_PROGRESS'
+          AND t.deleted_at IS NULL
+          AND t.last_resume_time IS NOT NULL
+          AND t.expected_hours IS NOT NULL
+          AND t.expected_hours > 0
+          AND (COALESCE(t.total_worked_minutes, 0)
+               + EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - t.last_resume_time)) / 60)
+              >= t.expected_hours * 60
+    """, nativeQuery = true)
+    List<Task> findTasksDueForAutoStop();
 
-    long countByFarmIdAndStatus(UUID farmId, TaskStatus status);
+    @Query("""
+        SELECT t.personnel.id,
+               SUM(CASE WHEN t.actualHours IS NOT NULL THEN t.actualHours ELSE 0 END),
+               SUM(CASE WHEN t.expectedHours IS NOT NULL THEN t.expectedHours ELSE 0 END),
+               COUNT(t)
+        FROM Task t
+        WHERE t.farmId = :farmId AND t.isValidated = true AND t.deletedAt IS NULL
+        GROUP BY t.personnel.id
+    """)
+    List<Object[]> aggregateProductivityByFarm(@Param("farmId") UUID farmId);
+
+    void deleteByPersonnelId(UUID personnelId);
 }

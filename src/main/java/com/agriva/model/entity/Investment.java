@@ -2,12 +2,7 @@ package com.agriva.model.entity;
 
 import com.agriva.model.entity.enums.Currency;
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
+import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -17,10 +12,11 @@ import java.util.UUID;
 @Entity
 @Table(name = "investment")
 @Data
+@EqualsAndHashCode(callSuper = true)
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class Investment {
+public class Investment extends AuditableEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -35,7 +31,6 @@ public class Investment {
     @Column(nullable = false, precision = 19, scale = 4)
     private BigDecimal amount;
 
-    // FIX: was String — now the shared Currency enum, matching Income/Expense
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 3)
     @Builder.Default
@@ -63,11 +58,7 @@ public class Investment {
     @Column(name = "activated_at")
     private LocalDateTime activatedAt;
 
-    @CreationTimestamp
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt;
-
-    @UpdateTimestamp
-    @Column(name = "updated_at")
-    private LocalDateTime updatedAt;
+    @Version
+    @Column(nullable = false)
+    private Long version;
 }

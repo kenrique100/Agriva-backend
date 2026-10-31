@@ -45,8 +45,8 @@ public class PersonnelServiceImpl implements PersonnelService {
     @Transactional(readOnly = true)
     public Page<PersonnelResponse> list(UUID farmId, PersonnelStatus status, Pageable pageable) {
         Page<Personnel> page = status == null
-                ? personnelRepository.findByFarmId(farmId, pageable)
-                : personnelRepository.findByFarmIdAndStatus(farmId, status, pageable);
+                ? personnelRepository.findByFarmIdLive(farmId, pageable)
+                : personnelRepository.findByFarmIdAndStatusLive(farmId, status, pageable);
         return page.map(mapper::toResponse);
     }
 
@@ -65,26 +65,26 @@ public class PersonnelServiceImpl implements PersonnelService {
     @Override
     @Transactional(readOnly = true)
     public PersonnelProfileResponse getOwnProfile(UUID userId) {
-        Personnel p = personnelRepository.findByUserId(userId)
+        Personnel p = personnelRepository.findByUserIdLive(userId)
                 .orElseThrow(() -> new PersonnelNotFoundException(
                         "No personnel record linked to this user"));
         return buildProfile(p);
     }
 
     /**
-     * Called from within @Transactional(readOnly=true) outer methods above,
-     * so the session stays open across the two repository queries AND the
-     * subsequent TaskMapper / SalaryMapper calls that touch the lazy
-     * .personnel proxy on Task / SalaryPayment entities.
+     * Loads status history, tasks and salary payments for the profile view.
+     * Tasks are read via the Live finder so soft-deleted tasks do not leak
+     * into the response.
      */
     private PersonnelProfileResponse buildProfile(Personnel p) {
         List<PersonnelStatusHistoryResponse> history =
                 historyRepository.findByPersonnelIdOrderByStartTimestampDesc(p.getId())
                         .stream().map(mapper::toHistoryResponse).toList();
+
         return PersonnelProfileResponse.builder()
                 .personnel(mapper.toResponse(p))
                 .statusHistory(history)
-                .tasks(taskRepository.findByPersonnelId(p.getId())
+                .tasks(taskRepository.findByPersonnelIdLive(p.getId())
                         .stream().map(taskMapper::toResponse).toList())
                 .salaryPayments(salaryRepository.findByPersonnelId(p.getId())
                         .stream().map(salaryMapper::toResponse).toList())
@@ -108,6 +108,7 @@ public class PersonnelServiceImpl implements PersonnelService {
 
         return mapper.toResponse(personnelRepository.save(p));
     }
+
 
     @Override
     @Transactional
@@ -178,12 +179,20 @@ public class PersonnelServiceImpl implements PersonnelService {
                     "Cannot delete MASTER via personnel endpoint. Delete the farm or the account instead.");
         }
 
-        taskRepository.deleteByPersonnelId(p.getId());
-        salaryRepository.deleteByPersonnelId(p.getId());
-        authRepository.delete(user);
-        log.info("Personnel {} and linked user {} deleted from farm {}",
+        LocalDateTime now = LocalDateTime.now();
+
+        // Soft-delete the personnel record.
+        p.setDeletedAt(now);
+        personnelRepository.save(p);
+
+        // Soft-delete the linked user (keeps FK integrity).
+        user.setDeletedAt(now);
+        authRepository.save(user);
+
+        log.info("Soft-deleted personnel {} and user {} from farm {}",
                 id, user.getId(), farmId);
     }
+
 
     @Override
     @Transactional(readOnly = true)
@@ -206,7 +215,7 @@ public class PersonnelServiceImpl implements PersonnelService {
     }
 
     private Personnel load(UUID id, UUID farmId) {
-        return personnelRepository.findByIdAndFarmId(id, farmId)
+        return personnelRepository.findByIdAndFarmIdLive(id, farmId)
                 .orElseThrow(() -> new PersonnelNotFoundException(
                         "Personnel not found with ID: " + id));
     }

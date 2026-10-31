@@ -1,10 +1,14 @@
 package com.agriva.model.dto.crop;
 
+import com.agriva.model.entity.enums.SoilType;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
+
 import java.math.BigDecimal;
-@Data public class FieldRequest {
+
+@Data
+public class FieldRequest {
     @NotBlank private String name;
     private BigDecimal sizeHectares;
-    private String soilType;
+    private SoilType soilType;
 }

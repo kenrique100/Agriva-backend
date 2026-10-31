@@ -1,17 +1,18 @@
 package com.agriva.controller;
 
-import com.agriva.model.dto.auth.TokenValidationResponse;
 import com.agriva.repository.ExpenseRepository;
 import com.agriva.repository.IncomeRepository;
 import com.agriva.repository.PersonnelRepository;
-import com.agriva.service.AuthService;
+import com.agriva.security.AuthenticatedUser;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.nio.file.Path;
@@ -24,71 +25,55 @@ import java.util.UUID;
 public class FileController {
 
     private final Path fileStorageLocation;
-    private final AuthService authService;
-    private final IncomeRepository incomeRepository;
-    private final ExpenseRepository expenseRepository;
-    private final PersonnelRepository personnelRepository;
+    private final IncomeRepository incomeRepo;
+    private final ExpenseRepository expenseRepo;
+    private final PersonnelRepository personnelRepo;
 
     public FileController(
-            @org.springframework.beans.factory.annotation.Value("${agriva.uploads.dir}") String uploadDir,
-            AuthService authService,
-            IncomeRepository incomeRepository,
-            ExpenseRepository expenseRepository,
-            PersonnelRepository personnelRepository
-    ) {
+            @Value("${agriva.uploads.dir}") String uploadDir,
+            IncomeRepository incomeRepo,
+            ExpenseRepository expenseRepo,
+            PersonnelRepository personnelRepo) {
         this.fileStorageLocation = Paths.get(uploadDir).toAbsolutePath().normalize();
-        this.authService = authService;
-        this.incomeRepository = incomeRepository;
-        this.expenseRepository = expenseRepository;
-        this.personnelRepository = personnelRepository;
+        this.incomeRepo = incomeRepo;
+        this.expenseRepo = expenseRepo;
+        this.personnelRepo = personnelRepo;
     }
 
     @GetMapping("/{fileName:.+}")
     public ResponseEntity<Resource> downloadFile(
             @PathVariable String fileName,
-            @RequestHeader(HttpHeaders.AUTHORIZATION) String authHeader
-    ) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        UUID farmId = token.getFarmId();
+            @AuthenticationPrincipal AuthenticatedUser principal) {
+
+        UUID farmId = principal.farmId();
         if (farmId == null || !isOwnedByFarm(fileName, farmId)) {
             throw new AccessDeniedException("Access denied");
         }
 
         try {
             Path filePath = this.fileStorageLocation.resolve(fileName).normalize();
-
-            // Defense in depth: reject any attempt to escape the upload directory
-            // (e.g. "../../etc/passwd" or URL-encoded variants).
             if (!filePath.startsWith(this.fileStorageLocation)) {
-                log.warn("Rejected path traversal attempt: {}", fileName);
+                log.warn("Path traversal attempt: {}", fileName);
                 return ResponseEntity.badRequest().build();
             }
 
             Resource resource = new UrlResource(filePath.toUri());
-
             if (!resource.exists() || !resource.isReadable()) {
-                log.info("Receipt file not found: {}", fileName);
                 return ResponseEntity.notFound().build();
             }
 
             String lower = fileName.toLowerCase();
-            String contentType;
-            if (lower.endsWith(".pdf")) {
-                contentType = "application/pdf";
-            } else if (lower.endsWith(".png")) {
-                contentType = "image/png";
-            } else if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
-                contentType = "image/jpeg";
-            } else if (lower.endsWith(".docx")) {
-                contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-            } else {
-                contentType = "application/octet-stream";
-            }
+            String contentType = lower.endsWith(".pdf")  ? "application/pdf"
+                    : lower.endsWith(".png") ? "image/png"
+                      : lower.endsWith(".jpg") || lower.endsWith(".jpeg") ? "image/jpeg"
+                        : lower.endsWith(".docx") ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                          : "application/octet-stream";
 
             return ResponseEntity.ok()
                     .contentType(MediaType.parseMediaType(contentType))
                     .header(HttpHeaders.CONTENT_DISPOSITION,
                             "inline; filename=\"" + resource.getFilename() + "\"")
+                    .header(HttpHeaders.CACHE_CONTROL, "private, max-age=3600")
                     .body(resource);
         } catch (Exception ex) {
             log.error("Failed to serve file {}: {}", fileName, ex.getMessage());
@@ -97,9 +82,9 @@ public class FileController {
     }
 
     private boolean isOwnedByFarm(String fileName, UUID farmId) {
-        return incomeRepository.existsByFarmIdAndReceipt(farmId, fileName)
-                || expenseRepository.existsByFarmIdAndReceipt(farmId, fileName)
-                || personnelRepository.existsByFarmIdAndProfilePicturePath(farmId, fileName)
-                || personnelRepository.existsByFarmIdAndProfilePictureThumbnailPath(farmId, fileName);
+        return incomeRepo.existsByFarmIdAndReceipt(farmId, fileName)
+                || expenseRepo.existsByFarmIdAndReceipt(farmId, fileName)
+                || personnelRepo.existsByFarmIdAndProfilePicturePath(farmId, fileName)
+                || personnelRepo.existsByFarmIdAndProfilePictureThumbnailPath(farmId, fileName);
     }
 }

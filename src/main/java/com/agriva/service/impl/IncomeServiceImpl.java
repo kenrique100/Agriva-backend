@@ -96,14 +96,14 @@ public class IncomeServiceImpl implements IncomeService {
 
     @Override
     public Page<IncomeResponse> listIncome(UUID farmId, Pageable pageable) {
-        Page<Income> page = incomeRepo.findByFarmId(farmId, pageable);
+        Page<Income> page = incomeRepo.findByFarmIdLive(farmId, pageable);
         Map<UUID, User> userById = lookupUsers(page.getContent());
         return page.map(i -> mapper.toResponse(i, userById));
     }
 
     @Override
     public IncomeResponse getIncome(UUID id, UUID farmId) {
-        Income income = incomeRepo.findByIdAndFarmId(id, farmId)
+        Income income = incomeRepo.findByIdAndFarmIdLive(id, farmId)
                 .orElseThrow(() -> new IncomeNotFoundException("Income not found with ID: " + id));
         return mapper.toResponse(income, lookupUsers(List.of(income)));
     }
@@ -111,17 +111,16 @@ public class IncomeServiceImpl implements IncomeService {
     @Override
     @Transactional
     public IncomeResponse updateIncome(UUID id, IncomeRequest request, UUID farmId) {
-        Income income = incomeRepo.findByIdAndFarmId(id, farmId)
+        Income income = incomeRepo.findByIdAndFarmIdLive(id, farmId)
                 .orElseThrow(() -> new IncomeNotFoundException("Income not found with ID: " + id));
 
-        if (incomeRepo.existsByFarmIdAndAmountReceivedAndIncomeDateAndReason(
+        if (incomeRepo.existsByFarmIdAndAmountReceivedAndIncomeDateAndReasonLive(
                 farmId, request.getAmountReceived(), request.getIncomeDate(), request.getReason())
                 && !(income.getAmountReceived().compareTo(request.getAmountReceived()) == 0
                 && income.getIncomeDate().equals(request.getIncomeDate())
                 && Objects.equals(income.getReason(), request.getReason()))) {
             throw new DuplicateIncomeException("Another income with the same amount, date and reason already exists");
         }
-
         income.setReason(request.getReason());
         income.setQuantity(request.getQuantity());
         income.setAmountReceived(request.getAmountReceived());
@@ -141,10 +140,11 @@ public class IncomeServiceImpl implements IncomeService {
     @Override
     @Transactional
     public void deleteIncome(UUID id, UUID farmId) {
-        Income income = incomeRepo.findByIdAndFarmId(id, farmId)
+        Income income = incomeRepo.findByIdAndFarmIdLive(id, farmId)
                 .orElseThrow(() -> new IncomeNotFoundException("Income not found with ID: " + id));
-        incomeRepo.delete(income);
-        log.info("Income {} deleted from farm {}", id, farmId);
+        income.setDeletedAt(LocalDateTime.now());
+        incomeRepo.save(income);
+        log.info("Soft-deleted income {} from farm {}", id, farmId);
     }
 
     @Override

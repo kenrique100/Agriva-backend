@@ -1,18 +1,20 @@
 package com.agriva.controller;
 
-import com.agriva.model.dto.auth.TokenValidationResponse;
+import com.agriva.model.dto.common.PageResponse;
 import com.agriva.model.dto.crop.*;
-import com.agriva.security.RoleConstants;
-import com.agriva.service.AuthService;
+import com.agriva.model.entity.enums.CropCycleStatus;
+import com.agriva.security.AuthenticatedUser;
 import com.agriva.service.CropManagementService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -26,149 +28,152 @@ import java.util.UUID;
 public class CropManagementController {
 
     private final CropManagementService cropService;
-    private final AuthService authService;
+
+    // ---------- Cycle status update DTO ----------
+    public record CycleStatusUpdate(@NotNull CropCycleStatus status) {}
 
     @GetMapping("/fields")
-    public ResponseEntity<List<FieldResponse>> getFields(@RequestHeader("Authorization") String authHeader) {
-        return ResponseEntity.ok(cropService.getFields(authService.validateToken(authHeader).getFarmId()));
+    public ResponseEntity<List<FieldResponse>> getFields(@AuthenticationPrincipal AuthenticatedUser u) {
+        return ResponseEntity.ok(cropService.getFields(u.farmId()));
     }
 
     @PostMapping("/fields")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<FieldResponse> createField(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @Valid @RequestBody FieldRequest req) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMaster(token);
-        return ResponseEntity.status(HttpStatus.CREATED).body(cropService.createField(req, token.getFarmId()));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(cropService.createField(req, u.farmId()));
     }
 
     @PostMapping(value = "/fields/bulk", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<CropBulkUploadResponse> bulkUploadFields(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @RequestPart("file") MultipartFile file) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMaster(token);
-        return ResponseEntity.status(HttpStatus.CREATED).body(cropService.bulkUploadFields(file, token.getFarmId()));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(cropService.bulkUploadFields(file, u.farmId()));
     }
 
     @GetMapping("/catalog")
-    public ResponseEntity<List<CropResponse>> getCrops(@RequestHeader("Authorization") String authHeader) {
-        return ResponseEntity.ok(cropService.getCrops(authService.validateToken(authHeader).getFarmId()));
+    public ResponseEntity<List<CropResponse>> getCrops(@AuthenticationPrincipal AuthenticatedUser u) {
+        return ResponseEntity.ok(cropService.getCrops(u.farmId()));
     }
 
     @PostMapping("/catalog")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<CropResponse> createCrop(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @Valid @RequestBody CropRequest req) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMaster(token);
-        return ResponseEntity.status(HttpStatus.CREATED).body(cropService.createCrop(req, token.getFarmId()));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(cropService.createCrop(req, u.farmId()));
     }
 
     @PostMapping(value = "/catalog/bulk", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<CropBulkUploadResponse> bulkUploadCrops(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @RequestPart("file") MultipartFile file) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMaster(token);
-        return ResponseEntity.status(HttpStatus.CREATED).body(cropService.bulkUploadCrops(file, token.getFarmId()));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(cropService.bulkUploadCrops(file, u.farmId()));
     }
 
     @GetMapping("/cycles")
-    public ResponseEntity<List<CropCycleResponse>> getCycles(@RequestHeader("Authorization") String authHeader) {
-        return ResponseEntity.ok(cropService.getCycles(authService.validateToken(authHeader).getFarmId()));
+    public ResponseEntity<List<CropCycleResponse>> getCycles(@AuthenticationPrincipal AuthenticatedUser u) {
+        return ResponseEntity.ok(cropService.getCycles(u.farmId()));
     }
 
     @GetMapping("/cycles/{id}")
     public ResponseEntity<CropCycleResponse> getCycle(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id) {
-        return ResponseEntity.ok(cropService.getCycle(id, authService.validateToken(authHeader).getFarmId()));
+        return ResponseEntity.ok(cropService.getCycle(id, u.farmId()));
     }
 
     @PostMapping("/cycles")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<CropCycleResponse> createCycle(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @Valid @RequestBody CropCycleRequest req) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMaster(token);
-        return ResponseEntity.status(HttpStatus.CREATED).body(cropService.createCycle(req, token.getFarmId()));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(cropService.createCycle(req, u.farmId()));
     }
 
+    /**
+     * A2 fix: status update now uses @RequestBody (not query param).
+     */
     @PatchMapping("/cycles/{id}/status")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<CropCycleResponse> updateStatus(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id,
-            @RequestParam String status) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMaster(token);
-        return ResponseEntity.ok(cropService.updateCycleStatus(id, status, token.getFarmId()));
+            @Valid @RequestBody CycleStatusUpdate req) {
+        return ResponseEntity.ok(cropService.updateCycleStatus(
+                id, req.status().name(), u.farmId()));
     }
 
     @PostMapping(value = "/cycles/bulk", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<CropBulkUploadResponse> bulkUploadCycles(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @RequestPart("file") MultipartFile file) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMaster(token);
-        String email = authService.getUserById(token.getUserId()).getEmail();
         return ResponseEntity.accepted().body(cropService.bulkUploadCycles(
-                file, token.getFarmId(), token.getUserId(), email));
+                file, u.farmId(), u.userId(), u.email()));
     }
 
     @GetMapping("/cycles/staging")
-    public ResponseEntity<Page<StagedCropCycleResponse>> listStaging(
-            @RequestHeader("Authorization") String authHeader,
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<PageResponse<StagedCropCycleResponse>> listStaging(
+            @AuthenticationPrincipal AuthenticatedUser u,
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMaster(token);
-        return ResponseEntity.ok(cropService.listStaging(
-                token.getFarmId(), status,
-                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "submittedAt"))));
+        return ResponseEntity.ok(PageResponse.of(cropService.listStaging(
+                u.farmId(), status,
+                PageRequest.of(page, Math.min(size, 100),
+                        Sort.by(Sort.Direction.DESC, "submittedAt")))));
     }
 
     @GetMapping("/cycles/staging/stats")
-    public ResponseEntity<Map<String, Long>> stagingStats(
-            @RequestHeader("Authorization") String authHeader) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMaster(token);
-        return ResponseEntity.ok(cropService.stagingStats(token.getFarmId()));
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<Map<String, Long>> stagingStats(@AuthenticationPrincipal AuthenticatedUser u) {
+        return ResponseEntity.ok(cropService.stagingStats(u.farmId()));
     }
 
     @GetMapping("/cycles/{id}/activities")
     public ResponseEntity<List<CropActivityResponse>> getActivities(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        return ResponseEntity.ok(cropService.getActivities(id, token.getFarmId()));
+        return ResponseEntity.ok(cropService.getActivities(id, u.farmId()));
     }
 
     @PostMapping("/cycles/{id}/activities")
     public ResponseEntity<CropActivityResponse> logActivity(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id,
             @Valid @RequestBody CropActivityRequest req) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
         return ResponseEntity.status(HttpStatus.CREATED).body(
-                cropService.logActivity(id, req, token.getFarmId(), token.getUserId()));
+                cropService.logActivity(id, req, u.farmId(), u.userId()));
     }
 
     @PostMapping("/cycles/{id}/harvest")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<HarvestResponse> logHarvest(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id,
             @Valid @RequestBody HarvestRequest req) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
         return ResponseEntity.status(HttpStatus.CREATED).body(
-                cropService.logHarvest(id, req, token.getFarmId()));
+                cropService.logHarvest(id, req, u.farmId()));
     }
 
-    private void requireMaster(TokenValidationResponse token) {
-        if (!RoleConstants.MASTER.equals(token.getRole()) && !RoleConstants.ADMIN.equals(token.getRole())) {
-            throw new com.agriva.exception.PersonnelAccessDeniedException("MASTER or ADMIN required");
-        }
+    @DeleteMapping("/cycles/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<Void> deleteCycle(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID id) {
+        cropService.deleteCycle(id, u.farmId());
+        return ResponseEntity.noContent().build();
     }
 }

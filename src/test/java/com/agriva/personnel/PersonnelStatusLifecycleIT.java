@@ -71,9 +71,13 @@ class PersonnelStatusLifecycleIT {
         reg.setGender(Gender.MALE);
         reg.setDateOfBirth(LocalDate.now().minusYears(35));
         reg.setPhoneNumber("+237600000000");
-        reg.setCountry("Cameroon"); reg.setState("Centre"); reg.setCity("Yaoundé");
-        reg.setAddress("Rue 1"); reg.setPostalCode("00000");
-        reg.setCurrency("XAF"); reg.setUserAgreement(true);
+        reg.setCountry("Cameroon");
+        reg.setState("Centre");
+        reg.setCity("Yaoundé");
+        reg.setAddress("Rue 1");
+        reg.setPostalCode("00000");
+        reg.setCurrency("XAF");
+        reg.setUserAgreement(true);
         AuthResponse master = authService.registerMaster(reg);
         farmId = master.getFarmId();
 
@@ -82,12 +86,11 @@ class PersonnelStatusLifecycleIT {
         sub.setName("Worker");
         sub.setUsername("worker");
         sub.setPassword("WorkerPass1");
-        sub.setFarmId(farmId);
         sub.setGender(Gender.FEMALE);
         sub.setDateOfBirth(LocalDate.now().minusYears(25));
         sub.setPhoneNumber("+237600000002");
         sub.setAddress("Rue 3");
-        authService.registerSubUser(sub);
+        authService.registerSubUser(sub, farmId, "MASTER");
 
         UUID userId = authRepository.findByEmail("worker@test.local").orElseThrow().getId();
         personnelId = personnelRepository.findByUserId(userId).orElseThrow().getId();
@@ -110,10 +113,8 @@ class PersonnelStatusLifecycleIT {
         List<PersonnelStatusHistoryResponse> history =
                 personnelService.getStatusHistory(personnelId, farmId);
         assertThat(history).hasSize(2);
-        // newest first
         assertThat(history.get(0).getStatus()).isEqualTo(PersonnelStatus.ON_LEAVE);
         assertThat(history.get(0).getEndTimestamp()).isNull();
-        // old one was closed
         assertThat(history.get(1).getStatus()).isEqualTo(PersonnelStatus.ACTIVE);
         assertThat(history.get(1).getEndTimestamp()).isNotNull();
         assertThat(history.get(1).getActualDuration()).isNotNull();
@@ -167,7 +168,6 @@ class PersonnelStatusLifecycleIT {
 
     @Test
     void farmManagerCannotTakeLeave() {
-        // promote by setting department directly
         Personnel p = personnelRepository.findById(personnelId).orElseThrow();
         p.setDepartment(Department.FARM_MANAGEMENT);
         personnelRepository.save(p);
@@ -186,7 +186,6 @@ class PersonnelStatusLifecycleIT {
     void onLeaveWithoutDates_rejected() {
         PersonnelStatusUpdateRequest req = new PersonnelStatusUpdateRequest();
         req.setStatus(PersonnelStatus.ON_LEAVE);
-        // both dates missing
 
         assertThatThrownBy(() -> personnelService.changeStatus(personnelId, req, farmId))
                 .isInstanceOf(BusinessException.class)

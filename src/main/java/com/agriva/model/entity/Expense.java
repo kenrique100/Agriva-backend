@@ -4,21 +4,19 @@ import com.agriva.model.entity.enums.Currency;
 import com.agriva.model.entity.enums.ExpenseCategory;
 import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
 @Table(name = "expense")
 @Data
+@EqualsAndHashCode(callSuper = true)
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class Expense {
+public class Expense extends AuditableEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -67,19 +65,13 @@ public class Expense {
     @Column(nullable = false, length = 50)
     private ExpenseCategory category;
 
-    @CreationTimestamp
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt;
-
-    @UpdateTimestamp
-    @Column(name = "updated_at")
-    private LocalDateTime updatedAt;
+    @Version
+    @Column(nullable = false)
+    private Long version;
 
     public void calculateDueBalance() {
-        if (this.expectedAmount != null && this.amountPaid != null) {
-            this.dueBalance = this.expectedAmount.subtract(this.amountPaid);
-        } else {
-            this.dueBalance = BigDecimal.ZERO;
-        }
+        this.dueBalance = (expectedAmount != null && amountPaid != null)
+                ? expectedAmount.subtract(amountPaid)
+                : BigDecimal.ZERO;
     }
 }

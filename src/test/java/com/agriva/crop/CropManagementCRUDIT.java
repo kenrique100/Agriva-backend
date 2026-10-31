@@ -6,8 +6,9 @@ import com.agriva.exception.ResourceNotFoundException;
 import com.agriva.model.dto.auth.AuthResponse;
 import com.agriva.model.dto.auth.MasterRegisterRequest;
 import com.agriva.model.dto.crop.*;
-import com.agriva.model.entity.enums.Gender;
 import com.agriva.model.entity.enums.ActivityType;
+import com.agriva.model.entity.enums.Gender;
+import com.agriva.model.entity.enums.SoilType;
 import com.agriva.repository.*;
 import com.agriva.service.AuthService;
 import com.agriva.service.CropManagementService;
@@ -26,15 +27,6 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Synchronous CRUD for the Crop Management module.
- * <p>
- * Covers: fields, crops, cycles, activities, harvests — plus every
- * validation branch in CropManagementServiceImpl.
- * <p>
- * No Kafka involved; every assertion here exercises the request-response
- * path directly.
- */
 @SpringBootTest
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
@@ -50,7 +42,6 @@ class CropManagementCRUDIT {
     @Autowired HarvestRepository harvestRepo;
     @Autowired StagedCropCycleRepository stagedRepo;
 
-    // Standard cleanup dependencies (mirrors the other ITs)
     @Autowired SalaryPaymentRepository salaryRepository;
     @Autowired TaskRepository taskRepository;
     @Autowired PersonnelStatusHistoryRepository historyRepository;
@@ -106,20 +97,19 @@ class CropManagementCRUDIT {
         userId = authRepository.findByEmail("crop@test.local").orElseThrow().getId();
     }
 
-
     @Test
     void createField_persistsAndReturns() {
         FieldRequest req = new FieldRequest();
         req.setName("North Plot");
         req.setSizeHectares(new BigDecimal("2.50"));
-        req.setSoilType("Loamy");
+        req.setSoilType(SoilType.LOAMY);
 
         FieldResponse created = cropService.createField(req, farmId);
 
         assertThat(created.getId()).isNotNull();
         assertThat(created.getName()).isEqualTo("North Plot");
         assertThat(created.getSizeHectares()).isEqualByComparingTo("2.50");
-        assertThat(created.getSoilType()).isEqualTo("Loamy");
+        assertThat(created.getSoilType()).isEqualTo(SoilType.LOAMY);
 
         List<FieldResponse> list = cropService.getFields(farmId);
         assertThat(list).hasSize(1);
@@ -171,7 +161,6 @@ class CropManagementCRUDIT {
         assertThat(created.getId()).isNotNull();
         assertThat(created.getExpectedDaysToHarvest()).isNull();
     }
-
 
     @Test
     void createCycle_computesExpectedHarvestDate() {
@@ -276,13 +265,11 @@ class CropManagementCRUDIT {
         newer.setActivityDate(LocalDate.now());
         cropService.logActivity(cycle.getId(), newer, farmId, userId);
 
-        // FIX: getActivities requires (cycleId, farmId) — not just cycleId
         List<CropActivityResponse> list = cropService.getActivities(cycle.getId(), farmId);
         assertThat(list).hasSize(2);
-        assertThat(list.get(0).getActivityType()).isEqualTo("WEEDING");   // newest first
+        assertThat(list.get(0).getActivityType()).isEqualTo("WEEDING");
         assertThat(list.get(1).getActivityType()).isEqualTo("IRRIGATION");
     }
-
 
     @Test
     void logHarvest_marksCycleHarvested() {
@@ -306,7 +293,6 @@ class CropManagementCRUDIT {
         assertThat(reloaded.getStatus()).isEqualTo("HARVESTED");
         assertThat(reloaded.getActualHarvestDate()).isEqualTo(LocalDate.now());
     }
-
 
     private FieldResponse createField(String name) {
         FieldRequest req = new FieldRequest();

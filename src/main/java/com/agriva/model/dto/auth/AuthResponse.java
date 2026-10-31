@@ -11,6 +11,8 @@ import java.util.UUID;
 @AllArgsConstructor
 public class AuthResponse {
     private String token;
+    private String refreshToken;
+    private Long expiresInSeconds;
     private String email;
     private String username;
     private String role;

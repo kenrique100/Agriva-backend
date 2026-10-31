@@ -30,12 +30,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -59,9 +54,9 @@ public class DashboardServiceImpl implements DashboardService {
     public DashboardResponse personalDashboard(UUID userId, UUID farmId, String role) {
         boolean canSeeInvestments = isMasterOrAdmin(role);
 
-        User user = userId != null ? authRepository.findById(userId).orElse(null) : null;
+        User user = userId != null ? authRepository.findByIdLive(userId).orElse(null) : null;
         String farmName = farmId != null
-                ? farmRepository.findById(farmId).map(Farm::getName).orElse(null)
+                ? farmRepository.findByIdLive(farmId).map(Farm::getName).orElse(null)
                 : null;
 
         DashboardQueryRepository.Totals personal = userId != null
@@ -90,19 +85,18 @@ public class DashboardServiceImpl implements DashboardService {
     @Override
     public DashboardResponse farmDashboard(UUID farmId, UUID requesterUserId) {
         User requester = requesterUserId != null
-                ? authRepository.findById(requesterUserId).orElse(null)
+                ? authRepository.findByIdLive(requesterUserId).orElse(null)
                 : null;
 
         String role = requester != null ? requester.getRole() : RoleConstants.MASTER;
         boolean canSeeInvestments = isMasterOrAdmin(role);
 
-        String farmName = farmRepository.findById(farmId)
-                .map(Farm::getName)
-                .orElse(null);
+        String farmName = farmRepository.findByIdLive(farmId)
+                .map(Farm::getName).orElse(null);
 
         DashboardQueryRepository.Totals farmTotals = dashboardQueryRepo.totalsForFarm(farmId);
 
-        List<User> farmUsers = authRepository.findByFarmId(farmId);
+        List<User> farmUsers = authRepository.findByFarmIdLive(farmId);
 
         List<DashboardResponse.UserActivity> userActivities = new ArrayList<>();
         for (User u : farmUsers) {
@@ -133,10 +127,6 @@ public class DashboardServiceImpl implements DashboardService {
                 .build();
     }
 
-    /**
-     * Productivity overview. MASTER/ADMIN get every personnel in the farm;
-     * SUB_USER gets only their own row. Used by the dashboard chart.
-     */
     @Override
     @Transactional(readOnly = true)
     public DashboardProductivityResponse productivity(UUID userId, UUID farmId, String role) {
@@ -144,26 +134,38 @@ public class DashboardServiceImpl implements DashboardService {
         List<DashboardProductivityResponse.UserProductivity> rows = new ArrayList<>();
 
         if (isMaster) {
-            Pageable unpaged = Pageable.unpaged();
-            for (Personnel p : personnelRepository.findByFarmId(farmId, unpaged).getContent()) {
-                rows.add(toProductivity(p));
+            Map<UUID, double[]> aggregates = new HashMap<>();
+            for (Object[] r : taskRepository.aggregateProductivityByFarm(farmId)) {
+                UUID pid = (UUID) r[0];
+                aggregates.put(pid, new double[]{
+                        ((Number) r[1]).doubleValue(),
+                        ((Number) r[2]).doubleValue()
+                });
+            }
+            for (Personnel p : personnelRepository
+                    .findByFarmIdLive(farmId, Pageable.unpaged()).getContent()) {
+                double[] a = aggregates.getOrDefault(p.getId(), new double[]{0, 0});
+                rows.add(toProductivity(p, a[0], a[1]));
             }
         } else {
-            personnelRepository.findByUserId(userId).ifPresent(p -> rows.add(toProductivity(p)));
+            personnelRepository.findByUserIdLive(userId).ifPresent(p -> {
+                List<Task> tasks = taskRepository
+                        .findByPersonnelIdAndIsValidatedLive(p.getId(), true);
+                double hours = tasks.stream()
+                        .mapToDouble(t -> t.getActualHours() != null ? t.getActualHours() : 0.0)
+                        .sum();
+                double expected = tasks.stream()
+                        .mapToDouble(t -> t.getExpectedHours() != null ? t.getExpectedHours() : 0)
+                        .sum();
+                rows.add(toProductivity(p, hours, expected));
+            });
         }
         return DashboardProductivityResponse.builder().users(rows).build();
     }
 
-    private DashboardProductivityResponse.UserProductivity toProductivity(Personnel p) {
-        List<Task> tasks = taskRepository.findByPersonnelIdAndIsValidated(p.getId(), true);
-        double hours = tasks.stream()
-                .mapToDouble(t -> t.getActualHours() != null ? t.getActualHours() : 0.0)
-                .sum();
-        double expected = tasks.stream()
-                .mapToDouble(t -> t.getExpectedHours() != null ? t.getExpectedHours() : 0)
-                .sum();
+    private DashboardProductivityResponse.UserProductivity toProductivity(
+            Personnel p, double hours, double expected) {
         double pct = expected > 0 ? (hours / expected) * 100.0 : 0.0;
-
         return DashboardProductivityResponse.UserProductivity.builder()
                 .personnelId(p.getId())
                 .name(p.getName())
@@ -177,34 +179,27 @@ public class DashboardServiceImpl implements DashboardService {
     private List<DashboardResponse.TransactionSummary> buildTransactionSummaries(
             UUID farmId, boolean canSeeInvestments) {
 
-        if (farmId == null) {
-            return List.of();
-        }
+        if (farmId == null) return List.of();
 
-        List<Transaction> transactions = txRepo.findByFarmId(
+        List<Transaction> transactions = txRepo.findByFarmIdLive(
                         farmId,
                         PageRequest.of(0, DASHBOARD_TX_LIMIT,
                                 Sort.by(Sort.Direction.DESC, "occurredAt")))
                 .getContent();
 
-        if (transactions.isEmpty()) {
-            return List.of();
-        }
+        if (transactions.isEmpty()) return List.of();
 
         List<UUID> txIds = transactions.stream().map(Transaction::getId).toList();
 
-        Map<UUID, List<Income>> incomesByTx = incomeRepo.findByTransactionIdIn(txIds)
-                .stream()
-                .collect(Collectors.groupingBy(Income::getTransactionId));
+        Map<UUID, List<Income>> incomesByTx = incomeRepo.findByTransactionIdInLive(txIds)
+                .stream().collect(Collectors.groupingBy(Income::getTransactionId));
 
-        Map<UUID, List<Expense>> expensesByTx = expenseRepo.findByTransactionIdIn(txIds)
-                .stream()
-                .collect(Collectors.groupingBy(Expense::getTransactionId));
+        Map<UUID, List<Expense>> expensesByTx = expenseRepo.findByTransactionIdInLive(txIds)
+                .stream().collect(Collectors.groupingBy(Expense::getTransactionId));
 
         Map<UUID, List<Investment>> investmentsByTx = canSeeInvestments
-                ? investmentRepo.findByTransactionIdIn(txIds)
-                  .stream()
-                  .collect(Collectors.groupingBy(Investment::getTransactionId))
+                ? investmentRepo.findByTransactionIdInLive(txIds)
+                  .stream().collect(Collectors.groupingBy(Investment::getTransactionId))
                 : Map.of();
 
         Set<UUID> creatorIds = new HashSet<>();
@@ -234,13 +229,16 @@ public class DashboardServiceImpl implements DashboardService {
 
             BigDecimal totalIncome = incomes.stream()
                     .map(Income::getAmountReceived)
+                    .filter(Objects::nonNull)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
             BigDecimal totalExpense = expenses.stream()
                     .map(Expense::getAmountPaid)
+                    .filter(Objects::nonNull)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
             BigDecimal totalInvestment = canSeeInvestments
                     ? investments.stream()
                       .map(Investment::getAmount)
+                      .filter(Objects::nonNull)
                       .reduce(BigDecimal.ZERO, BigDecimal::add)
                     : null;
 
@@ -291,8 +289,7 @@ public class DashboardServiceImpl implements DashboardService {
                     : null;
 
             User txCreator = tx.getCreatedByUserId() == null
-                    ? null
-                    : userById.get(tx.getCreatedByUserId());
+                    ? null : userById.get(tx.getCreatedByUserId());
 
             out.add(DashboardResponse.TransactionSummary.builder()
                     .id(tx.getId())
@@ -312,10 +309,10 @@ public class DashboardServiceImpl implements DashboardService {
                     .investmentCount(canSeeInvestments ? investments.size() : null)
                     .incomeLines(incomeLines.isEmpty() ? null : incomeLines)
                     .expenseLines(expenseLines.isEmpty() ? null : expenseLines)
-                    .investmentLines(investmentLines == null || investmentLines.isEmpty() ? null : investmentLines)
+                    .investmentLines(investmentLines == null || investmentLines.isEmpty()
+                            ? null : investmentLines)
                     .build());
         }
-
         return out;
     }
 
@@ -339,10 +336,9 @@ public class DashboardServiceImpl implements DashboardService {
         }
 
         return DashboardResponse.Totals.builder()
-                .totalTransactions(
-                        canSeeInvestments
-                                ? src.incomeCount() + src.expenseCount() + src.investmentCount()
-                                : src.incomeCount() + src.expenseCount())
+                .totalTransactions(canSeeInvestments
+                        ? src.incomeCount() + src.expenseCount() + src.investmentCount()
+                        : src.incomeCount() + src.expenseCount())
                 .totalIncomes(src.incomeCount())
                 .totalExpenses(src.expenseCount())
                 .totalInvestments(canSeeInvestments ? src.investmentCount() : null)

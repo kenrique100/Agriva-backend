@@ -1,5 +1,7 @@
 package com.agriva.service.impl;
 
+import com.agriva.config.IncomeKafkaConfig;
+import com.agriva.kafka.consumer.IdempotencyGuard;
 import com.agriva.model.dto.income.IncomeSubmissionEvent;
 import com.agriva.model.entity.StagedIncome;
 import com.agriva.model.entity.enums.StagedIncomeStatus;
@@ -18,6 +20,7 @@ import java.time.LocalDateTime;
 public class IncomeStagingServiceImpl implements IncomeStagingService {
 
     private final StagedIncomeRepository stagedRepo;
+    private final IdempotencyGuard idempotencyGuard;
 
     @Override
     @Transactional
@@ -27,8 +30,9 @@ public class IncomeStagingServiceImpl implements IncomeStagingService {
             return;
         }
 
-        if (stagedRepo.existsById(event.getSubmissionId())) {
-            log.info("Staged income {} already exists — skipping (idempotent)", event.getSubmissionId());
+        if (!idempotencyGuard.tryMarkProcessed(
+                event.getSubmissionId(), IncomeKafkaConfig.STAGING_CONSUMER_GROUP)) {
+            log.info("Duplicate delivery of income event {} — skipping", event.getSubmissionId());
             return;
         }
 
@@ -39,10 +43,10 @@ public class IncomeStagingServiceImpl implements IncomeStagingService {
                 .status(StagedIncomeStatus.PENDING)
                 .submittedByUserId(event.getSubmittedByUserId())
                 .submittedByEmail(event.getSubmittedByEmail())
-                .submittedAt(event.getSubmittedAt() != null ? event.getSubmittedAt() : LocalDateTime.now())
+                .submittedAt(event.getSubmittedAt() != null
+                        ? event.getSubmittedAt() : LocalDateTime.now())
                 .retryCount(0)
                 .build();
-
         stagedRepo.save(staged);
         log.info("Staged income {} persisted with status PENDING", staged.getId());
     }

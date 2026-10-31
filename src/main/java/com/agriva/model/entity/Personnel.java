@@ -5,9 +5,7 @@ import com.agriva.model.entity.enums.Gender;
 import com.agriva.model.entity.enums.PersonnelStatus;
 import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.type.SqlTypes;
 
 import java.time.Duration;
@@ -27,10 +25,11 @@ import java.util.UUID;
         }
 )
 @Data
+@EqualsAndHashCode(callSuper = true, exclude = "statusHistory")
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class Personnel {
+public class Personnel extends AuditableEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -118,11 +117,7 @@ public class Personnel {
     @Builder.Default
     private List<PersonnelStatusHistory> statusHistory = new ArrayList<>();
 
-    @CreationTimestamp
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt;
-
-    @UpdateTimestamp
-    @Column(name = "updated_at")
-    private LocalDateTime updatedAt;
+    @Version
+    @Column(nullable = false)
+    private Long version;
 }

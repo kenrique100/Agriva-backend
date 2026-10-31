@@ -2,9 +2,9 @@ package com.agriva.service;
 
 import com.agriva.exception.BusinessException;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.tika.Tika;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -12,119 +12,127 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.Arrays;
+import java.util.Set;
 import java.util.UUID;
 
+/**
+ * S9: extension check is a hint; the authoritative check is Tika's magic-byte
+ * detection on the actual bytes. A file named "receipt.pdf" containing an
+ * executable is rejected.
+ */
 @Service
 @Slf4j
 public class FileStorageService {
 
-    private final Path fileStorageLocation;
-    private volatile boolean directoryReady = false;
+    private static final Tika TIKA = new Tika();
 
-    public FileStorageService(@Value("${agriva.uploads.dir}") String uploadDir) {
-        this.fileStorageLocation = Paths.get(uploadDir).toAbsolutePath().normalize();
-        log.info("FileStorageService resolved uploads directory: {}", this.fileStorageLocation);
+    private final Path root;
+    private volatile boolean ready = false;
+    private final long maxSizeBytes;
+    private final Set<String> allowedMimeTypes;
 
-        // Do NOT throw on failure. Startup must succeed even if the uploads dir
-        // cannot be created yet — otherwise a single permission glitch brings down
-        // the entire app (auth, incomes, expenses list, everything).
-        // ensureDirectory() will retry on the first actual upload.
-        try {
-            Files.createDirectories(this.fileStorageLocation);
-            this.directoryReady = true;
-            log.info("Uploads directory is ready: {}", this.fileStorageLocation);
-        } catch (IOException ex) {
-            log.warn(
-                    "Could not create uploads directory {} at startup: {}. "
-                            + "The application will start, but receipt uploads will fail "
-                            + "until the directory is writable. In Docker, ensure the volume "
-                            + "is chowned to UID 1001 (see docker-compose.yml agriva-init service).",
-                    this.fileStorageLocation, ex.getMessage());
-        }
-    }
-
-    private synchronized void ensureDirectory() {
-        if (directoryReady) return;
-        try {
-            Files.createDirectories(this.fileStorageLocation);
-            if (!Files.isWritable(this.fileStorageLocation)) {
-                throw new BusinessException(
-                        "Uploads directory is not writable: " + this.fileStorageLocation);
-            }
-            directoryReady = true;
-            log.info("Uploads directory became ready: {}", this.fileStorageLocation);
-        } catch (IOException ex) {
-            throw new BusinessException(
-                    "Uploads directory is not accessible: " + this.fileStorageLocation
-                            + " (" + ex.getMessage() + ")");
+    public FileStorageService(
+            @Value("${agriva.uploads.dir}") String uploadDir,
+            @Value("${agriva.uploads.max-size-bytes:10485760}") long maxSizeBytes,
+            @Value("${agriva.uploads.allowed-mime-types:"
+                    + "application/pdf,image/png,image/jpeg,"
+                    + "application/vnd.openxmlformats-officedocument.wordprocessingml.document}")
+            String allowedMimes) {
+        this.root = Paths.get(uploadDir).toAbsolutePath().normalize();
+        this.maxSizeBytes = maxSizeBytes;
+        this.allowedMimeTypes = Set.copyOf(
+                Arrays.stream(allowedMimes.split(",")).map(String::trim).toList());
+        log.info("FileStorageService root={} maxSize={}B allowed={}",
+                this.root, maxSizeBytes, this.allowedMimeTypes);
+        try { Files.createDirectories(this.root); this.ready = true; }
+        catch (IOException e) {
+            log.warn("Uploads dir not ready at startup: {}", e.getMessage());
         }
     }
 
     public String storeFile(MultipartFile file) {
-        ensureDirectory();
+        ensureReady();
 
-        String originalFileName = StringUtils.cleanPath(
-                file.getOriginalFilename() == null ? "upload" : file.getOriginalFilename());
-
-        String extension = "";
-        int i = originalFileName.lastIndexOf('.');
-        if (i > 0) {
-            extension = originalFileName.substring(i).toLowerCase();
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException("Empty file");
+        }
+        if (file.getSize() > maxSizeBytes) {
+            throw new BusinessException("File exceeds maximum size of " + maxSizeBytes + " bytes");
         }
 
-        String allowedExtensions = ".pdf,.docx,.png,.jpeg,.jpg";
-        if (!allowedExtensions.contains(extension)) {
-            throw new BusinessException(
-                    "Invalid file type. Only PDF, DOCX, PNG, JPEG are allowed.");
+        // S9: authoritative content check.
+        byte[] head;
+        try (var is = file.getInputStream()) {
+            head = is.readNBytes(2048);
+        } catch (IOException e) {
+            throw new BusinessException("Could not read uploaded file", e);
+        }
+        String detected;
+        try { detected = TIKA.detect(head); }
+        catch (Exception e) { detected = "application/octet-stream"; }
+
+        if (!allowedMimeTypes.contains(detected)) {
+            log.warn("Rejected upload: declared={} detected={}", file.getContentType(), detected);
+            throw new BusinessException("File type not allowed (detected: " + detected + ")");
         }
 
-        String newFileName = UUID.randomUUID() + extension;
+        String ext = extensionFor(detected);
+        String filename = UUID.randomUUID() + ext;
 
         try {
-            if (newFileName.contains("..")) {
-                throw new BusinessException(
-                        "Sorry! Filename contains invalid path sequence " + newFileName);
+            Path target = this.root.resolve(filename).normalize();
+            if (!target.startsWith(this.root)) {
+                throw new BusinessException("Invalid storage path");
             }
-            Path targetLocation = this.fileStorageLocation.resolve(newFileName);
-            Files.copy(file.getInputStream(), targetLocation, StandardCopyOption.REPLACE_EXISTING);
-            log.info("Stored receipt: {} -> {}", originalFileName, newFileName);
-            return newFileName;
-        } catch (IOException ex) {
-            throw new BusinessException(
-                    "Could not store file " + newFileName + ". Please try again!");
+            try (var is = file.getInputStream()) {
+                Files.copy(is, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+            log.info("Stored {} ({} bytes, type={}) -> {}",
+                    file.getOriginalFilename(), file.getSize(), detected, filename);
+            return filename;
+        } catch (IOException e) {
+            throw new BusinessException("Failed to store file: " + e.getMessage(), e);
         }
     }
 
-    /**
-     * NEW: deletes a previously stored file by name (the UUID-based filename
-     * that storeFile() returned). Missing files are silently ignored so that
-     * re-uploads do not fail because a stale path no longer exists on disk.
-     * Includes the same path-traversal guard as the GET endpoint in
-     * FileController — a malicious stored value cannot escape the uploads dir.
-     */
     public void delete(String storedFileName) {
-        if (storedFileName == null || storedFileName.isBlank()) {
-            return;
-        }
-
+        if (storedFileName == null || storedFileName.isBlank()) return;
         try {
-            Path filePath = this.fileStorageLocation.resolve(storedFileName).normalize();
-
-            if (!filePath.startsWith(this.fileStorageLocation)) {
+            Path p = this.root.resolve(storedFileName).normalize();
+            if (!p.startsWith(this.root)) {
                 log.warn("Rejected path traversal on delete: {}", storedFileName);
-                throw new BusinessException("Invalid file path: " + storedFileName);
+                throw new BusinessException("Invalid file path");
             }
-
-            if (Files.exists(filePath)) {
-                Files.delete(filePath);
-                log.info("Deleted file: {}", storedFileName);
-            } else {
-                log.debug("Delete skipped — file not found: {}", storedFileName);
+            if (Files.exists(p)) {
+                Files.delete(p);
+                log.info("Deleted file {}", storedFileName);
             }
-        } catch (IOException ex) {
-            log.error("Failed to delete file {}: {}", storedFileName, ex.getMessage());
-            throw new BusinessException(
-                    "Could not delete file " + storedFileName + ": " + ex.getMessage());
+        } catch (IOException e) {
+            throw new BusinessException("Could not delete file: " + e.getMessage(), e);
         }
+    }
+
+    private void ensureReady() {
+        if (ready) return;
+        try {
+            Files.createDirectories(root);
+            if (!Files.isWritable(root)) {
+                throw new BusinessException("Uploads directory not writable: " + root);
+            }
+            ready = true;
+        } catch (IOException e) {
+            throw new BusinessException("Uploads directory not accessible: " + root, e);
+        }
+    }
+
+    private static String extensionFor(String mime) {
+        return switch (mime) {
+            case "application/pdf" -> ".pdf";
+            case "image/png" -> ".png";
+            case "image/jpeg" -> ".jpg";
+            case "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> ".docx";
+            default -> "";
+        };
     }
 }

@@ -7,6 +7,7 @@ import com.agriva.repository.PersonnelRepository;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
 import java.io.InputStream;
@@ -24,9 +25,10 @@ public class SalaryExcelParser {
         List<ParsedRow> rows = new ArrayList<>();
         DataFormatter fmt = new DataFormatter();
 
+        // Preload email -> personnel for this farm (Live only).
         Map<String, Personnel> byEmail = new HashMap<>();
-        for (Personnel p : personnelRepo.findByFarmId(farmId,
-                org.springframework.data.domain.Pageable.unpaged()).getContent()) {
+        for (Personnel p : personnelRepo.findByFarmIdLive(farmId, Pageable.unpaged())
+                .getContent()) {
             if (p.getEmail() != null) byEmail.put(p.getEmail().toLowerCase(), p);
         }
 
@@ -44,22 +46,29 @@ public class SalaryExcelParser {
                     || !colMap.containsKey("amount")
                     || !colMap.containsKey("payment_date")) {
                 throw new ExcelProcessingException(
-                        "Required headers: personnel_email, amount, payment_date. Found: " + colMap.keySet());
+                        "Required headers: personnel_email, amount, payment_date. Found: "
+                                + colMap.keySet());
             }
 
             for (int r = HEADER_ROW + 1; r <= sheet.getLastRowNum(); r++) {
                 Row row = sheet.getRow(r);
-                if (row == null || ExcelCellReader.isEmptyRow(row, header.getLastCellNum())) continue;
+                if (row == null || ExcelCellReader.isEmptyRow(row, header.getLastCellNum()))
+                    continue;
                 int rowNum = r + 1;
                 try {
                     SalaryPaymentRequest req = new SalaryPaymentRequest();
-                    String email = ExcelCellReader.readString(getCell(row, colMap, "personnel_email"));
-                    if (email == null || email.isBlank()) throw new ExcelProcessingException("personnel_email is required");
+                    String email = ExcelCellReader.readString(
+                            getCell(row, colMap, "personnel_email"));
+                    if (email == null || email.isBlank())
+                        throw new ExcelProcessingException("personnel_email is required");
                     Personnel p = byEmail.get(email.trim().toLowerCase());
-                    if (p == null) throw new ExcelProcessingException("Personnel not found: " + email);
+                    if (p == null)
+                        throw new ExcelProcessingException("Personnel not found: " + email);
                     req.setPersonnelId(p.getId());
-                    req.setAmount(ExcelCellReader.readBigDecimal(getCell(row, colMap, "amount"), "Amount"));
-                    req.setPaymentDate(ExcelCellReader.readDate(getCell(row, colMap, "payment_date"), "Payment date"));
+                    req.setAmount(ExcelCellReader.readBigDecimal(
+                            getCell(row, colMap, "amount"), "Amount"));
+                    req.setPaymentDate(ExcelCellReader.readDate(
+                            getCell(row, colMap, "payment_date"), "Payment date"));
                     rows.add(new ParsedRow(rowNum, req, null));
                 } catch (Exception ex) {
                     rows.add(new ParsedRow(rowNum, null, ex.getMessage()));

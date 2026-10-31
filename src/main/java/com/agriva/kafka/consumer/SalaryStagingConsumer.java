@@ -21,8 +21,7 @@ public class SalaryStagingConsumer {
     @KafkaListener(
             topics = SalaryKafkaConfig.STAGING_TOPIC,
             groupId = SalaryKafkaConfig.STAGING_CONSUMER_GROUP,
-            containerFactory = "salaryKafkaListenerContainerFactory"
-    )
+            containerFactory = "salaryKafkaListenerContainerFactory")
     public void onSalarySubmitted(
             @Payload SalarySubmissionEvent event,
             @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
@@ -30,7 +29,6 @@ public class SalaryStagingConsumer {
 
         log.info("Received salary submission {} partition={} offset={}",
                 event.getSubmissionId(), partition, offset);
-
         salaryStagingService.persistStaged(event);
     }
 }

@@ -71,9 +71,13 @@ class PersonnelSchedulerIT {
         reg.setGender(Gender.MALE);
         reg.setDateOfBirth(LocalDate.now().minusYears(35));
         reg.setPhoneNumber("+237600000000");
-        reg.setCountry("Cameroon"); reg.setState("Centre"); reg.setCity("Yaoundé");
-        reg.setAddress("Rue 1"); reg.setPostalCode("00000");
-        reg.setCurrency("XAF"); reg.setUserAgreement(true);
+        reg.setCountry("Cameroon");
+        reg.setState("Centre");
+        reg.setCity("Yaoundé");
+        reg.setAddress("Rue 1");
+        reg.setPostalCode("00000");
+        reg.setCurrency("XAF");
+        reg.setUserAgreement(true);
         AuthResponse master = authService.registerMaster(reg);
         farmId = master.getFarmId();
         masterUserId = authRepository.findByEmail("schedmaster@test.local").orElseThrow().getId();
@@ -83,14 +87,14 @@ class PersonnelSchedulerIT {
         sub.setName("Scheduler Worker");
         sub.setUsername("schedworker");
         sub.setPassword("WorkerPass1");
-        sub.setFarmId(farmId);
         sub.setGender(Gender.FEMALE);
         sub.setDateOfBirth(LocalDate.now().minusYears(25));
         sub.setPhoneNumber("+237600000002");
         sub.setAddress("Rue 3");
-        authService.registerSubUser(sub);
+        authService.registerSubUser(sub, farmId, "MASTER");
 
-        UUID workerUserId = authRepository.findByEmail("schedworker@test.local").orElseThrow().getId();
+        UUID workerUserId = authRepository.findByEmail("schedworker@test.local")
+                .orElseThrow().getId();
         personnelId = personnelRepository.findByUserId(workerUserId).orElseThrow().getId();
     }
 

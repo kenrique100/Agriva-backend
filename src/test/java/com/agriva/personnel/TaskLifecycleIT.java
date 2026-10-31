@@ -71,9 +71,13 @@ class TaskLifecycleIT {
         reg.setGender(Gender.MALE);
         reg.setDateOfBirth(LocalDate.now().minusYears(35));
         reg.setPhoneNumber("+237600000000");
-        reg.setCountry("Cameroon"); reg.setState("Centre"); reg.setCity("Yaoundé");
-        reg.setAddress("Rue 1"); reg.setPostalCode("00000");
-        reg.setCurrency("XAF"); reg.setUserAgreement(true);
+        reg.setCountry("Cameroon");
+        reg.setState("Centre");
+        reg.setCity("Yaoundé");
+        reg.setAddress("Rue 1");
+        reg.setPostalCode("00000");
+        reg.setCurrency("XAF");
+        reg.setUserAgreement(true);
         AuthResponse master = authService.registerMaster(reg);
         farmId = master.getFarmId();
         masterUserId = authRepository.findByEmail("taskmaster@test.local").orElseThrow().getId();
@@ -83,14 +87,14 @@ class TaskLifecycleIT {
         sub.setName("Task Worker");
         sub.setUsername("taskworker");
         sub.setPassword("WorkerPass1");
-        sub.setFarmId(farmId);
         sub.setGender(Gender.FEMALE);
         sub.setDateOfBirth(LocalDate.now().minusYears(25));
         sub.setPhoneNumber("+237600000002");
         sub.setAddress("Rue 3");
-        authService.registerSubUser(sub);
+        authService.registerSubUser(sub, farmId, "MASTER");
 
-        workerUserId = authRepository.findByEmail("worker@test.local").orElseThrow().getId();
+        workerUserId = authRepository.findByEmail("worker@test.local")
+                .orElseThrow().getId();
         personnelId = personnelRepository.findByUserId(workerUserId).orElseThrow().getId();
     }
 
@@ -106,7 +110,6 @@ class TaskLifecycleIT {
         assertThat(started.getStartTime()).isNotNull();
         assertThat(started.getLastResumeTime()).isNotNull();
 
-        // Simulate 2 elapsed hours by moving lastResumeTime backwards.
         Task raw = taskRepository.findById(t.getId()).orElseThrow();
         raw.setLastResumeTime(LocalDateTime.now().minusHours(2));
         taskRepository.save(raw);
@@ -119,13 +122,13 @@ class TaskLifecycleIT {
         TaskResponse continued = taskService.action(t.getId(), farmId, workerUserId, false, "CONTINUE");
         assertThat(continued.getStatus()).isEqualTo(TaskStatus.IN_PROGRESS);
 
-        // Simulate 1 more hour of work
         Task raw2 = taskRepository.findById(t.getId()).orElseThrow();
         raw2.setLastResumeTime(LocalDateTime.now().minusHours(1));
         taskRepository.save(raw2);
 
         TaskResponse submitted = taskService.action(t.getId(), farmId, workerUserId, false, "SUBMIT");
-        assertThat(submitted.getStatus()).isEqualTo(TaskStatus.IN_PROGRESS);
+        // After SUBMIT, the task is in SUBMITTED state awaiting validation.
+        assertThat(submitted.getStatus()).isEqualTo(TaskStatus.SUBMITTED);
         assertThat(submitted.getIsSubmitted()).isTrue();
         assertThat(submitted.getActualHours()).isBetween(2.9, 3.1);
 
@@ -135,7 +138,6 @@ class TaskLifecycleIT {
         assertThat(validated.getIsSubmitted()).isFalse();
         assertThat(validated.getValidatedByUserId()).isEqualTo(masterUserId);
 
-        // Productivity rolled on Personnel
         Personnel p = personnelRepository.findById(personnelId).orElseThrow();
         assertThat(p.getTotalHoursWorkedLast30Days()).isGreaterThan(2.5);
         assertThat(p.getWorkingDaysCount()).isGreaterThanOrEqualTo(1);
@@ -173,19 +175,20 @@ class TaskLifecycleIT {
     @Test
     void subUser_cannotActOnOthersTask() {
         TaskResponse t = createTask();
-        // A different SUB_USER tries to start it
+
         SubUserRegisterRequest other = new SubUserRegisterRequest();
         other.setEmail("other@test.local");
         other.setName("Other");
         other.setUsername("other");
         other.setPassword("OtherPass1");
-        other.setFarmId(farmId);
         other.setGender(Gender.MALE);
         other.setDateOfBirth(LocalDate.now().minusYears(28));
         other.setPhoneNumber("+237600000005");
         other.setAddress("Rue 5");
-        authService.registerSubUser(other);
-        UUID otherUserId = authRepository.findByEmail("other@test.local").orElseThrow().getId();
+        authService.registerSubUser(other, farmId, "MASTER");
+
+        UUID otherUserId = authRepository.findByEmail("other@test.local")
+                .orElseThrow().getId();
 
         assertThatThrownBy(() ->
                 taskService.action(t.getId(), farmId, otherUserId, false, "START"))

@@ -21,23 +21,15 @@ public class IncomeStagingConsumer {
     @KafkaListener(
             topics = IncomeKafkaConfig.STAGING_TOPIC,
             groupId = IncomeKafkaConfig.STAGING_CONSUMER_GROUP,
-            containerFactory = "incomeKafkaListenerContainerFactory"
-    )
+            containerFactory = "incomeKafkaListenerContainerFactory")
     public void onIncomeSubmitted(
             @Payload IncomeSubmissionEvent event,
             @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
             @Header(KafkaHeaders.OFFSET) long offset) {
 
-        log.info("Received income submission {} from partition={}, offset={}",
+        log.info("Received income submission {} partition={} offset={}",
                 event.getSubmissionId(), partition, offset);
 
-        try {
-            incomeStagingService.persistStaged(event);
-        } catch (Exception ex) {
-            log.error("Failed to persist staged income {}: {}",
-                    event.getSubmissionId(), ex.getMessage(), ex);
-            // Rethrow so the Kafka error handler / DLT kicks in instead of silently dropping
-            throw ex;
-        }
+        incomeStagingService.persistStaged(event);
     }
 }

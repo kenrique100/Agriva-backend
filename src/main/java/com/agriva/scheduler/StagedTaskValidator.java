@@ -34,10 +34,8 @@ public class StagedTaskValidator {
 
     @Value("${agriva.task.validator.batch-size:100}")
     private int batchSize;
-
     @Value("${agriva.task.validator.max-attempts:4}")
     private int maxAttempts;
-
     @Value("${agriva.task.validator.retry-delay-minutes:1}")
     private long retryDelayMinutes;
 
@@ -53,23 +51,16 @@ public class StagedTaskValidator {
         log.info("StagedTaskValidator: {} row(s) due for processing", due.size());
         for (StagedTask staged : due) {
             UUID stagedId = staged.getId();
-            transactionTemplate.execute(status -> {
-                processOne(stagedId);
-                return null;
-            });
+            transactionTemplate.execute(status -> { processOne(stagedId); return null; });
         }
     }
 
     private void processOne(UUID stagedId) {
         StagedTask staged = stagedRepo.findByIdForUpdate(stagedId).orElse(null);
-        if (staged == null) {
-            return;
-        }
+        if (staged == null) return;
 
         LocalDateTime now = LocalDateTime.now();
-        if (!isDueForProcessing(staged, now)) {
-            return;
-        }
+        if (!isDueForProcessing(staged, now)) return;
 
         staged.setLastAttemptAt(now);
         try {
@@ -77,12 +68,11 @@ public class StagedTaskValidator {
                     staged.getPayloadJson(), TaskCreateRequest.class);
 
             String error = validate(request, staged.getFarmId());
-            if (error != null) {
-                onFailure(staged, List.of(error));
-                return;
-            }
+            if (error != null) { onFailure(staged, List.of(error)); return; }
 
-            Personnel p = personnelRepo.findByIdAndFarmId(request.getPersonnelId(), staged.getFarmId())
+            // Use the Live finder — soft-deleted personnel not resolvable.
+            Personnel p = personnelRepo
+                    .findByIdAndFarmIdLive(request.getPersonnelId(), staged.getFarmId())
                     .orElseThrow(() -> new IllegalStateException("Personnel missing"));
 
             Task t = Task.builder()
@@ -111,14 +101,15 @@ public class StagedTaskValidator {
         }
     }
 
-    private String validate(TaskCreateRequest req, java.util.UUID farmId) {
+    private String validate(TaskCreateRequest req, UUID farmId) {
         if (req.getPersonnelId() == null) return "Personnel is required";
         if (req.getTitle() == null || req.getTitle().isBlank()) return "Title is required";
         if (req.getDeadline() == null) return "Deadline is required";
         if (req.getDeadline().isBefore(LocalDate.now())) return "Deadline cannot be in the past";
         if (req.getExpectedHours() == null || req.getExpectedHours() <= 0)
             return "Expected hours must be positive";
-        if (personnelRepo.findByIdAndFarmId(req.getPersonnelId(), farmId).isEmpty())
+        // Use the Live finder — soft-deleted personnel not resolvable.
+        if (personnelRepo.findByIdAndFarmIdLive(req.getPersonnelId(), farmId).isEmpty())
             return "Personnel not found in farm";
         return null;
     }
@@ -146,14 +137,8 @@ public class StagedTaskValidator {
     }
 
     private static boolean isDueForProcessing(StagedTask staged, LocalDateTime now) {
-        if (staged.getStatus() == StagedTaskStatus.PENDING) {
-            return true;
-        }
-
-        if (staged.getStatus() != StagedTaskStatus.RETRYING) {
-            return false;
-        }
-
+        if (staged.getStatus() == StagedTaskStatus.PENDING) return true;
+        if (staged.getStatus() != StagedTaskStatus.RETRYING) return false;
         return staged.getNextRetryAt() == null || !staged.getNextRetryAt().isAfter(now);
     }
 }

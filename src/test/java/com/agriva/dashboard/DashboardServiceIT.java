@@ -5,6 +5,7 @@ import com.agriva.model.dto.auth.*;
 import com.agriva.model.dto.dashboard.DashboardResponse;
 import com.agriva.model.dto.investment.InvestmentRequest;
 import com.agriva.model.entity.enums.Currency;
+import com.agriva.model.entity.enums.Gender;
 import com.agriva.repository.*;
 import com.agriva.service.AuthService;
 import com.agriva.service.DashboardService;
@@ -48,6 +49,18 @@ class DashboardServiceIT {
         reg.setEmail("dash-master@test.local");
         reg.setPassword("MasterPass1");
         reg.setFarmName("Dashboard Test " + UUID.randomUUID());
+        reg.setName("Dash Master");
+        reg.setGender(Gender.MALE);
+        reg.setDateOfBirth(LocalDate.now().minusYears(35));
+        reg.setPhoneNumber("+237600000000");
+        reg.setCountry("Cameroon");
+        reg.setState("Centre");
+        reg.setCity("Yaoundé");
+        reg.setAddress("Rue 1");
+        reg.setPostalCode("00000");
+        reg.setCurrency("XAF");
+        reg.setUserAgreement(true);
+
         AuthResponse master = authService.registerMaster(reg);
         farmId = master.getFarmId();
         masterId = authRepository.findByEmail("dash-master@test.local").orElseThrow().getId();
@@ -55,8 +68,12 @@ class DashboardServiceIT {
         SubUserRegisterRequest sub = new SubUserRegisterRequest();
         sub.setEmail("dash-sub@test.local");
         sub.setPassword("SubPass123");
-        sub.setFarmId(farmId);
-        authService.registerSubUser(sub);
+        sub.setName("Dash Sub");
+        sub.setGender(Gender.FEMALE);
+        sub.setDateOfBirth(LocalDate.now().minusYears(25));
+        sub.setPhoneNumber("+237600000001");
+        sub.setAddress("Rue 2");
+        authService.registerSubUser(sub, farmId, "MASTER");
         subUserId = authRepository.findByEmail("dash-sub@test.local").orElseThrow().getId();
 
         InvestmentRequest inv = new InvestmentRequest();
@@ -97,9 +114,10 @@ class DashboardServiceIT {
 
     @Test
     void master_dashboard_setsTotalsToNullWhenCategoryHasMixedCurrencies() {
+        // Second investment must be a DIFFERENT currency from the first (USD default).
         InvestmentRequest inv = new InvestmentRequest();
         inv.setAmount(new BigDecimal("1200"));
-        inv.setCurrency(Currency.USD);
+        inv.setCurrency(Currency.EUR);
         inv.setInvestorName("Fund B");
         inv.setInvestmentDate(LocalDate.now().minusDays(2));
         investmentService.createInvestment(inv, farmId, masterId);

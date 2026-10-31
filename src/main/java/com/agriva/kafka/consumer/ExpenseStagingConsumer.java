@@ -21,16 +21,14 @@ public class ExpenseStagingConsumer {
     @KafkaListener(
             topics = ExpenseKafkaConfig.STAGING_TOPIC,
             groupId = ExpenseKafkaConfig.STAGING_CONSUMER_GROUP,
-            containerFactory = "expenseKafkaListenerContainerFactory"
-    )
+            containerFactory = "expenseKafkaListenerContainerFactory")
     public void onExpenseSubmitted(
             @Payload ExpenseSubmissionEvent event,
             @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
             @Header(KafkaHeaders.OFFSET) long offset) {
 
-        log.info("Received expense submission {} from partition={}, offset={}",
+        log.info("Received expense submission {} partition={} offset={}",
                 event.getSubmissionId(), partition, offset);
-
         expenseStagingService.persistStaged(event);
     }
 }

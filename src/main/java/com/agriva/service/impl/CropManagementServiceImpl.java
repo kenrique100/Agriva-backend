@@ -50,13 +50,15 @@ public class CropManagementServiceImpl implements CropManagementService {
     private final CropCycleProducer cropCycleProducer;
     private final ObjectMapper objectMapper;
 
-    // --- Fields ---
-    @Override @Transactional(readOnly = true)
+    @Override
+    @Transactional(readOnly = true)
     public List<FieldResponse> getFields(UUID farmId) {
-        return fieldRepo.findByFarmId(farmId).stream().map(mapper::toResponse).collect(Collectors.toList());
+        return fieldRepo.findByFarmId(farmId).stream()
+                .map(mapper::toResponse).collect(Collectors.toList());
     }
 
-    @Override @Transactional
+    @Override
+    @Transactional
     public FieldResponse createField(FieldRequest req, UUID farmId) {
         if (fieldRepo.existsByFarmIdAndName(farmId, req.getName())) {
             throw new BusinessException("Field with this name already exists");
@@ -68,12 +70,17 @@ public class CropManagementServiceImpl implements CropManagementService {
         return mapper.toResponse(fieldRepo.save(f));
     }
 
-    @Override @Transactional
+    @Override
+    @Transactional
     public CropBulkUploadResponse bulkUploadFields(MultipartFile file, UUID farmId) {
-        if (file == null || file.isEmpty()) throw new IllegalArgumentException("Excel file is required");
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Excel file is required");
+        }
         List<FieldExcelParser.ParsedRow> rows;
         try { rows = fieldExcelParser.parse(file.getInputStream()); }
-        catch (Exception e) { throw new IllegalArgumentException("Failed to read Excel file: " + e.getMessage(), e); }
+        catch (Exception e) {
+            throw new IllegalArgumentException("Failed to read Excel file: " + e.getMessage(), e);
+        }
 
         CropBulkUploadResponse response = new CropBulkUploadResponse();
         response.setTotalRows(rows.size());
@@ -98,27 +105,35 @@ public class CropManagementServiceImpl implements CropManagementService {
         return response;
     }
 
-    // --- Crops ---
-    @Override @Transactional(readOnly = true)
+    @Override
+    @Transactional(readOnly = true)
     public List<CropResponse> getCrops(UUID farmId) {
-        return cropRepo.findByFarmId(farmId).stream().map(mapper::toResponse).collect(Collectors.toList());
+        return cropRepo.findByFarmId(farmId).stream()
+                .map(mapper::toResponse).collect(Collectors.toList());
     }
 
-    @Override @Transactional
+    @Override
+    @Transactional
     public CropResponse createCrop(CropRequest req, UUID farmId) {
         Crop c = Crop.builder()
                 .farmId(farmId).name(req.getName())
-                .variety(req.getVariety()).expectedDaysToHarvest(req.getExpectedDaysToHarvest())
+                .variety(req.getVariety())
+                .expectedDaysToHarvest(req.getExpectedDaysToHarvest())
                 .build();
         return mapper.toResponse(cropRepo.save(c));
     }
 
-    @Override @Transactional
+    @Override
+    @Transactional
     public CropBulkUploadResponse bulkUploadCrops(MultipartFile file, UUID farmId) {
-        if (file == null || file.isEmpty()) throw new IllegalArgumentException("Excel file is required");
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Excel file is required");
+        }
         List<CropExcelParser.ParsedRow> rows;
         try { rows = cropExcelParser.parse(file.getInputStream()); }
-        catch (Exception e) { throw new IllegalArgumentException("Failed to read Excel file: " + e.getMessage(), e); }
+        catch (Exception e) {
+            throw new IllegalArgumentException("Failed to read Excel file: " + e.getMessage(), e);
+        }
 
         CropBulkUploadResponse response = new CropBulkUploadResponse();
         response.setTotalRows(rows.size());
@@ -143,18 +158,21 @@ public class CropManagementServiceImpl implements CropManagementService {
         return response;
     }
 
-    // --- Cycles ---
-    @Override @Transactional(readOnly = true)
+    @Override
+    @Transactional(readOnly = true)
     public List<CropCycleResponse> getCycles(UUID farmId) {
-        return cycleRepo.findByFarmId(farmId).stream().map(mapper::toResponse).collect(Collectors.toList());
+        return cycleRepo.findByFarmIdLive(farmId).stream()
+                .map(mapper::toResponse).collect(Collectors.toList());
     }
 
-    @Override @Transactional(readOnly = true)
+    @Override
+    @Transactional(readOnly = true)
     public CropCycleResponse getCycle(UUID id, UUID farmId) {
         return mapper.toResponse(loadCycle(id, farmId));
     }
 
-    @Override @Transactional
+    @Override
+    @Transactional
     public CropCycleResponse createCycle(CropCycleRequest req, UUID farmId) {
         Field field = fieldRepo.findByIdAndFarmId(req.getFieldId(), farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Field not found"));
@@ -176,25 +194,41 @@ public class CropManagementServiceImpl implements CropManagementService {
         return mapper.toResponse(cycleRepo.save(cycle));
     }
 
-    @Override @Transactional
+    @Override
+    @Transactional
     public CropCycleResponse updateCycleStatus(UUID id, String status, UUID farmId) {
         CropCycle cycle = loadCycle(id, farmId);
         try { cycle.setStatus(CropCycleStatus.valueOf(status.toUpperCase())); }
-        catch (IllegalArgumentException e) { throw new BusinessException("Invalid cycle status: " + status); }
+        catch (IllegalArgumentException e) {
+            throw new BusinessException("Invalid cycle status: " + status);
+        }
         if (cycle.getStatus() == CropCycleStatus.HARVESTED) {
             cycle.setActualHarvestDate(LocalDate.now());
         }
         return mapper.toResponse(cycleRepo.save(cycle));
     }
 
-    // --- NEW — Kafka bulk upload of cycles ---
     @Override
-    public CropBulkUploadResponse bulkUploadCycles(MultipartFile file, UUID farmId, UUID userId, String email) {
-        if (file == null || file.isEmpty()) throw new IllegalArgumentException("Excel file is required");
+    @Transactional
+    public void deleteCycle(UUID id, UUID farmId) {
+        CropCycle cycle = loadCycle(id, farmId);
+        cycle.setDeletedAt(LocalDateTime.now());
+        cycleRepo.save(cycle);
+        log.info("Soft-deleted crop cycle {} from farm {}", id, farmId);
+    }
+
+    @Override
+    public CropBulkUploadResponse bulkUploadCycles(MultipartFile file, UUID farmId,
+                                                   UUID userId, String email) {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Excel file is required");
+        }
 
         List<CropCycleExcelParser.ParsedRow> rows;
         try { rows = cropCycleExcelParser.parse(file.getInputStream(), farmId); }
-        catch (Exception e) { throw new IllegalArgumentException("Failed to read Excel file: " + e.getMessage(), e); }
+        catch (Exception e) {
+            throw new IllegalArgumentException("Failed to read Excel file: " + e.getMessage(), e);
+        }
 
         CropBulkUploadResponse response = new CropBulkUploadResponse();
         response.setTotalRows(rows.size());
@@ -226,7 +260,8 @@ public class CropManagementServiceImpl implements CropManagementService {
         return response;
     }
 
-    @Override @Transactional(readOnly = true)
+    @Override
+    @Transactional(readOnly = true)
     public Page<StagedCropCycleResponse> listStaging(UUID farmId, String status, Pageable pageable) {
         Page<StagedCropCycle> page;
         if (status != null && !status.isBlank()) {
@@ -243,7 +278,8 @@ public class CropManagementServiceImpl implements CropManagementService {
                 s.getProcessedAt(), s.getMovedCycleId(), s.getRetryCount()));
     }
 
-    @Override @Transactional(readOnly = true)
+    @Override
+    @Transactional(readOnly = true)
     public Map<String, Long> stagingStats(UUID farmId) {
         Map<String, Long> out = new LinkedHashMap<>();
         for (StagedCropCycleStatus s : StagedCropCycleStatus.values()) {
@@ -252,16 +288,18 @@ public class CropManagementServiceImpl implements CropManagementService {
         return out;
     }
 
-    // --- Activities ---
-    @Override @Transactional(readOnly = true)
+    @Override
+    @Transactional(readOnly = true)
     public List<CropActivityResponse> getActivities(UUID cycleId, UUID farmId) {
-        loadCycle(cycleId, farmId);
+        loadCycle(cycleId, farmId);   // validates ownership + non-deletion
         return activityRepo.findByCropCycleIdOrderByActivityDateDesc(cycleId).stream()
                 .map(mapper::toResponse).collect(Collectors.toList());
     }
 
-    @Override @Transactional
-    public CropActivityResponse logActivity(UUID cycleId, CropActivityRequest req, UUID farmId, UUID userId) {
+    @Override
+    @Transactional
+    public CropActivityResponse logActivity(UUID cycleId, CropActivityRequest req,
+                                            UUID farmId, UUID userId) {
         CropCycle cycle = loadCycle(cycleId, farmId);
         CropActivity activity = CropActivity.builder()
                 .farmId(farmId).cropCycle(cycle).loggedByUserId(userId)
@@ -272,11 +310,10 @@ public class CropManagementServiceImpl implements CropManagementService {
         return mapper.toResponse(activityRepo.save(activity));
     }
 
-    // --- Harvests ---
-    @Override @Transactional
+    @Override
+    @Transactional
     public HarvestResponse logHarvest(UUID cycleId, HarvestRequest req, UUID farmId) {
         CropCycle cycle = loadCycle(cycleId, farmId);
-
         Harvest harvest = Harvest.builder()
                 .farmId(farmId).cropCycle(cycle)
                 .harvestDate(req.getHarvestDate()).quantity(req.getQuantity())
@@ -292,7 +329,7 @@ public class CropManagementServiceImpl implements CropManagementService {
     }
 
     private CropCycle loadCycle(UUID id, UUID farmId) {
-        return cycleRepo.findByIdAndFarmId(id, farmId)
+        return cycleRepo.findByIdAndFarmIdLive(id, farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Crop cycle not found"));
     }
 }

@@ -4,24 +4,21 @@ import com.agriva.model.entity.enums.Currency;
 import com.agriva.model.entity.enums.IncomeCategory;
 import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
 @Table(name = "income")
 @Data
+@EqualsAndHashCode(callSuper = true)
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class Income {
+public class Income extends AuditableEntity {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
+    @Id @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
     @Column(name = "farm_id", nullable = false)
@@ -36,8 +33,7 @@ public class Income {
     @Column(name = "income_date", nullable = false)
     private LocalDate incomeDate;
 
-    @Column(nullable = false)
-    @Builder.Default
+    @Column(nullable = false) @Builder.Default
     private int quantity = 1;
 
     @Column(name = "amount_received", nullable = false, precision = 19, scale = 4)
@@ -50,33 +46,26 @@ public class Income {
     private BigDecimal dueBalance;
 
     @Column(length = 255)
-    private String receipt; // Optional
+    private String receipt;
 
     @Column(name = "created_by_user_id")
     private UUID createdByUserId;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 3)
-    @Builder.Default
+    @Column(nullable = false, length = 3) @Builder.Default
     private Currency currency = Currency.XAF;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 50)
     private IncomeCategory category;
 
-    @CreationTimestamp
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt;
-
-    @UpdateTimestamp
-    @Column(name = "updated_at")
-    private LocalDateTime updatedAt;
+    @Version
+    @Column(nullable = false)
+    private Long version;
 
     public void calculateDueBalance() {
-        if (this.expectedAmount != null && this.amountReceived != null) {
-            this.dueBalance = this.expectedAmount.subtract(this.amountReceived);
-        } else {
-            this.dueBalance = BigDecimal.ZERO;
-        }
+        this.dueBalance = (expectedAmount != null && amountReceived != null)
+                ? expectedAmount.subtract(amountReceived)
+                : BigDecimal.ZERO;
     }
 }

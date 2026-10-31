@@ -3,14 +3,15 @@ package com.agriva.service.impl;
 import com.agriva.exception.DuplicateExpenseException;
 import com.agriva.exception.ExpenseNotFoundException;
 import com.agriva.exception.InvestmentLimitExceededException;
+import com.agriva.exception.NoActiveInvestmentException;
 import com.agriva.kafka.producer.ExpenseProducer;
 import com.agriva.mapper.ExpenseMapper;
 import com.agriva.model.dto.expense.*;
 import com.agriva.model.entity.Expense;
 import com.agriva.model.entity.Investment;
 import com.agriva.model.entity.StagedExpense;
-import com.agriva.model.entity.enums.StagedExpenseStatus;
 import com.agriva.model.entity.User;
+import com.agriva.model.entity.enums.StagedExpenseStatus;
 import com.agriva.repository.AuthRepository;
 import com.agriva.repository.ExpenseRepository;
 import com.agriva.repository.InvestmentRepository;
@@ -51,7 +52,8 @@ public class ExpenseServiceImpl implements ExpenseService {
     private final ObjectMapper objectMapper;
 
     @Override
-    public ExpenseSubmissionAck submitExpense(ExpenseRequest request, UUID farmId, UUID userId, String email) {
+    public ExpenseSubmissionAck submitExpense(ExpenseRequest request, UUID farmId,
+                                              UUID userId, String email) {
         UUID submissionId = UUID.randomUUID();
         ExpenseSubmissionEvent event = new ExpenseSubmissionEvent(
                 submissionId, farmId, userId, email, serialize(request), LocalDateTime.now());
@@ -61,7 +63,8 @@ public class ExpenseServiceImpl implements ExpenseService {
     }
 
     @Override
-    public ExpenseBulkUploadResponse bulkUpload(MultipartFile file, UUID farmId, UUID userId, String email) {
+    public ExpenseBulkUploadResponse bulkUpload(MultipartFile file, UUID farmId,
+                                                UUID userId, String email) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("Excel file is required");
         }
@@ -102,16 +105,16 @@ public class ExpenseServiceImpl implements ExpenseService {
     @Override
     @Transactional
     public ExpenseResponse createDirect(ExpenseRequest request, UUID farmId, UUID userId) {
-        // Enforce active investment on direct creation too
         Investment active = investmentRepo.findActiveForUpdate(farmId)
-                .orElseThrow(() -> new com.agriva.exception.NoActiveInvestmentException(
-                        "No active investment for this farm. Create and activate an investment first."));
+                .orElseThrow(() -> new NoActiveInvestmentException(
+                        "No active investment for this farm. Create and activate one first."));
 
         BigDecimal spent = investmentRepo.sumExpensesByInvestmentIdOrZero(active.getId());
         if (spent.add(request.getAmountPaid()).compareTo(active.getAmount()) > 0) {
             throw new InvestmentLimitExceededException(String.format(
                     "Investment limit exceeded. Remaining: %s %s.",
-                    active.getAmount().subtract(spent).toPlainString(), active.getCurrency().name()));
+                    active.getAmount().subtract(spent).toPlainString(),
+                    active.getCurrency().name()));
         }
 
         Expense expense = Expense.builder()
@@ -137,15 +140,17 @@ public class ExpenseServiceImpl implements ExpenseService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Page<ExpenseResponse> listExpenses(UUID farmId, Pageable pageable) {
-        Page<Expense> page = expenseRepo.findByFarmId(farmId, pageable);
+        Page<Expense> page = expenseRepo.findByFarmIdLive(farmId, pageable);
         Map<UUID, User> userById = lookupUsers(page.getContent());
         return page.map(e -> mapper.toResponse(e, userById));
     }
 
     @Override
+    @Transactional(readOnly = true)
     public ExpenseResponse getExpense(UUID id, UUID farmId) {
-        Expense expense = expenseRepo.findByIdAndFarmId(id, farmId)
+        Expense expense = expenseRepo.findByIdAndFarmIdLive(id, farmId)
                 .orElseThrow(() -> new ExpenseNotFoundException("Expense not found with ID: " + id));
         return mapper.toResponse(expense, lookupUsers(List.of(expense)));
     }
@@ -153,24 +158,26 @@ public class ExpenseServiceImpl implements ExpenseService {
     @Override
     @Transactional
     public ExpenseResponse updateExpense(UUID id, ExpenseRequest request, UUID farmId) {
-        Expense expense = expenseRepo.findByIdAndFarmId(id, farmId)
+        Expense expense = expenseRepo.findByIdAndFarmIdLive(id, farmId)
                 .orElseThrow(() -> new ExpenseNotFoundException("Expense not found with ID: " + id));
 
-        // Duplicate guard (existing)
-        if (expenseRepo.existsByFarmIdAndAmountPaidAndExpenseDateAndReason(
+        // Duplicate guard
+        if (expenseRepo.existsByFarmIdAndAmountPaidAndExpenseDateAndReasonLive(
                 farmId, request.getAmountPaid(), request.getExpenseDate(), request.getReason())
                 && !(expense.getAmountPaid().compareTo(request.getAmountPaid()) == 0
                 && expense.getExpenseDate().equals(request.getExpenseDate())
                 && Objects.equals(expense.getReason(), request.getReason()))) {
-            throw new DuplicateExpenseException("Another expense with the same amount, date and reason already exists");
+            throw new DuplicateExpenseException(
+                    "Another expense with the same amount, date and reason already exists");
         }
 
-        // Budget guard: only if this expense is linked to an investment
+        // Budget guard
         if (expense.getInvestmentId() != null) {
             Investment investment = investmentRepo.findById(expense.getInvestmentId()).orElse(null);
             if (investment != null) {
                 BigDecimal spentExcludingThis = investmentRepo
-                        .sumExpensesByInvestmentIdExcludingOrZero(investment.getId(), expense.getId());
+                        .sumExpensesByInvestmentIdExcludingOrZero(
+                                investment.getId(), expense.getId());
                 BigDecimal projected = spentExcludingThis.add(request.getAmountPaid());
                 if (projected.compareTo(investment.getAmount()) > 0) {
                     BigDecimal remaining = investment.getAmount().subtract(spentExcludingThis);
@@ -200,18 +207,20 @@ public class ExpenseServiceImpl implements ExpenseService {
     @Override
     @Transactional
     public void deleteExpense(UUID id, UUID farmId) {
-        Expense expense = expenseRepo.findByIdAndFarmId(id, farmId)
+        Expense expense = expenseRepo.findByIdAndFarmIdLive(id, farmId)
                 .orElseThrow(() -> new ExpenseNotFoundException("Expense not found with ID: " + id));
-        expenseRepo.delete(expense);
-        log.info("Expense {} deleted from farm {}", id, farmId);
+        expense.setDeletedAt(LocalDateTime.now());
+        expenseRepo.save(expense);
+        log.info("Soft-deleted expense {} from farm {}", id, farmId);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Page<ExpenseStagingResponse> listStaging(UUID farmId, String status, Pageable pageable) {
         Page<StagedExpense> page;
         if (status != null && !status.isBlank()) {
-            page = stagedRepo.findByFarmIdAndStatus(farmId,
-                    StagedExpenseStatus.valueOf(status.toUpperCase()), pageable);
+            page = stagedRepo.findByFarmIdAndStatus(
+                    farmId, StagedExpenseStatus.valueOf(status.toUpperCase()), pageable);
         } else {
             page = stagedRepo.findByFarmId(farmId, pageable);
         }
@@ -219,6 +228,7 @@ public class ExpenseServiceImpl implements ExpenseService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Map<String, Long> stagingStats(UUID farmId) {
         Map<String, Long> out = new LinkedHashMap<>();
         for (StagedExpenseStatus s : StagedExpenseStatus.values()) {
@@ -228,9 +238,8 @@ public class ExpenseServiceImpl implements ExpenseService {
     }
 
     private String serialize(Object o) {
-        try {
-            return objectMapper.writeValueAsString(o);
-        } catch (Exception e) {
+        try { return objectMapper.writeValueAsString(o); }
+        catch (Exception e) {
             throw new IllegalArgumentException("Failed to serialize expense payload", e);
         }
     }

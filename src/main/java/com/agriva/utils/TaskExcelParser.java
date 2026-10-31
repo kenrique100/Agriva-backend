@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
 import java.io.InputStream;
@@ -26,9 +27,10 @@ public class TaskExcelParser {
         List<ParsedRow> rows = new ArrayList<>();
         DataFormatter fmt = new DataFormatter();
 
-        // Preload email -> personnel for this farm
+        // Preload email -> personnel for this farm (Live only).
         Map<String, Personnel> byEmail = new HashMap<>();
-        for (Personnel p : personnelRepo.findByFarmId(farmId, org.springframework.data.domain.Pageable.unpaged()).getContent()) {
+        for (Personnel p : personnelRepo.findByFarmIdLive(farmId, Pageable.unpaged())
+                .getContent()) {
             if (p.getEmail() != null) byEmail.put(p.getEmail().toLowerCase(), p);
         }
 
@@ -46,24 +48,33 @@ public class TaskExcelParser {
                     || !colMap.containsKey("title")
                     || !colMap.containsKey("deadline")) {
                 throw new ExcelProcessingException(
-                        "Required headers: personnel_email, title, deadline. Found: " + colMap.keySet());
+                        "Required headers: personnel_email, title, deadline. Found: "
+                                + colMap.keySet());
             }
 
             for (int r = HEADER_ROW + 1; r <= sheet.getLastRowNum(); r++) {
                 Row row = sheet.getRow(r);
-                if (row == null || ExcelCellReader.isEmptyRow(row, header.getLastCellNum())) continue;
+                if (row == null || ExcelCellReader.isEmptyRow(row, header.getLastCellNum()))
+                    continue;
                 int rowNum = r + 1;
                 try {
                     TaskCreateRequest req = new TaskCreateRequest();
-                    String email = ExcelCellReader.readString(getCell(row, colMap, "personnel_email"));
-                    if (email == null || email.isBlank()) throw new ExcelProcessingException("personnel_email is required");
+                    String email = ExcelCellReader.readString(
+                            getCell(row, colMap, "personnel_email"));
+                    if (email == null || email.isBlank())
+                        throw new ExcelProcessingException("personnel_email is required");
                     Personnel p = byEmail.get(email.trim().toLowerCase());
-                    if (p == null) throw new ExcelProcessingException("Personnel not found: " + email);
+                    if (p == null)
+                        throw new ExcelProcessingException("Personnel not found: " + email);
                     req.setPersonnelId(p.getId());
-                    req.setTitle(ExcelCellReader.readString(getCell(row, colMap, "title")));
-                    req.setDescription(ExcelCellReader.readString(getCell(row, colMap, "description")));
-                    req.setDeadline(ExcelCellReader.readDate(getCell(row, colMap, "deadline"), "Deadline"));
-                    String hr = ExcelCellReader.readString(getCell(row, colMap, "expected_hours"));
+                    req.setTitle(ExcelCellReader.readString(
+                            getCell(row, colMap, "title")));
+                    req.setDescription(ExcelCellReader.readString(
+                            getCell(row, colMap, "description")));
+                    req.setDeadline(ExcelCellReader.readDate(
+                            getCell(row, colMap, "deadline"), "Deadline"));
+                    String hr = ExcelCellReader.readString(
+                            getCell(row, colMap, "expected_hours"));
                     if (hr != null && !hr.isBlank()) req.setExpectedHours(Integer.parseInt(hr));
                     rows.add(new ParsedRow(rowNum, req, null));
                 } catch (Exception ex) {

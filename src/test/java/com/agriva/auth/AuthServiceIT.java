@@ -2,6 +2,7 @@ package com.agriva.auth;
 
 import com.agriva.TestcontainersConfiguration;
 import com.agriva.model.dto.auth.*;
+import com.agriva.model.entity.enums.Gender;
 import com.agriva.repository.AuthRepository;
 import com.agriva.repository.FarmRepository;
 import com.agriva.service.AuthService;
@@ -12,6 +13,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
+
+import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -32,72 +35,89 @@ class AuthServiceIT {
         farmRepository.deleteAll();
     }
 
+    private MasterRegisterRequest masterReg(String email, String password, String farmName) {
+        MasterRegisterRequest r = new MasterRegisterRequest();
+        r.setEmail(email);
+        r.setUsername(email.split("@")[0]);
+        r.setPassword(password);
+        r.setFarmName(farmName);
+        r.setName("Master " + email.split("@")[0]);
+        r.setGender(Gender.MALE);
+        r.setDateOfBirth(LocalDate.now().minusYears(35));
+        r.setPhoneNumber("+237600000000");
+        r.setCountry("Cameroon");
+        r.setState("Centre");
+        r.setCity("Yaoundé");
+        r.setAddress("Rue 1");
+        r.setPostalCode("00000");
+        r.setCurrency("XAF");
+        r.setUserAgreement(true);
+        return r;
+    }
+
+    private SubUserRegisterRequest subReg(String email, String password) {
+        SubUserRegisterRequest r = new SubUserRegisterRequest();
+        r.setEmail(email);
+        r.setUsername(email.split("@")[0]);
+        r.setPassword(password);
+        r.setName("Sub " + email.split("@")[0]);
+        r.setGender(Gender.FEMALE);
+        r.setDateOfBirth(LocalDate.now().minusYears(25));
+        r.setPhoneNumber("+237600000001");
+        r.setAddress("Rue 2");
+        return r;
+    }
+
     @Test
     void registerMaster_thenLogin_succeeds() {
-        MasterRegisterRequest reg = new MasterRegisterRequest();
-        reg.setEmail("master@test.local");
-        reg.setUsername("master_test");
-        reg.setPassword("MasterPass1");
-        reg.setFarmName("Test Farm");
-
-        AuthResponse created = authService.registerMaster(reg);
+        AuthResponse created = authService.registerMaster(
+                masterReg("master@test.local", "MasterPass1", "Test Farm"));
 
         assertThat(created.getEmail()).isEqualTo("master@test.local");
         assertThat(created.getRole()).isEqualTo("MASTER");
         assertThat(created.getFarmId()).isNotNull();
         assertThat(created.getToken()).isNotBlank();
+        assertThat(created.getRefreshToken()).isNotBlank();
 
         LoginRequest login = new LoginRequest();
         login.setEmailOrUsername("master@test.local");
         login.setPassword("MasterPass1");
 
-        String token = authService.login(login);
-        assertThat(token).isNotBlank();
+        AuthResponse session = authService.login(login);
+        assertThat(session.getToken()).isNotBlank();
+        assertThat(session.getRefreshToken()).isNotBlank();
+        assertThat(session.getRole()).isEqualTo("MASTER");
     }
 
     @Test
     void registerMaster_duplicateEmail_rejected() {
-        MasterRegisterRequest reg = new MasterRegisterRequest();
-        reg.setEmail("dup@test.local");
-        reg.setPassword("MasterPass1");
-        reg.setFarmName("Farm A");
-        authService.registerMaster(reg);
+        authService.registerMaster(
+                masterReg("dup@test.local", "MasterPass1", "Farm A"));
 
-        MasterRegisterRequest dup = new MasterRegisterRequest();
-        dup.setEmail("dup@test.local");
-        dup.setPassword("MasterPass2");
-        dup.setFarmName("Farm B");
-
-        assertThatThrownBy(() -> authService.registerMaster(dup))
+        assertThatThrownBy(() ->
+                authService.registerMaster(masterReg("dup@test.local", "MasterPass2", "Farm B")))
                 .hasMessageContaining("Email already in use");
     }
 
     @Test
     void registerSubUser_succeedsWhenFarmExists() {
-        MasterRegisterRequest reg = new MasterRegisterRequest();
-        reg.setEmail("master2@test.local");
-        reg.setPassword("MasterPass1");
-        reg.setFarmName("Farm With Sub");
+        AuthResponse master = authService.registerMaster(
+                masterReg("master2@test.local", "MasterPass1", "Farm With Sub"));
 
-        AuthResponse master = authService.registerMaster(reg);
+        // S1 fix: farmId and role now come from the authenticated principal, not the DTO.
+        SubUserRegisterRequest sub = subReg("sub@test.local", "SubPass123");
 
-        SubUserRegisterRequest sub = new SubUserRegisterRequest();
-        sub.setEmail("sub@test.local");
-        sub.setUsername("sub_test");
-        sub.setPassword("SubPass123");
-        sub.setFarmId(master.getFarmId());
+        SubUserRegisteredResponse created = authService.registerSubUser(
+                sub, master.getFarmId(), "MASTER");
 
-        String result = authService.registerSubUser(sub);
-        assertThat(result).contains("sub@test.local");
+        assertThat(created.userId()).isNotNull();
+        assertThat(created.email()).isEqualTo("sub@test.local");
+        assertThat(created.farmId()).isEqualTo(master.getFarmId());
     }
 
     @Test
     void changePassword_validFlow() {
-        MasterRegisterRequest reg = new MasterRegisterRequest();
-        reg.setEmail("pwd@test.local");
-        reg.setPassword("MasterPass1");
-        reg.setFarmName("Pwd Farm");
-        AuthResponse created = authService.registerMaster(reg);
+        authService.registerMaster(masterReg("pwd@test.local", "MasterPass1", "Pwd Farm"));
 
         var user = authRepository.findByEmail("pwd@test.local").orElseThrow();
 

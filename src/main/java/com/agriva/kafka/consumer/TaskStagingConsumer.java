@@ -21,12 +21,12 @@ public class TaskStagingConsumer {
     @KafkaListener(
             topics = TaskKafkaConfig.STAGING_TOPIC,
             groupId = TaskKafkaConfig.STAGING_CONSUMER_GROUP,
-            containerFactory = "taskKafkaListenerContainerFactory"
-    )
+            containerFactory = "taskKafkaListenerContainerFactory")
     public void onTaskSubmitted(
             @Payload TaskSubmissionEvent event,
             @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
             @Header(KafkaHeaders.OFFSET) long offset) {
+
         log.info("Received task submission {} partition={} offset={}",
                 event.getSubmissionId(), partition, offset);
         taskStagingService.persistStaged(event);

@@ -1,13 +1,16 @@
 package com.agriva.controller;
 
-import com.agriva.model.dto.auth.TokenValidationResponse;
+import com.agriva.model.dto.dashboard.DashboardProductivityResponse;
 import com.agriva.model.dto.dashboard.DashboardResponse;
-import com.agriva.service.AuthService;
+import com.agriva.security.AuthenticatedUser;
 import com.agriva.service.DashboardService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/dashboard")
@@ -16,32 +19,28 @@ import org.springframework.web.bind.annotation.*;
 public class DashboardController {
 
     private final DashboardService dashboardService;
-    private final AuthService authService;
 
     @GetMapping("/me")
     public ResponseEntity<DashboardResponse> myDashboard(
-            @RequestHeader("Authorization") String authHeader) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
+            @AuthenticationPrincipal AuthenticatedUser u) {
         return ResponseEntity.ok(dashboardService.personalDashboard(
-                token.getUserId(), token.getFarmId(), token.getRole()));
+                u.userId(), u.farmId(), u.role()));
     }
 
     @GetMapping("/farm")
     public ResponseEntity<DashboardResponse> farmDashboard(
-            @RequestHeader("Authorization") String authHeader) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        if (!"MASTER".equals(token.getRole())) {
+            @AuthenticationPrincipal AuthenticatedUser u) {
+        if (!u.isMasterOrAdmin()) {
             return ResponseEntity.status(403).build();
         }
         return ResponseEntity.ok(dashboardService.farmDashboard(
-                token.getFarmId(), token.getUserId()));
+                u.farmId(), u.userId()));
     }
 
     @GetMapping("/productivity")
-    public ResponseEntity<com.agriva.model.dto.dashboard.DashboardProductivityResponse> productivity(
-            @RequestHeader("Authorization") String authHeader) {
-        var token = authService.validateToken(authHeader);
+    public ResponseEntity<DashboardProductivityResponse> productivity(
+            @AuthenticationPrincipal AuthenticatedUser u) {
         return ResponseEntity.ok(dashboardService.productivity(
-                token.getUserId(), token.getFarmId(), token.getRole()));
+                u.userId(), u.farmId(), u.role()));
     }
 }

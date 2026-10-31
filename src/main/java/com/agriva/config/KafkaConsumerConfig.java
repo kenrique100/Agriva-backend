@@ -1,20 +1,25 @@
 package com.agriva.config;
 
+import com.agriva.model.dto.crop.CropCycleSubmissionEvent;
 import com.agriva.model.dto.expense.ExpenseSubmissionEvent;
 import com.agriva.model.dto.income.IncomeSubmissionEvent;
-import com.agriva.model.dto.crop.CropCycleSubmissionEvent;
 import com.agriva.model.dto.salary.SalarySubmissionEvent;
 import com.agriva.model.dto.task.TaskSubmissionEvent;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.kafka.KafkaConnectionDetails;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
+import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
+import org.springframework.util.backoff.FixedBackOff;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -23,104 +28,110 @@ import java.util.Map;
 public class KafkaConsumerConfig {
 
     private final KafkaConnectionDetails kafkaConnectionDetails;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
 
-    public KafkaConsumerConfig(KafkaConnectionDetails kafkaConnectionDetails) {
+    @Value("${agriva.kafka.concurrency:3}")
+    private int concurrency;
+
+    @Value("${agriva.kafka.listener.error-handler.max-retries:3}")
+    private long maxRetries;
+
+    @Value("${agriva.kafka.listener.error-handler.backoff-ms:1000}")
+    private long backoffMs;
+
+    public KafkaConsumerConfig(KafkaConnectionDetails kafkaConnectionDetails,
+                               KafkaTemplate<String, Object> kafkaTemplate) {
         this.kafkaConnectionDetails = kafkaConnectionDetails;
+        this.kafkaTemplate = kafkaTemplate;
     }
 
     @Bean
-    public ConsumerFactory<String, IncomeSubmissionEvent> incomeConsumerFactory() {
-        Map<String, Object> props = baseProps();
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, "agriva-income-staging-consumer");
-        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, IncomeSubmissionEvent.class.getName());
-        return new DefaultKafkaConsumerFactory<>(props);
-    }
-
-    @Bean
-    public ConsumerFactory<String, CropCycleSubmissionEvent> cropConsumerFactory() {
-        Map<String, Object> props = baseProps();
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, "agriva-crop-staging-consumer");
-        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, CropCycleSubmissionEvent.class.getName());
-        return new DefaultKafkaConsumerFactory<>(props);
-    }
-
-    @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, CropCycleSubmissionEvent>
-    cropKafkaListenerContainerFactory() {
-        ConcurrentKafkaListenerContainerFactory<String, CropCycleSubmissionEvent> factory =
-                new ConcurrentKafkaListenerContainerFactory<>();
-        factory.setConsumerFactory(cropConsumerFactory());
-        factory.setConcurrency(3);
-        return factory;
+    public DefaultErrorHandler kafkaErrorHandler() {
+        DeadLetterPublishingRecoverer recoverer =
+                new DeadLetterPublishingRecoverer(kafkaTemplate);
+        return new DefaultErrorHandler(recoverer, new FixedBackOff(backoffMs, maxRetries));
     }
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, IncomeSubmissionEvent>
     incomeKafkaListenerContainerFactory() {
-        ConcurrentKafkaListenerContainerFactory<String, IncomeSubmissionEvent> factory =
-                new ConcurrentKafkaListenerContainerFactory<>();
-        factory.setConsumerFactory(incomeConsumerFactory());
-        factory.setConcurrency(3);
-        return factory;
-    }
-
-    @Bean
-    public ConsumerFactory<String, ExpenseSubmissionEvent> expenseConsumerFactory() {
-        Map<String, Object> props = baseProps();
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, "agriva-expense-staging-consumer");
-        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, ExpenseSubmissionEvent.class.getName());
-        return new DefaultKafkaConsumerFactory<>(props);
+        var f = new ConcurrentKafkaListenerContainerFactory<String, IncomeSubmissionEvent>();
+        f.setConsumerFactory(incomeConsumerFactory());
+        f.setConcurrency(concurrency);
+        f.setCommonErrorHandler(kafkaErrorHandler());
+        return f;
     }
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, ExpenseSubmissionEvent>
     expenseKafkaListenerContainerFactory() {
-        ConcurrentKafkaListenerContainerFactory<String, ExpenseSubmissionEvent> factory =
-                new ConcurrentKafkaListenerContainerFactory<>();
-        factory.setConsumerFactory(expenseConsumerFactory());
-        factory.setConcurrency(3);
-        return factory;
-    }
-
-    @Bean
-    public ConsumerFactory<String, TaskSubmissionEvent> taskConsumerFactory() {
-        Map<String, Object> props = baseProps();
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, "agriva-task-staging-consumer");
-        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, TaskSubmissionEvent.class.getName());
-        return new DefaultKafkaConsumerFactory<>(props);
+        var f = new ConcurrentKafkaListenerContainerFactory<String, ExpenseSubmissionEvent>();
+        f.setConsumerFactory(expenseConsumerFactory());
+        f.setConcurrency(concurrency);
+        f.setCommonErrorHandler(kafkaErrorHandler());
+        return f;
     }
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, TaskSubmissionEvent>
     taskKafkaListenerContainerFactory() {
-        ConcurrentKafkaListenerContainerFactory<String, TaskSubmissionEvent> factory =
-                new ConcurrentKafkaListenerContainerFactory<>();
-        factory.setConsumerFactory(taskConsumerFactory());
-        factory.setConcurrency(3);
-        return factory;
-    }
-
-    @Bean
-    public ConsumerFactory<String, SalarySubmissionEvent> salaryConsumerFactory() {
-        Map<String, Object> props = baseProps();
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, "agriva-salary-staging-consumer");
-        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, SalarySubmissionEvent.class.getName());
-        return new DefaultKafkaConsumerFactory<>(props);
+        var f = new ConcurrentKafkaListenerContainerFactory<String, TaskSubmissionEvent>();
+        f.setConsumerFactory(taskConsumerFactory());
+        f.setConcurrency(concurrency);
+        f.setCommonErrorHandler(kafkaErrorHandler());
+        return f;
     }
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, SalarySubmissionEvent>
     salaryKafkaListenerContainerFactory() {
-        ConcurrentKafkaListenerContainerFactory<String, SalarySubmissionEvent> factory =
-                new ConcurrentKafkaListenerContainerFactory<>();
-        factory.setConsumerFactory(salaryConsumerFactory());
-        factory.setConcurrency(3);
-        return factory;
+        var f = new ConcurrentKafkaListenerContainerFactory<String, SalarySubmissionEvent>();
+        f.setConsumerFactory(salaryConsumerFactory());
+        f.setConcurrency(concurrency);
+        f.setCommonErrorHandler(kafkaErrorHandler());
+        return f;
     }
 
-    private Map<String, Object> baseProps() {
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, CropCycleSubmissionEvent>
+    cropKafkaListenerContainerFactory() {
+        var f = new ConcurrentKafkaListenerContainerFactory<String, CropCycleSubmissionEvent>();
+        f.setConsumerFactory(cropConsumerFactory());
+        f.setConcurrency(concurrency);
+        f.setCommonErrorHandler(kafkaErrorHandler());
+        return f;
+    }
+
+    @Bean public ConsumerFactory<String, IncomeSubmissionEvent> incomeConsumerFactory() {
+        Map<String, Object> props = baseProps("agriva-income-staging-consumer");
+        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, IncomeSubmissionEvent.class.getName());
+        return new DefaultKafkaConsumerFactory<>(props);
+    }
+    @Bean public ConsumerFactory<String, ExpenseSubmissionEvent> expenseConsumerFactory() {
+        Map<String, Object> props = baseProps("agriva-expense-staging-consumer");
+        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, ExpenseSubmissionEvent.class.getName());
+        return new DefaultKafkaConsumerFactory<>(props);
+    }
+    @Bean public ConsumerFactory<String, TaskSubmissionEvent> taskConsumerFactory() {
+        Map<String, Object> props = baseProps("agriva-task-staging-consumer");
+        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, TaskSubmissionEvent.class.getName());
+        return new DefaultKafkaConsumerFactory<>(props);
+    }
+    @Bean public ConsumerFactory<String, SalarySubmissionEvent> salaryConsumerFactory() {
+        Map<String, Object> props = baseProps("agriva-salary-staging-consumer");
+        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, SalarySubmissionEvent.class.getName());
+        return new DefaultKafkaConsumerFactory<>(props);
+    }
+    @Bean public ConsumerFactory<String, CropCycleSubmissionEvent> cropConsumerFactory() {
+        Map<String, Object> props = baseProps("agriva-crop-staging-consumer");
+        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, CropCycleSubmissionEvent.class.getName());
+        return new DefaultKafkaConsumerFactory<>(props);
+    }
+
+    private Map<String, Object> baseProps(String groupId) {
         Map<String, Object> props = new HashMap<>();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaConnectionDetails.getBootstrapServers());
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
         props.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS, JsonDeserializer.class.getName());

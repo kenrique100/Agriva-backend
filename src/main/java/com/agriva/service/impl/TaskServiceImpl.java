@@ -46,7 +46,7 @@ public class TaskServiceImpl implements TaskService {
     @Override
     @Transactional
     public TaskResponse create(TaskCreateRequest req, UUID farmId, UUID assignedByUserId) {
-        Personnel p = personnelRepository.findByIdAndFarmId(req.getPersonnelId(), farmId)
+        Personnel p = personnelRepository.findByIdAndFarmIdLive(req.getPersonnelId(), farmId)
                 .orElseThrow(() -> new PersonnelNotFoundException(
                         "Personnel not found with ID: " + req.getPersonnelId()));
 
@@ -67,8 +67,8 @@ public class TaskServiceImpl implements TaskService {
     @Transactional(readOnly = true)
     public Page<TaskResponse> list(UUID farmId, UUID personnelId, Pageable pageable) {
         Page<Task> page = personnelId != null
-                ? taskRepository.findByFarmIdAndPersonnelId(farmId, personnelId, pageable)
-                : taskRepository.findByFarmId(farmId, pageable);
+                ? taskRepository.findByFarmIdAndPersonnelIdLive(farmId, personnelId, pageable)
+                : taskRepository.findByFarmIdLive(farmId, pageable);
         return page.map(mapper::toResponse);
     }
 
@@ -87,7 +87,7 @@ public class TaskServiceImpl implements TaskService {
         if (req.getDeadline() != null) t.setDeadline(req.getDeadline());
         if (req.getExpectedHours() != null) t.setExpectedHours(req.getExpectedHours());
         if (req.getPersonnelId() != null && !req.getPersonnelId().equals(t.getPersonnel().getId())) {
-            Personnel p = personnelRepository.findByIdAndFarmId(req.getPersonnelId(), farmId)
+            Personnel p = personnelRepository.findByIdAndFarmIdLive(req.getPersonnelId(), farmId)
                     .orElseThrow(() -> new PersonnelNotFoundException(
                             "Personnel not found: " + req.getPersonnelId()));
             t.setPersonnel(p);
@@ -198,16 +198,20 @@ public class TaskServiceImpl implements TaskService {
     @Override
     @Transactional
     public void delete(UUID id, UUID farmId) {
-        taskRepository.delete(load(id, farmId));
+        Task t = load(id, farmId);
+        t.setDeletedAt(LocalDateTime.now());
+        taskRepository.save(t);
+        log.info("Soft-deleted task {}", id);
     }
 
     @Override
     @Transactional(readOnly = true)
     public ProductivityStatsResponse productivity(UUID personnelId, UUID farmId) {
-        Personnel p = personnelRepository.findByIdAndFarmId(personnelId, farmId)
-                .orElseThrow(() -> new PersonnelNotFoundException("Personnel not found: " + personnelId));
+        Personnel p = personnelRepository.findByIdAndFarmIdLive(personnelId, farmId)
+                .orElseThrow(() -> new PersonnelNotFoundException(
+                        "Personnel not found: " + personnelId));
 
-        List<Task> tasks = taskRepository.findByPersonnelIdAndIsValidated(personnelId, true);
+        List<Task> tasks = taskRepository.findByPersonnelIdAndIsValidatedLive(personnelId, true);
         double hours = tasks.stream()
                 .mapToDouble(t -> t.getActualHours() != null ? t.getActualHours() : 0.0)
                 .sum();
@@ -263,19 +267,24 @@ public class TaskServiceImpl implements TaskService {
     @Transactional
     public void updateDailyProductivity() {
         LocalDate yesterday = LocalDate.now().minusDays(1);
-        personnelRepository.findByStatus(PersonnelStatus.ACTIVE).forEach(p -> {
+        personnelRepository.findByStatusLive(PersonnelStatus.ACTIVE).forEach(p -> {
             if (yesterday.equals(p.getLastProductivityUpdate())) return;
-            List<Task> completed = taskRepository.findByPersonnelIdAndIsValidated(p.getId(), true)
+
+            // Use the Live finder (soft-deleted tasks excluded).
+            List<Task> completed = taskRepository.findByPersonnelIdAndIsValidatedLive(
+                            p.getId(), true)
                     .stream()
                     .filter(t -> t.getValidationTime() != null
                             && t.getValidationTime().toLocalDate().equals(yesterday))
                     .toList();
+
             if (!completed.isEmpty()) {
                 double h = completed.stream()
                         .mapToDouble(t -> t.getActualHours() != null ? t.getActualHours() : 0.0)
                         .sum();
                 p.setTotalHoursWorkedLast30Days(
-                        (p.getTotalHoursWorkedLast30Days() == null ? 0.0 : p.getTotalHoursWorkedLast30Days()) + h);
+                        (p.getTotalHoursWorkedLast30Days() == null
+                                ? 0.0 : p.getTotalHoursWorkedLast30Days()) + h);
                 p.setWorkingDaysCount(p.getWorkingDaysCount() + 1);
                 p.setLastProductivityUpdate(yesterday);
                 personnelRepository.save(p);
@@ -286,31 +295,19 @@ public class TaskServiceImpl implements TaskService {
     @Override
     @Transactional
     public void resetProductivityMetrics() {
-        LocalDate today = LocalDate.now();
-        personnelRepository.findByStatus(PersonnelStatus.ACTIVE).forEach(p -> {
-            p.setTotalHoursWorkedLast30Days(0.0);
-            p.setWorkingDaysCount(0);
-            p.setLastProductivityResetDate(today);
-            p.setCurrentPeriodStartDate(today);
-            personnelRepository.save(p);
-        });
-        log.info("Reset 30-day productivity metrics for all active personnel");
+        int n = personnelRepository.bulkResetProductivity(LocalDate.now());
+        log.info("Reset 30-day productivity metrics for {} active personnel", n);
     }
 
-    // ------------------------------------------------------------------
-    // Bulk upload
-    // ------------------------------------------------------------------
-
     @Override
-    public TaskBulkUploadResponse bulkUpload(MultipartFile file, UUID farmId, UUID userId, String email) {
+    public TaskBulkUploadResponse bulkUpload(MultipartFile file, UUID farmId,
+                                             UUID userId, String email) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("Excel file is required");
         }
-
         List<TaskExcelParser.ParsedRow> rows;
-        try {
-            rows = excelParser.parse(file.getInputStream(), farmId);
-        } catch (Exception e) {
+        try { rows = excelParser.parse(file.getInputStream(), farmId); }
+        catch (Exception e) {
             throw new IllegalArgumentException("Failed to read Excel file: " + e.getMessage(), e);
         }
 
@@ -324,7 +321,6 @@ public class TaskServiceImpl implements TaskService {
                         row.rowNumber(), null, "FAILED", row.error()));
                 continue;
             }
-
             UUID submissionId = UUID.randomUUID();
             try {
                 String payload = objectMapper.writeValueAsString(row.request());
@@ -374,7 +370,7 @@ public class TaskServiceImpl implements TaskService {
     }
 
     private Task load(UUID id, UUID farmId) {
-        return taskRepository.findByIdAndFarmId(id, farmId)
+        return taskRepository.findByIdAndFarmIdLive(id, farmId)
                 .orElseThrow(() -> new TaskNotFoundException("Task not found with ID: " + id));
     }
 }

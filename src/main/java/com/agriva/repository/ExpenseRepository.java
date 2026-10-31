@@ -18,50 +18,73 @@ import java.util.UUID;
 @Repository
 public interface ExpenseRepository extends JpaRepository<Expense, UUID> {
 
-    Page<Expense> findByFarmId(UUID farmId, Pageable pageable);
+    // ---- Live reads ----
+    @Query("SELECT e FROM Expense e WHERE e.farmId = :farmId AND e.deletedAt IS NULL")
+    Page<Expense> findByFarmIdLive(@Param("farmId") UUID farmId, Pageable pageable);
 
-    Optional<Expense> findByIdAndFarmId(UUID id, UUID farmId);
+    @Query("SELECT e FROM Expense e WHERE e.id = :id AND e.farmId = :farmId AND e.deletedAt IS NULL")
+    Optional<Expense> findByIdAndFarmIdLive(@Param("id") UUID id, @Param("farmId") UUID farmId);
 
-    boolean existsByFarmIdAndAmountPaidAndExpenseDateAndReason(
-            UUID farmId, BigDecimal amountPaid, LocalDate expenseDate, String reason);
+    @Query("SELECT e FROM Expense e WHERE e.transactionId = :txId AND e.deletedAt IS NULL")
+    List<Expense> findByTransactionIdLive(@Param("txId") UUID txId);
 
-    List<Expense> findByTransactionId(UUID transactionId);
+    @Query("SELECT e FROM Expense e WHERE e.transactionId IN :ids AND e.deletedAt IS NULL")
+    List<Expense> findByTransactionIdInLive(@Param("ids") Collection<UUID> ids);
 
-    List<Expense> findByTransactionIdIn(Collection<UUID> transactionIds);
+    // ---- Duplicate / file-ownership checks ----
+    @Query("SELECT CASE WHEN COUNT(e) > 0 THEN true ELSE false END FROM Expense e " +
+            "WHERE e.farmId = :farmId AND e.amountPaid = :amountPaid " +
+            "AND e.expenseDate = :expenseDate AND e.reason = :reason AND e.deletedAt IS NULL")
+    boolean existsByFarmIdAndAmountPaidAndExpenseDateAndReasonLive(
+            @Param("farmId") UUID farmId,
+            @Param("amountPaid") BigDecimal amountPaid,
+            @Param("expenseDate") LocalDate expenseDate,
+            @Param("reason") String reason);
 
-    boolean existsByFarmIdAndReceipt(UUID farmId, String receipt);
+    @Query("SELECT CASE WHEN COUNT(e) > 0 THEN true ELSE false END FROM Expense e " +
+            "WHERE e.farmId = :farmId AND e.receipt = :receipt AND e.deletedAt IS NULL")
+    boolean existsByFarmIdAndReceipt(@Param("farmId") UUID farmId,
+                                     @Param("receipt") String receipt);
 
+    // ---- Counts ----
     long countByFarmId(UUID farmId);
-
     long countByFarmIdAndCreatedByUserId(UUID farmId, UUID userId);
 
-    @Query("SELECT SUM(e.amountPaid) FROM Expense e WHERE e.farmId = :farmId")
+    // ---- Aggregates ----
+    @Query("SELECT SUM(e.amountPaid) FROM Expense e WHERE e.farmId = :farmId AND e.deletedAt IS NULL")
     BigDecimal sumAmountByFarmId(@Param("farmId") UUID farmId);
 
-    @Query("SELECT SUM(e.amountPaid) FROM Expense e WHERE e.farmId = :farmId AND e.createdByUserId = :userId")
+    @Query("SELECT SUM(e.amountPaid) FROM Expense e " +
+            "WHERE e.farmId = :farmId AND e.createdByUserId = :userId AND e.deletedAt IS NULL")
     BigDecimal sumAmountByFarmIdAndCreatedByUserId(@Param("farmId") UUID farmId,
                                                    @Param("userId") UUID userId);
 
-    @Query("SELECT e.createdByUserId, SUM(e.amountPaid) FROM Expense e " +
-            "WHERE e.farmId = :farmId GROUP BY e.createdByUserId")
-    List<Object[]> sumAmountGroupedByUser(@Param("farmId") UUID farmId);
-
     @Query("SELECT e.currency, SUM(e.amountPaid) FROM Expense e " +
-            "WHERE e.farmId = :farmId GROUP BY e.currency")
+            "WHERE e.farmId = :farmId AND e.deletedAt IS NULL GROUP BY e.currency")
     List<Object[]> sumAmountGroupedByCurrency(@Param("farmId") UUID farmId);
 
+    /**
+     * Per-user currency grouping — required by DashboardQueryRepositoryImpl.totalsForUser.
+     */
     @Query("SELECT e.currency, SUM(e.amountPaid) FROM Expense e " +
-            "WHERE e.farmId = :farmId AND e.createdByUserId = :userId GROUP BY e.currency")
-    List<Object[]> sumAmountGroupedByCurrencyAndCreatedByUserId(@Param("farmId") UUID farmId,
-                                                                @Param("userId") UUID userId);
+            "WHERE e.farmId = :farmId AND e.createdByUserId = :userId AND e.deletedAt IS NULL " +
+            "GROUP BY e.currency")
+    List<Object[]> sumAmountGroupedByCurrencyAndCreatedByUserId(
+            @Param("farmId") UUID farmId, @Param("userId") UUID userId);
+
+    // ---- Per-creator batch aggregates ----
+    @Query("SELECT e.createdByUserId, COUNT(e) FROM Expense e " +
+            "WHERE e.farmId = :farmId AND e.deletedAt IS NULL AND e.createdByUserId IS NOT NULL " +
+            "GROUP BY e.createdByUserId")
+    List<Object[]> countByFarmIdGroupedByCreator(@Param("farmId") UUID farmId);
+
+    @Query("SELECT e.createdByUserId, SUM(e.amountPaid) FROM Expense e " +
+            "WHERE e.farmId = :farmId AND e.deletedAt IS NULL AND e.createdByUserId IS NOT NULL " +
+            "GROUP BY e.createdByUserId")
+    List<Object[]> sumGroupedByCreator(@Param("farmId") UUID farmId);
 
     default BigDecimal sumAmountByFarmIdOrZero(UUID farmId) {
         BigDecimal v = sumAmountByFarmId(farmId);
-        return v == null ? BigDecimal.ZERO : v;
-    }
-
-    default BigDecimal sumAmountByFarmIdAndUserOrZero(UUID farmId, UUID userId) {
-        BigDecimal v = sumAmountByFarmIdAndCreatedByUserId(farmId, userId);
         return v == null ? BigDecimal.ZERO : v;
     }
 }

@@ -1,6 +1,7 @@
 package com.agriva.security;
 
 import com.agriva.TestcontainersConfiguration;
+import com.agriva.model.dto.auth.AuthResponse;
 import com.agriva.model.dto.auth.LoginRequest;
 import com.agriva.model.dto.auth.MasterRegisterRequest;
 import com.agriva.model.entity.enums.Gender;
@@ -20,10 +21,6 @@ import java.util.Base64;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Verifies the session-TTL fix. Uses an explicit 86400s override so it
- * exercises the production value, not the test-default 900s.
- */
 @SpringBootTest
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
@@ -54,9 +51,13 @@ class JwtSessionIT {
         reg.setGender(Gender.MALE);
         reg.setDateOfBirth(LocalDate.now().minusYears(35));
         reg.setPhoneNumber("+237600000000");
-        reg.setCountry("Cameroon"); reg.setState("Centre"); reg.setCity("Yaoundé");
-        reg.setAddress("Rue 1"); reg.setPostalCode("00000");
-        reg.setCurrency("XAF"); reg.setUserAgreement(true);
+        reg.setCountry("Cameroon");
+        reg.setState("Centre");
+        reg.setCity("Yaoundé");
+        reg.setAddress("Rue 1");
+        reg.setPostalCode("00000");
+        reg.setCurrency("XAF");
+        reg.setUserAgreement(true);
         authService.registerMaster(reg);
     }
 
@@ -65,7 +66,10 @@ class JwtSessionIT {
         LoginRequest login = new LoginRequest();
         login.setEmailOrUsername("ttl@test.local");
         login.setPassword("MasterPass1");
-        String token = authService.login(login);
+
+        // login() now returns the full AuthResponse, not a raw String.
+        AuthResponse session = authService.login(login);
+        String token = session.getToken();
 
         String[] parts = token.split("\\.");
         assertThat(parts).hasSize(3);
@@ -76,6 +80,6 @@ class JwtSessionIT {
         long iat = claims.get("iat").asLong();
         long exp = claims.get("exp").asLong();
 
-        assertThat(exp - iat).isEqualTo(86400L);   // 24 hours
+        assertThat(exp - iat).isEqualTo(86400L);
     }
 }

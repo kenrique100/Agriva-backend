@@ -10,9 +10,13 @@ import com.agriva.model.entity.Expense;
 import com.agriva.model.entity.Income;
 import com.agriva.model.entity.Investment;
 import com.agriva.model.entity.Transaction;
-import com.agriva.model.entity.enums.TransactionStatus;
 import com.agriva.model.entity.User;
-import com.agriva.repository.*;
+import com.agriva.model.entity.enums.TransactionStatus;
+import com.agriva.repository.AuthRepository;
+import com.agriva.repository.ExpenseRepository;
+import com.agriva.repository.IncomeRepository;
+import com.agriva.repository.InvestmentRepository;
+import com.agriva.repository.TransactionRepository;
 import com.agriva.service.TransactionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,6 +30,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -46,14 +51,15 @@ public class TransactionServiceImpl implements TransactionService {
         String ref = request.getTransactionRef();
         if (ref == null || ref.isBlank()) {
             ref = generateRef(farmId);
-        } else if (txRepo.existsByFarmIdAndTransactionRef(farmId, ref)) {
+        } else if (txRepo.existsByFarmIdAndTransactionRefLive(farmId, ref)) {
             throw new BusinessException("Transaction ref already exists on this farm: " + ref);
         }
 
         Transaction tx = txRepo.save(Transaction.builder()
                 .farmId(farmId)
                 .transactionRef(ref)
-                .occurredAt(request.getOccurredAt() != null ? request.getOccurredAt() : LocalDateTime.now())
+                .occurredAt(request.getOccurredAt() != null
+                        ? request.getOccurredAt() : LocalDateTime.now())
                 .status(TransactionStatus.DRAFT)
                 .notes(request.getNotes())
                 .createdByUserId(userId)
@@ -64,12 +70,14 @@ public class TransactionServiceImpl implements TransactionService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Page<TransactionResponse> list(UUID farmId, Pageable pageable) {
-        return txRepo.findByFarmId(farmId, pageable)
+        return txRepo.findByFarmIdLive(farmId, pageable)
                 .map(tx -> mapper.toResponse(tx, resolveUsername(tx.getCreatedByUserId())));
     }
 
     @Override
+    @Transactional(readOnly = true)
     public TransactionResponse get(UUID id, UUID farmId) {
         Transaction tx = load(id, farmId);
         return mapper.toResponse(tx, resolveUsername(tx.getCreatedByUserId()));
@@ -82,7 +90,7 @@ public class TransactionServiceImpl implements TransactionService {
 
         if (request.getTransactionRef() != null
                 && !request.getTransactionRef().equals(tx.getTransactionRef())) {
-            if (txRepo.existsByFarmIdAndTransactionRef(farmId, request.getTransactionRef())) {
+            if (txRepo.existsByFarmIdAndTransactionRefLive(farmId, request.getTransactionRef())) {
                 throw new BusinessException("Transaction ref already exists on this farm: "
                         + request.getTransactionRef());
             }
@@ -99,45 +107,36 @@ public class TransactionServiceImpl implements TransactionService {
     @Transactional
     public void delete(UUID id, UUID farmId) {
         Transaction tx = load(id, farmId);
-        txRepo.delete(tx);
-        log.info("Transaction {} deleted from farm {}", tx.getTransactionRef(), farmId);
+        tx.setDeletedAt(LocalDateTime.now());
+        txRepo.save(tx);
+        log.info("Soft-deleted transaction {} from farm {}", tx.getTransactionRef(), farmId);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public TransactionSummaryResponse summary(UUID id, UUID farmId) {
         Transaction tx = load(id, farmId);
-
         BigDecimal income = sumIncome(tx.getId());
         BigDecimal expense = sumExpense(tx.getId());
         BigDecimal investment = sumInvestment(tx.getId());
-
         BigDecimal netPosition = income.subtract(expense).subtract(investment);
-        BigDecimal netGain = netPosition.signum() > 0 ? netPosition : BigDecimal.ZERO;
-        BigDecimal netLoss = netPosition.signum() < 0 ? netPosition.abs() : BigDecimal.ZERO;
 
         return new TransactionSummaryResponse(
-                tx.getId(),
-                tx.getTransactionRef(),
-                tx.getStatus().name(),
-                income,
-                expense,
-                investment,
-                netGain,
-                netLoss,
-                netPosition
-        );
+                tx.getId(), tx.getTransactionRef(), tx.getStatus().name(),
+                income, expense, investment,
+                netPosition.signum() > 0 ? netPosition : BigDecimal.ZERO,
+                netPosition.signum() < 0 ? netPosition.abs() : BigDecimal.ZERO,
+                netPosition);
     }
 
     @Override
     @Transactional
     public int backfillFromIncome(UUID farmId, UUID userId) {
         List<Income> orphans = incomeRepo.findByFarmIdAndTransactionIdIsNull(farmId);
-        if (orphans.isEmpty()) {
-            log.info("backfill: no unlinked income rows for farm {}", farmId);
-            return 0;
-        }
+        if (orphans.isEmpty()) return 0;
 
-        var byDate = orphans.stream().collect(java.util.stream.Collectors.groupingBy(Income::getIncomeDate));
+        var byDate = orphans.stream()
+                .collect(java.util.stream.Collectors.groupingBy(Income::getIncomeDate));
 
         int created = 0;
         for (var entry : byDate.entrySet()) {
@@ -145,7 +144,7 @@ public class TransactionServiceImpl implements TransactionService {
             List<Income> group = entry.getValue();
 
             String ref = "TXN-BF-" + date.format(DateTimeFormatter.ofPattern("yyyyMMdd"))
-                    + "-" + String.format("%04d", (int) (Math.random() * 10000));
+                    + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
 
             Transaction tx = txRepo.save(Transaction.builder()
                     .farmId(farmId)
@@ -164,23 +163,30 @@ public class TransactionServiceImpl implements TransactionService {
     }
 
     private Transaction load(UUID id, UUID farmId) {
-        return txRepo.findByIdAndFarmId(id, farmId)
-                .orElseThrow(() -> new TransactionNotFoundException("Transaction not found with ID: " + id));
+        return txRepo.findByIdAndFarmIdLive(id, farmId)
+                .orElseThrow(() -> new TransactionNotFoundException(
+                        "Transaction not found with ID: " + id));
     }
 
     private BigDecimal sumIncome(UUID txId) {
-        return incomeRepo.findByTransactionId(txId).stream()
-                .map(Income::getAmountReceived).reduce(BigDecimal.ZERO, BigDecimal::add);
+        return incomeRepo.findByTransactionIdLive(txId).stream()
+                .map(Income::getAmountReceived)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     private BigDecimal sumExpense(UUID txId) {
-        return expenseRepo.findByTransactionId(txId).stream()
-                .map(Expense::getAmountPaid).reduce(BigDecimal.ZERO, BigDecimal::add);
+        return expenseRepo.findByTransactionIdLive(txId).stream()
+                .map(Expense::getAmountPaid)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     private BigDecimal sumInvestment(UUID txId) {
-        return investmentRepo.findByTransactionId(txId).stream()
-                .map(Investment::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        return investmentRepo.findByTransactionIdLive(txId).stream()
+                .map(Investment::getAmount)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     private String generateRef(UUID farmId) {
@@ -188,10 +194,10 @@ public class TransactionServiceImpl implements TransactionService {
         String candidate;
         int attempt = 0;
         do {
-            String suffix = String.format("%04d", (int) (Math.random() * 10000));
-            candidate = "TXN-" + date + "-" + suffix;
+            candidate = "TXN-" + date + "-"
+                    + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
             attempt++;
-        } while (txRepo.existsByFarmIdAndTransactionRef(farmId, candidate) && attempt < 10);
+        } while (txRepo.existsByFarmIdAndTransactionRefLive(farmId, candidate) && attempt < 10);
         return candidate;
     }
 

@@ -1,21 +1,19 @@
 package com.agriva.controller;
 
-import com.agriva.exception.PersonnelAccessDeniedException;
-import com.agriva.model.dto.auth.TokenValidationResponse;
-import com.agriva.model.dto.personnel.PersonnelProfileResponse;
+import com.agriva.model.dto.common.PageResponse;
 import com.agriva.model.dto.task.*;
-import com.agriva.security.RoleConstants;
-import com.agriva.service.AuthService;
+import com.agriva.security.AuthenticatedUser;
 import com.agriva.service.PersonnelService;
 import com.agriva.service.TaskService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -28,140 +26,120 @@ import java.util.UUID;
 public class TaskController {
 
     private final TaskService taskService;
-    private final AuthService authService;
     private final PersonnelService personnelService;
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<TaskResponse> create(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @Valid @RequestBody TaskCreateRequest request) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMaster(token);
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(taskService.create(request, token.getFarmId(), token.getUserId()));
+                .body(taskService.create(request, u.farmId(), u.userId()));
     }
 
     @PostMapping(value = "/bulk", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<TaskBulkUploadResponse> bulkUpload(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @RequestPart("file") MultipartFile file) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMaster(token);
         return ResponseEntity.accepted().body(taskService.bulkUpload(
-                file, token.getFarmId(), token.getUserId(),
-                authService.getUserById(token.getUserId()).getEmail()));   // FIX
+                file, u.farmId(), u.userId(), u.email()));
     }
 
     @GetMapping
-    public ResponseEntity<Page<TaskResponse>> list(
-            @RequestHeader("Authorization") String authHeader,
+    public ResponseEntity<PageResponse<TaskResponse>> list(
+            @AuthenticationPrincipal AuthenticatedUser u,
             @RequestParam(required = false) UUID personnelId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
+
         UUID filter = personnelId;
-        if (!isMasterOrAdmin(token)) {
-            PersonnelProfileResponse own = personnelService.getOwnProfile(token.getUserId());
+        if (!u.isMasterOrAdmin()) {
+            var own = personnelService.getOwnProfile(u.userId());
             filter = own.getPersonnel().getId();
         }
-        return ResponseEntity.ok(taskService.list(
-                token.getFarmId(), filter,
-                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"))));
+        return ResponseEntity.ok(PageResponse.of(taskService.list(
+                u.farmId(), filter,
+                PageRequest.of(page, Math.min(size, 100),
+                        Sort.by(Sort.Direction.DESC, "createdAt")))));
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<TaskResponse> get(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        return ResponseEntity.ok(taskService.get(id, token.getFarmId()));
+        return ResponseEntity.ok(taskService.get(id, u.farmId()));
     }
 
     @PutMapping("/{id}/action")
     public ResponseEntity<TaskResponse> action(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id,
             @Valid @RequestBody TaskActionRequest request) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
         return ResponseEntity.ok(taskService.action(
-                id, token.getFarmId(), token.getUserId(),
-                isMasterOrAdmin(token), request.getAction()));
+                id, u.farmId(), u.userId(), u.isMasterOrAdmin(), request.getAction()));
     }
 
     @PostMapping("/{id}/validate")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<TaskResponse> validate(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id,
             @Valid @RequestBody TaskValidationRequest request) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMaster(token);
         return ResponseEntity.ok(taskService.validate(
-                id, token.getFarmId(), token.getUserId(), request.getApprove()));
+                id, u.farmId(), u.userId(), request.getApprove()));
     }
 
     @PatchMapping("/{id}")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<TaskResponse> update(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id,
             @Valid @RequestBody TaskUpdateRequest request) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMaster(token);
-        return ResponseEntity.ok(taskService.update(id, request, token.getFarmId()));
+        return ResponseEntity.ok(taskService.update(id, request, u.farmId()));
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<Void> delete(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMaster(token);
-        taskService.delete(id, token.getFarmId());
+        taskService.delete(id, u.farmId());
         return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/productivity/{personnelId}")
     public ResponseEntity<ProductivityStatsResponse> productivity(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID personnelId) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        if (!isMasterOrAdmin(token)) {
-            PersonnelProfileResponse own = personnelService.getOwnProfile(token.getUserId());
+        if (!u.isMasterOrAdmin()) {
+            var own = personnelService.getOwnProfile(u.userId());
             if (!own.getPersonnel().getId().equals(personnelId)) {
-                throw new PersonnelAccessDeniedException("Access denied");
+                throw new com.agriva.exception.PersonnelAccessDeniedException("Access denied");
             }
         }
-        return ResponseEntity.ok(taskService.productivity(personnelId, token.getFarmId()));
+        return ResponseEntity.ok(taskService.productivity(personnelId, u.farmId()));
     }
 
     @GetMapping("/staging")
-    public ResponseEntity<Page<StagedTaskResponse>> listStaging(
-            @RequestHeader("Authorization") String authHeader,
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<PageResponse<StagedTaskResponse>> listStaging(
+            @AuthenticationPrincipal AuthenticatedUser u,
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMaster(token);
-        return ResponseEntity.ok(taskService.listStaging(
-                token.getFarmId(), status,
-                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "submittedAt"))));
+        return ResponseEntity.ok(PageResponse.of(taskService.listStaging(
+                u.farmId(), status,
+                PageRequest.of(page, Math.min(size, 100),
+                        Sort.by(Sort.Direction.DESC, "submittedAt")))));
     }
 
     @GetMapping("/staging/stats")
-    public ResponseEntity<Map<String, Long>> stagingStats(
-            @RequestHeader("Authorization") String authHeader) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMaster(token);
-        return ResponseEntity.ok(taskService.stagingStats(token.getFarmId()));
-    }
-
-    private boolean isMasterOrAdmin(TokenValidationResponse t) {
-        return RoleConstants.MASTER.equals(t.getRole()) || RoleConstants.ADMIN.equals(t.getRole());
-    }
-
-    private void requireMaster(TokenValidationResponse token) {
-        if (!isMasterOrAdmin(token)) throw new PersonnelAccessDeniedException("MASTER or ADMIN required");
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<Map<String, Long>> stagingStats(@AuthenticationPrincipal AuthenticatedUser u) {
+        return ResponseEntity.ok(taskService.stagingStats(u.farmId()));
     }
 }

@@ -53,15 +53,12 @@ public class Task {
     @Builder.Default
     private Long totalWorkedMinutes = 0L;
 
-    /** First START timestamp — display only. */
     @Column(name = "start_time")
     private LocalDateTime startTime;
 
-    /** Last STOP/SUBMIT timestamp. */
     @Column(name = "stop_time")
     private LocalDateTime stopTime;
 
-    /** Timestamp of last START or CONTINUE — used as the segment start. */
     @Column(name = "last_resume_time")
     private LocalDateTime lastResumeTime;
 
@@ -89,4 +86,11 @@ public class Task {
     @UpdateTimestamp
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
+    @Version
+    @Column(nullable = false)
+    private Long version;
 }

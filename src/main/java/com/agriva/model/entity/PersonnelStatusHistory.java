@@ -3,7 +3,9 @@ package com.agriva.model.entity;
 import com.agriva.model.entity.enums.PersonnelStatus;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.type.SqlTypes;
 
 import java.time.Duration;
@@ -47,6 +49,8 @@ public class PersonnelStatusHistory {
     @Column(name = "expected_end_timestamp")
     private LocalDateTime expectedEndTimestamp;
 
+    @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
+
 }

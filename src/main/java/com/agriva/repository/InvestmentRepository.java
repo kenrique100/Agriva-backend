@@ -19,55 +19,86 @@ import java.util.UUID;
 @Repository
 public interface InvestmentRepository extends JpaRepository<Investment, UUID> {
 
-    Page<Investment> findByFarmId(UUID farmId, Pageable pageable);
+    // ---- Live reads ----
+    @Query("SELECT i FROM Investment i WHERE i.farmId = :farmId AND i.deletedAt IS NULL")
+    Page<Investment> findByFarmIdLive(@Param("farmId") UUID farmId, Pageable p);
 
-    Optional<Investment> findByIdAndFarmId(UUID id, UUID farmId);
+    @Query("SELECT i FROM Investment i WHERE i.id = :id AND i.farmId = :farmId " +
+            "AND i.deletedAt IS NULL")
+    Optional<Investment> findByIdAndFarmIdLive(@Param("id") UUID id,
+                                               @Param("farmId") UUID farmId);
 
-    List<Investment> findByTransactionId(UUID transactionId);
+    @Query("SELECT i FROM Investment i WHERE i.transactionId = :txId AND i.deletedAt IS NULL")
+    List<Investment> findByTransactionIdLive(@Param("txId") UUID txId);
 
-    List<Investment> findByTransactionIdIn(Collection<UUID> transactionIds);
+    @Query("SELECT i FROM Investment i WHERE i.transactionId IN :ids AND i.deletedAt IS NULL")
+    List<Investment> findByTransactionIdInLive(@Param("ids") Collection<UUID> ids);
 
+    // ---- Counts ----
     long countByFarmId(UUID farmId);
-
     long countByFarmIdAndCreatedByUserId(UUID farmId, UUID userId);
 
-    @Query("SELECT SUM(i.amount) FROM Investment i WHERE i.farmId = :farmId")
+    // ---- Aggregates ----
+    @Query("SELECT SUM(i.amount) FROM Investment i WHERE i.farmId = :farmId AND i.deletedAt IS NULL")
     BigDecimal sumAmountByFarmId(@Param("farmId") UUID farmId);
 
-    @Query("SELECT SUM(i.amount) FROM Investment i WHERE i.farmId = :farmId AND i.createdByUserId = :userId")
+    @Query("SELECT SUM(i.amount) FROM Investment i " +
+            "WHERE i.farmId = :farmId AND i.createdByUserId = :userId AND i.deletedAt IS NULL")
     BigDecimal sumAmountByFarmIdAndCreatedByUserId(@Param("farmId") UUID farmId,
                                                    @Param("userId") UUID userId);
 
     @Query("SELECT i.currency, SUM(i.amount) FROM Investment i " +
-            "WHERE i.farmId = :farmId GROUP BY i.currency")
+            "WHERE i.farmId = :farmId AND i.deletedAt IS NULL GROUP BY i.currency")
     List<Object[]> sumAmountGroupedByCurrency(@Param("farmId") UUID farmId);
 
+    /**
+     * Per-user currency grouping — required by DashboardQueryRepositoryImpl.totalsForUser.
+     */
     @Query("SELECT i.currency, SUM(i.amount) FROM Investment i " +
-            "WHERE i.farmId = :farmId AND i.createdByUserId = :userId GROUP BY i.currency")
-    List<Object[]> sumAmountGroupedByCurrencyAndCreatedByUserId(@Param("farmId") UUID farmId,
-                                                                @Param("userId") UUID userId);
+            "WHERE i.farmId = :farmId AND i.createdByUserId = :userId AND i.deletedAt IS NULL " +
+            "GROUP BY i.currency")
+    List<Object[]> sumAmountGroupedByCurrencyAndCreatedByUserId(
+            @Param("farmId") UUID farmId, @Param("userId") UUID userId);
+
+    // ---- Per-creator batch aggregates ----
+    @Query("SELECT i.createdByUserId, COUNT(i) FROM Investment i " +
+            "WHERE i.farmId = :farmId AND i.deletedAt IS NULL AND i.createdByUserId IS NOT NULL " +
+            "GROUP BY i.createdByUserId")
+    List<Object[]> countByFarmIdGroupedByCreator(@Param("farmId") UUID farmId);
+
+    @Query("SELECT i.createdByUserId, SUM(i.amount) FROM Investment i " +
+            "WHERE i.farmId = :farmId AND i.deletedAt IS NULL AND i.createdByUserId IS NOT NULL " +
+            "GROUP BY i.createdByUserId")
+    List<Object[]> sumGroupedByCreator(@Param("farmId") UUID farmId);
+
+    // ---- Investment-list aggregate (L4) ----
+    @Query("SELECT e.investmentId, SUM(e.amountPaid) FROM Expense e " +
+            "WHERE e.investmentId IN :ids AND e.deletedAt IS NULL GROUP BY e.investmentId")
+    List<Object[]> sumExpensesByInvestmentIdIn(@Param("ids") Collection<UUID> ids);
 
     default BigDecimal sumAmountByFarmIdOrZero(UUID farmId) {
         BigDecimal v = sumAmountByFarmId(farmId);
         return v == null ? BigDecimal.ZERO : v;
     }
 
-    default BigDecimal sumAmountByFarmIdAndUserOrZero(UUID farmId, UUID userId) {
-        BigDecimal v = sumAmountByFarmIdAndCreatedByUserId(farmId, userId);
-        return v == null ? BigDecimal.ZERO : v;
-    }
-
-    Optional<Investment> findFirstByFarmIdAndActiveTrue(UUID farmId);
+    // ---- Active investment lookups ----
+    @Query("SELECT i FROM Investment i WHERE i.farmId = :farmId " +
+            "AND i.active = true AND i.deletedAt IS NULL")
+    Optional<Investment> findFirstByFarmIdAndActiveTrue(@Param("farmId") UUID farmId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT i FROM Investment i WHERE i.farmId = :farmId AND i.active = true")
+    @Query("SELECT i FROM Investment i WHERE i.farmId = :farmId " +
+            "AND i.active = true AND i.deletedAt IS NULL")
     Optional<Investment> findActiveForUpdate(@Param("farmId") UUID farmId);
 
-    @Query("SELECT SUM(e.amountPaid) FROM Expense e WHERE e.investmentId = :investmentId")
+    // ---- Expense-sum lookups for one investment ----
+    @Query("SELECT SUM(e.amountPaid) FROM Expense e " +
+            "WHERE e.investmentId = :investmentId AND e.deletedAt IS NULL")
     BigDecimal sumExpensesByInvestmentId(@Param("investmentId") UUID investmentId);
 
     @Query("SELECT SUM(e.amountPaid) FROM Expense e " +
-            "WHERE e.investmentId = :investmentId AND e.id <> :excludeExpenseId")
+            "WHERE e.investmentId = :investmentId AND e.id <> :excludeExpenseId " +
+            "AND e.deletedAt IS NULL")
     BigDecimal sumExpensesByInvestmentIdExcluding(@Param("investmentId") UUID investmentId,
                                                   @Param("excludeExpenseId") UUID excludeExpenseId);
 
@@ -76,7 +107,8 @@ public interface InvestmentRepository extends JpaRepository<Investment, UUID> {
         return v == null ? BigDecimal.ZERO : v;
     }
 
-    default BigDecimal sumExpensesByInvestmentIdExcludingOrZero(UUID investmentId, UUID excludeExpenseId) {
+    default BigDecimal sumExpensesByInvestmentIdExcludingOrZero(UUID investmentId,
+                                                                UUID excludeExpenseId) {
         BigDecimal v = sumExpensesByInvestmentIdExcluding(investmentId, excludeExpenseId);
         return v == null ? BigDecimal.ZERO : v;
     }

@@ -33,7 +33,6 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
 
         String authHeader = request.getHeader("Authorization");
-
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             filterChain.doFilter(request, response);
             return;
@@ -41,34 +40,47 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         String token = authHeader.substring(7);
 
-        if (tokenBlacklistService.isBlacklisted(token)) {
-            filterChain.doFilter(request, response);
-            return;
-        }
-
         if (!jwtUtil.validateToken(token)) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        String role = jwtUtil.extractRole(token);
+        // jti-keyed blacklist. One Redis lookup total per request.
+        String jti = jwtUtil.extractJti(token);
+        if (tokenBlacklistService.isBlacklisted(jti)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         UUID userId = jwtUtil.extractUserId(token);
+        UUID farmId = jwtUtil.extractFarmId(token);
+        String role = jwtUtil.extractRole(token);
         String email = jwtUtil.extractEmail(token);
+        String username = jwtUtil.extractUsername(token);
 
         if (userId == null) {
             filterChain.doFilter(request, response);
             return;
         }
 
+        // revoke-all support — reject tokens older than the user's revoked-at marker.
+        long iat = jwtUtil.extractExpiration(token).getTime() / 1000L
+                - jwtUtil.getAccessTtlSeconds();
+        if (tokenBlacklistService.isUserRevoked(userId, iat)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        AuthenticatedUser principal = new AuthenticatedUser(userId, farmId, email, username, role, jti);
+
         List<SimpleGrantedAuthority> authorities = List.of(
                 new SimpleGrantedAuthority("ROLE_" + RoleConstants.normalizeRole(role))
         );
 
-        UsernamePasswordAuthenticationToken authentication =
-                new UsernamePasswordAuthenticationToken(email, null, authorities);
-        authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-
-        SecurityContextHolder.getContext().setAuthentication(authentication);
+        UsernamePasswordAuthenticationToken auth =
+                new UsernamePasswordAuthenticationToken(principal, null, authorities);
+        auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+        SecurityContextHolder.getContext().setAuthentication(auth);
 
         filterChain.doFilter(request, response);
     }

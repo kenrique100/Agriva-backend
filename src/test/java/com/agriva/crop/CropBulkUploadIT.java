@@ -34,17 +34,6 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
-/**
- * Bulk upload integration tests.
- *
- * Two paths:
- *   1. Fields and Crops — synchronous. The Excel parser validates,
- *      service saves, response reports created/failed per row.
- *   2. Crop Cycles — asynchronous. Producer publishes to Kafka, consumer
- *      saves staged row, validator moves to real table. Tests use
- *      awaitility for the consumer step and call the validator manually
- *      for deterministic processing.
- */
 @SpringBootTest
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
@@ -116,10 +105,6 @@ class CropBulkUploadIT {
         userId = authRepository.findByEmail("bulk@test.local").orElseThrow().getId();
     }
 
-    // ----------------------------------------------------------------
-    // Fields bulk upload (synchronous)
-    // ----------------------------------------------------------------
-
     @Test
     void bulkUploadFields_createsAllValidRows() throws Exception {
         MultipartFile file = buildExcel(
@@ -143,7 +128,6 @@ class CropBulkUploadIT {
 
     @Test
     void bulkUploadFields_duplicateName_failsThatRowOnly() throws Exception {
-        // Pre-create a field
         FieldRequest existing = new FieldRequest();
         existing.setName("Existing Field");
         existing.setSizeHectares(new BigDecimal("1.00"));
@@ -152,7 +136,7 @@ class CropBulkUploadIT {
         MultipartFile file = buildExcel(
                 new String[]{"name", "size_hectares", "soil_type"},
                 new Object[]{"New Field", 2.00, "Loamy"},
-                new Object[]{"Existing Field", 3.00, "Clay"}   // will fail
+                new Object[]{"Existing Field", 3.00, "Clay"}
         );
 
         CropBulkUploadResponse resp = cropService.bulkUploadFields(file, farmId);
@@ -169,10 +153,6 @@ class CropBulkUploadIT {
 
         assertThat(cropService.getFields(farmId)).hasSize(2);
     }
-
-    // ----------------------------------------------------------------
-    // Crops bulk upload (synchronous)
-    // ----------------------------------------------------------------
 
     @Test
     void bulkUploadCrops_createsAllValidRows() throws Exception {
@@ -194,13 +174,8 @@ class CropBulkUploadIT {
                 .containsExactlyInAnyOrder("Maize", "Tomato");
     }
 
-    // ----------------------------------------------------------------
-    // Crop Cycles bulk upload (asynchronous via Kafka)
-    // ----------------------------------------------------------------
-
     @Test
     void bulkUploadCycles_publishesToKafka_consumerStages_validatorMoves() throws Exception {
-        // Setup: field + crop must exist before cycle upload
         createField("North Plot");
         createCrop("Maize", 90);
 
@@ -216,18 +191,15 @@ class CropBulkUploadIT {
         assertThat(resp.getCreated()).isEqualTo(1);
         assertThat(resp.getFailed()).isZero();
 
-        // Wait for Kafka consumer to persist the staged row
         await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
                 assertThat(stagedRepo.findByFarmId(farmId, PageRequest.of(0, 100))
                         .getTotalElements())
                         .isGreaterThanOrEqualTo(1)
         );
 
-        // Manually run the validator — deterministic, no cron race
         stagedCropValidator.process();
 
-        // Verify the real cycle was created
-        List<CropCycle> cycles = cycleRepo.findByFarmId(farmId);
+        List<CropCycle> cycles = cycleRepo.findByFarmIdLive(farmId);
         assertThat(cycles).hasSize(1);
         CropCycle cycle = cycles.get(0);
         assertThat(cycle.getField().getName()).isEqualTo("North Plot");
@@ -235,8 +207,8 @@ class CropBulkUploadIT {
         assertThat(cycle.getNotes()).isEqualTo("First cycle");
         assertThat(cycle.getPlantingDate()).isEqualTo(LocalDate.of(2026, 12, 1));
 
-        // Staged row should be MOVED
-        var staged = stagedRepo.findByFarmId(farmId, PageRequest.of(0, 100)).getContent().get(0);
+        var staged = stagedRepo.findByFarmId(farmId, PageRequest.of(0, 100))
+                .getContent().get(0);
         assertThat(staged.getStatus()).isEqualTo(StagedCropCycleStatus.MOVED);
         assertThat(staged.getMovedCycleId()).isNotNull();
         assertThat(staged.getProcessedAt()).isNotNull();
@@ -244,7 +216,6 @@ class CropBulkUploadIT {
 
     @Test
     void bulkUploadCycles_unknownField_failsAtParseTime() throws Exception {
-        // Field is intentionally not created
         createCrop("Maize", 90);
 
         MultipartFile file = buildExcel(
@@ -258,10 +229,8 @@ class CropBulkUploadIT {
         assertThat(resp.getTotalRows()).isEqualTo(1);
         assertThat(resp.getCreated()).isZero();
         assertThat(resp.getFailed()).isEqualTo(1);
-        assertThat(resp.getResults().get(0).getError())
-                .contains("Field not found");
+        assertThat(resp.getResults().get(0).getError()).contains("Field not found");
 
-        // No staged row should exist because nothing was published
         assertThat(stagedRepo.findByFarmId(farmId, PageRequest.of(0, 100))
                 .getTotalElements()).isZero();
     }
@@ -269,7 +238,6 @@ class CropBulkUploadIT {
     @Test
     void bulkUploadCycles_unknownCrop_failsAtParseTime() throws Exception {
         createField("North Plot");
-        // Crop intentionally not created
 
         MultipartFile file = buildExcel(
                 new String[]{"field_name", "crop_name", "variety", "planting_date", "notes"},
@@ -280,13 +248,8 @@ class CropBulkUploadIT {
                 file, farmId, userId, "bulk@test.local");
 
         assertThat(resp.getFailed()).isEqualTo(1);
-        assertThat(resp.getResults().get(0).getError())
-                .contains("Crop not found");
+        assertThat(resp.getResults().get(0).getError()).contains("Crop not found");
     }
-
-    // ----------------------------------------------------------------
-    // Staging observability
-    // ----------------------------------------------------------------
 
     @Test
     void stagingStats_reflectsCurrentState() throws Exception {
@@ -300,7 +263,6 @@ class CropBulkUploadIT {
 
         cropService.bulkUploadCycles(file, farmId, userId, "bulk@test.local");
 
-        // Wait for consumer
         await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
                 assertThat(stagedRepo.findByFarmId(farmId, PageRequest.of(0, 100))
                         .getTotalElements())
@@ -309,14 +271,9 @@ class CropBulkUploadIT {
 
         var stats = cropService.stagingStats(farmId);
         assertThat(stats).containsKeys("PENDING", "RETRYING", "MOVED", "FAILED");
-        // The row exists somewhere in the lifecycle — either still PENDING or already MOVED
         long present = stats.get("PENDING") + stats.get("MOVED");
         assertThat(present).isGreaterThanOrEqualTo(1);
     }
-
-    // ----------------------------------------------------------------
-    // Excel builder helper
-    // ----------------------------------------------------------------
 
     private MultipartFile buildExcel(String[] headers, Object[]... rows) throws Exception {
         try (XSSFWorkbook wb = new XSSFWorkbook();
@@ -335,7 +292,7 @@ class CropBulkUploadIT {
                     if (v instanceof Number) {
                         row.createCell(c).setCellValue(((Number) v).doubleValue());
                     } else if (v instanceof LocalDate) {
-                        row.createCell(c).setCellValue(v.toString());  // yyyy-MM-dd
+                        row.createCell(c).setCellValue(v.toString());
                     } else {
                         row.createCell(c).setCellValue(v.toString());
                     }

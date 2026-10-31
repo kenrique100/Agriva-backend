@@ -1,13 +1,17 @@
 package com.agriva.controller;
 
 import com.agriva.model.dto.auth.*;
+import com.agriva.model.dto.common.MessageResponse;
 import com.agriva.model.dto.farm.FarmDetailsResponse;
 import com.agriva.model.dto.farm.FarmListResponse;
+import com.agriva.security.AuthenticatedUser;
 import com.agriva.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -21,38 +25,21 @@ public class AuthController {
 
     private final AuthService authService;
 
+
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
-        String token = authService.login(request);
-        UserDetails userDetails = authService.getUserDetails(request.getEmailOrUsername());
-
-        return ResponseEntity.ok(new AuthResponse(
-                token,
-                userDetails.getEmail(),
-                userDetails.getUsername(),
-                userDetails.getRole(),
-                userDetails.getFarmId(),
-                userDetails.getFarmName(),
-                userDetails.getPreferredCurrency()
-        ));
+        return ResponseEntity.ok(authService.login(request));
     }
 
-    @PostMapping("/validate")
-    public ResponseEntity<TokenValidationResponse> validate(
-            @RequestHeader("Authorization") String authHeader) {
-        return ResponseEntity.ok(authService.validateToken(authHeader));
+    @PostMapping("/refresh")
+    public ResponseEntity<AuthResponse> refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        return ResponseEntity.ok(authService.refresh(request.refreshToken()));
     }
 
     @PostMapping("/register/master")
     public ResponseEntity<AuthResponse> registerMaster(
             @Valid @RequestBody MasterRegisterRequest request) {
-        return ResponseEntity.ok(authService.registerMaster(request));
-    }
-
-    @PostMapping("/register/sub-user")
-    public ResponseEntity<String> registerSubUser(
-            @Valid @RequestBody SubUserRegisterRequest request) {
-        return ResponseEntity.ok(authService.registerSubUser(request));
+        return ResponseEntity.status(201).body(authService.registerMaster(request));
     }
 
     @PostMapping("/forgot-password")
@@ -62,196 +49,158 @@ public class AuthController {
     }
 
     @PostMapping("/reset-password")
-    public ResponseEntity<String> resetPassword(
-            @Valid @RequestBody ResetPasswordRequest request) {
+    public ResponseEntity<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
         authService.resetPassword(request);
-        return ResponseEntity.ok("Password reset successfully.");
-    }
-
-    @PostMapping("/logout")
-    public ResponseEntity<String> logout(@RequestHeader("Authorization") String authHeader) {
-        authService.logout(authHeader);
-        return ResponseEntity.ok("Logged out successfully");
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/me")
-    public ResponseEntity<UserResponse> getCurrentUser(
-            @RequestHeader("Authorization") String authHeader) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        if (token.getUserId() == null) {
-            return ResponseEntity.status(401).build();
-        }
-        return ResponseEntity.ok(authService.getUserById(token.getUserId()));
+    public ResponseEntity<AuthenticatedUserInfo> me(@AuthenticationPrincipal AuthenticatedUser principal) {
+        return ResponseEntity.ok(new AuthenticatedUserInfo(
+                principal.userId(), principal.farmId(),
+                principal.email(), principal.username(), principal.role()));
     }
 
     @PutMapping("/me")
-    public ResponseEntity<UserResponse> updateCurrentUser(
-            @RequestHeader("Authorization") String authHeader,
+    public ResponseEntity<UserResponse> updateMe(
+            @AuthenticationPrincipal AuthenticatedUser principal,
             @Valid @RequestBody UpdateUserRequest request) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
         return ResponseEntity.ok(
-                authService.updateUser(token.getUserId(), request, token.getRole()));
+                authService.updateUser(principal.userId(), request, principal.role()));
     }
 
     @PutMapping("/change-password")
-    public ResponseEntity<String> changePassword(
-            @RequestHeader("Authorization") String authHeader,
+    public ResponseEntity<Void> changePassword(
+            @AuthenticationPrincipal AuthenticatedUser principal,
             @Valid @RequestBody ChangePasswordRequest request) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        authService.changePassword(token.getUserId(), request);
-        return ResponseEntity.ok("Password changed successfully");
+        authService.changePassword(principal.userId(), request);
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/me/reset-password")
-    public ResponseEntity<String> resetOwnPassword(
-            @RequestHeader("Authorization") String authHeader,
+    public ResponseEntity<Void> resetOwnPassword(
+            @AuthenticationPrincipal AuthenticatedUser principal,
             @Valid @RequestBody MeResetPasswordRequest request) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        authService.resetOwnPassword(token.getUserId(), request);
-        return ResponseEntity.ok("Password reset successfully.");
+        authService.resetOwnPassword(principal.userId(), request);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@RequestHeader(value = "Authorization", required = false) String authHeader) {
+        authService.logout(authHeader);
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/{userId}")
+    @PreAuthorize("hasAnyRole('ADMIN','MASTER','SUB_USER')")
     public ResponseEntity<UserResponse> getUserById(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser principal,
             @PathVariable UUID userId) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        boolean isAdmin = "ADMIN".equals(token.getRole());
-        boolean isSelf = token.getUserId() != null && token.getUserId().equals(userId);
-        if (!isAdmin && !isSelf) {
+        boolean isAdmin = principal.isAdmin();
+        boolean isSelf = principal.userId().equals(userId);
+        boolean isMasterSameFarm = principal.isMaster()
+                && authService.getUserById(userId).getFarmId() != null
+                && authService.getUserById(userId).getFarmId().equals(principal.farmId());
+        if (!isAdmin && !isSelf && !isMasterSameFarm) {
             return ResponseEntity.status(403).build();
         }
         return ResponseEntity.ok(authService.getUserById(userId));
     }
 
+    @PostMapping("/register/sub-user")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<SubUserRegisteredResponse> registerSubUser(
+            @AuthenticationPrincipal AuthenticatedUser principal,
+            @Valid @RequestBody SubUserRegisterRequest request) {
+        // S1: farmId comes from the principal — never from the body.
+        return ResponseEntity.status(201)
+                .body(authService.registerSubUser(request, principal.farmId(), principal.role()));
+    }
+
     @GetMapping("/farm/users")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<List<UserListResponse>> getFarmUsers(
-            @RequestHeader("Authorization") String authHeader) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        if (!"MASTER".equals(token.getRole())) {
-            return ResponseEntity.status(403).build();
-        }
-        return ResponseEntity.ok(authService.getUsersByFarmId(token.getFarmId()));
-    }
-
-    @GetMapping("/admin/all-users")
-    public ResponseEntity<List<UserListResponse>> getAllUsers(
-            @RequestHeader("Authorization") String authHeader) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        if (!"ADMIN".equals(token.getRole())) {
-            return ResponseEntity.status(403).build();
-        }
-        return ResponseEntity.ok(authService.getAllUsers());
-    }
-
-    @PutMapping("/master/sub-user/{subUserId}")
-    public ResponseEntity<UserResponse> updateSubUserByMaster(
-            @RequestHeader("Authorization") String authHeader,
-            @PathVariable UUID subUserId,
-            @Valid @RequestBody UpdateUserRequest request) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        if (!"MASTER".equals(token.getRole())) {
-            return ResponseEntity.status(403).build();
-        }
-        return ResponseEntity.ok(
-                authService.updateSubUserByMaster(token.getFarmId(), subUserId, request));
-    }
-
-    @DeleteMapping("/master/sub-user/{subUserId}")
-    public ResponseEntity<String> deleteSubUserByMaster(
-            @RequestHeader("Authorization") String authHeader,
-            @PathVariable UUID subUserId) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        if (!"MASTER".equals(token.getRole())) {
-            return ResponseEntity.status(403).body("Only MASTER can delete sub-users");
-        }
-        authService.deleteSubUserByMaster(token.getFarmId(), subUserId);
-        return ResponseEntity.ok("Sub-user deleted successfully");
-    }
-
-    @DeleteMapping("/master/farm")
-    public ResponseEntity<String> deleteMyFarm(
-            @RequestHeader("Authorization") String authHeader) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        if (!"MASTER".equals(token.getRole())) {
-            return ResponseEntity.status(403).body("Only MASTER can delete farms");
-        }
-        authService.deleteFarmAndAllUsers(token.getFarmId(), token.getFarmId());
-        return ResponseEntity.ok("Your farm and all associated users deleted successfully");
+            @AuthenticationPrincipal AuthenticatedUser principal) {
+        return ResponseEntity.ok(authService.getUsersByFarmId(principal.farmId()));
     }
 
     @GetMapping("/farm/details")
+    @PreAuthorize("hasRole('MASTER')")
     public ResponseEntity<FarmDetailsResponse> getFarmDetails(
-            @RequestHeader("Authorization") String authHeader) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        if (!"MASTER".equals(token.getRole())) {
-            return ResponseEntity.status(403).build();
-        }
-        return ResponseEntity.ok(authService.getFarmDetails(token.getFarmId()));
+            @AuthenticationPrincipal AuthenticatedUser principal) {
+        return ResponseEntity.ok(authService.getFarmDetails(principal.farmId()));
+    }
+
+    @PutMapping("/master/sub-user/{subUserId}")
+    @PreAuthorize("hasRole('MASTER')")
+    public ResponseEntity<UserResponse> updateSubUserByMaster(
+            @AuthenticationPrincipal AuthenticatedUser principal,
+            @PathVariable UUID subUserId,
+            @Valid @RequestBody UpdateUserRequest request) {
+        return ResponseEntity.ok(
+                authService.updateSubUserByMaster(principal.farmId(), subUserId, request));
+    }
+
+    @DeleteMapping("/master/sub-user/{subUserId}")
+    @PreAuthorize("hasRole('MASTER')")
+    public ResponseEntity<MessageResponse> deleteSubUserByMaster(
+            @AuthenticationPrincipal AuthenticatedUser principal,
+            @PathVariable UUID subUserId) {
+        authService.deleteSubUserByMaster(principal.farmId(), subUserId);
+        return ResponseEntity.ok(new MessageResponse("Sub-user deleted successfully"));
+    }
+
+    /**
+     * MASTER self-service account deletion. Deletes the farm, every user in it,
+     * all financial records (soft-deleted for audit), all personnel, tasks, crops.
+     * Requires an explicit confirmation phrase.
+     */
+    @DeleteMapping("/me")
+    public ResponseEntity<MessageResponse> deleteMyAccount(
+            @AuthenticationPrincipal AuthenticatedUser principal,
+            @RequestParam(name = "confirmation") String confirmation) {
+        authService.deleteOwnAccount(principal.userId(), confirmation);
+        return ResponseEntity.ok(new MessageResponse("Your account and all related farm data have been deleted"));
+    }
+
+    @GetMapping("/admin/all-users")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<List<UserListResponse>> getAllUsers() {
+        return ResponseEntity.ok(authService.getAllUsers());
+    }
+
+    @GetMapping("/admin/all-farms")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<FarmListResponse> getAllFarms() {
+        return ResponseEntity.ok(authService.getAllFarms());
     }
 
     @PutMapping("/admin/user/{userId}")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<UserResponse> updateUserByAdmin(
-            @RequestHeader("Authorization") String authHeader,
             @PathVariable UUID userId,
             @Valid @RequestBody UpdateUserRequest request) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        if (!"ADMIN".equals(token.getRole())) {
-            return ResponseEntity.status(403).build();
-        }
         return ResponseEntity.ok(authService.updateUserByAdmin(userId, request));
     }
 
     @DeleteMapping("/admin/user/{userId}")
-    public ResponseEntity<String> deleteUserByAdmin(
-            @RequestHeader("Authorization") String authHeader,
-            @PathVariable UUID userId) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        if (!"ADMIN".equals(token.getRole())) {
-            return ResponseEntity.status(403).body("Only ADMIN can delete users");
-        }
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<MessageResponse> deleteUserByAdmin(@PathVariable UUID userId) {
         authService.deleteUserByAdmin(userId);
-        return ResponseEntity.ok("User deleted successfully by ADMIN");
+        return ResponseEntity.ok(new MessageResponse("User deleted successfully by ADMIN"));
     }
 
     @DeleteMapping("/admin/farm/{farmId}")
-    public ResponseEntity<String> deleteFarmByAdmin(
-            @RequestHeader("Authorization") String authHeader,
-            @PathVariable UUID farmId) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        if (!"ADMIN".equals(token.getRole())) {
-            return ResponseEntity.status(403).body("Only ADMIN can delete farms");
-        }
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<MessageResponse> deleteFarmByAdmin(@PathVariable UUID farmId) {
         authService.deleteFarmByAdmin(farmId);
-        return ResponseEntity.ok("Farm deleted successfully by ADMIN");
+        return ResponseEntity.ok(new MessageResponse("Farm deleted successfully by ADMIN"));
     }
 
     @DeleteMapping("/admin/delete-all-sub-users")
-    public ResponseEntity<String> deleteAllSubUsers(
-            @RequestHeader("Authorization") String authHeader) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        if (!"ADMIN".equals(token.getRole())) {
-            return ResponseEntity.status(403).body("Only ADMIN can perform this action");
-        }
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<MessageResponse> deleteAllSubUsers() {
         int deletedCount = authService.deleteAllSubUsers();
-        return ResponseEntity.ok("Deleted " + deletedCount + " sub-users successfully");
-    }
-
-    @GetMapping("/admin/all-farms")
-    public ResponseEntity<FarmListResponse> getAllFarms(
-            @RequestHeader("Authorization") String authHeader) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        if (!"ADMIN".equals(token.getRole())) {
-            return ResponseEntity.status(403).build();
-        }
-        return ResponseEntity.ok(authService.getAllFarms());
-    }
-
-    @DeleteMapping("/me")
-    public ResponseEntity<String> deleteCurrentUser(
-            @RequestHeader("Authorization") String authHeader) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        authService.deleteUserByAdmin(token.getUserId());
-        return ResponseEntity.ok("Your account has been deleted");
+        return ResponseEntity.ok(new MessageResponse("Deleted " + deletedCount + " sub-users"));
     }
 }

@@ -1,5 +1,7 @@
 package com.agriva.service.impl;
 
+import com.agriva.config.TaskKafkaConfig;
+import com.agriva.kafka.consumer.IdempotencyGuard;
 import com.agriva.model.dto.task.TaskSubmissionEvent;
 import com.agriva.model.entity.StagedTask;
 import com.agriva.model.entity.enums.StagedTaskStatus;
@@ -18,6 +20,7 @@ import java.time.LocalDateTime;
 public class TaskStagingServiceImpl implements TaskStagingService {
 
     private final StagedTaskRepository stagedRepo;
+    private final IdempotencyGuard idempotencyGuard;
 
     @Override
     @Transactional
@@ -26,10 +29,13 @@ public class TaskStagingServiceImpl implements TaskStagingService {
             log.warn("Skipping malformed task event: {}", event);
             return;
         }
-        if (stagedRepo.existsById(event.getSubmissionId())) {
-            log.info("Staged task {} already exists — skipping (idempotent)", event.getSubmissionId());
+
+        if (!idempotencyGuard.tryMarkProcessed(
+                event.getSubmissionId(), TaskKafkaConfig.STAGING_CONSUMER_GROUP)) {
+            log.info("Duplicate delivery of task event {} — skipping", event.getSubmissionId());
             return;
         }
+
         StagedTask staged = StagedTask.builder()
                 .id(event.getSubmissionId())
                 .farmId(event.getFarmId())
@@ -37,7 +43,8 @@ public class TaskStagingServiceImpl implements TaskStagingService {
                 .status(StagedTaskStatus.PENDING)
                 .submittedByUserId(event.getSubmittedByUserId())
                 .submittedByEmail(event.getSubmittedByEmail())
-                .submittedAt(event.getSubmittedAt() != null ? event.getSubmittedAt() : LocalDateTime.now())
+                .submittedAt(event.getSubmittedAt() != null
+                        ? event.getSubmittedAt() : LocalDateTime.now())
                 .retryCount(0)
                 .build();
         stagedRepo.save(staged);

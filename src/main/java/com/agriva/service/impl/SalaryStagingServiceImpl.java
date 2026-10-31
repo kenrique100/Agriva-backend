@@ -1,5 +1,7 @@
 package com.agriva.service.impl;
 
+import com.agriva.config.SalaryKafkaConfig;
+import com.agriva.kafka.consumer.IdempotencyGuard;
 import com.agriva.model.dto.salary.SalarySubmissionEvent;
 import com.agriva.model.entity.StagedSalary;
 import com.agriva.model.entity.enums.StagedSalaryStatus;
@@ -18,6 +20,7 @@ import java.time.LocalDateTime;
 public class SalaryStagingServiceImpl implements SalaryStagingService {
 
     private final StagedSalaryRepository stagedRepo;
+    private final IdempotencyGuard idempotencyGuard;
 
     @Override
     @Transactional
@@ -27,10 +30,9 @@ public class SalaryStagingServiceImpl implements SalaryStagingService {
             return;
         }
 
-        // Idempotency — Kafka may deliver at-least-once
-        if (stagedRepo.existsById(event.getSubmissionId())) {
-            log.info("Staged salary {} already exists — skipping (idempotent)",
-                    event.getSubmissionId());
+        if (!idempotencyGuard.tryMarkProcessed(
+                event.getSubmissionId(), SalaryKafkaConfig.STAGING_CONSUMER_GROUP)) {
+            log.info("Duplicate delivery of salary event {} — skipping", event.getSubmissionId());
             return;
         }
 
@@ -45,7 +47,6 @@ public class SalaryStagingServiceImpl implements SalaryStagingService {
                         ? event.getSubmittedAt() : LocalDateTime.now())
                 .retryCount(0)
                 .build();
-
         stagedRepo.save(staged);
         log.info("Staged salary {} persisted with status PENDING", staged.getId());
     }

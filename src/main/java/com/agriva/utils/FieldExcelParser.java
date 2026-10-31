@@ -2,6 +2,7 @@ package com.agriva.utils;
 
 import com.agriva.exception.ExcelProcessingException;
 import com.agriva.model.dto.crop.FieldRequest;
+import com.agriva.model.entity.enums.SoilType;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -36,24 +37,31 @@ public class FieldExcelParser {
             }
 
             if (!colMap.containsKey("name")) {
-                throw new ExcelProcessingException("Missing required header: name. Found: " + colMap.keySet());
+                throw new ExcelProcessingException(
+                        "Missing required header: name. Found: " + colMap.keySet());
             }
 
             for (int r = HEADER_ROW + 1; r <= sheet.getLastRowNum(); r++) {
                 Row row = sheet.getRow(r);
-                if (row == null || ExcelCellReader.isEmptyRow(row, headerRow.getLastCellNum())) continue;
+                if (row == null || ExcelCellReader.isEmptyRow(row, headerRow.getLastCellNum()))
+                    continue;
 
                 int rowNumber = r + 1;
                 try {
                     FieldRequest req = new FieldRequest();
                     req.setName(ExcelCellReader.readString(getCell(row, colMap, "name")));
 
-                    String sizeStr = ExcelCellReader.readString(getCell(row, colMap, "size_hectares"));
+                    String sizeStr = ExcelCellReader.readString(
+                            getCell(row, colMap, "size_hectares"));
                     if (sizeStr != null && !sizeStr.isBlank()) {
                         req.setSizeHectares(new BigDecimal(sizeStr));
                     }
 
-                    req.setSoilType(ExcelCellReader.readString(getCell(row, colMap, "soil_type")));
+                    // Soil type is now an enum — accept both enum names and display names.
+                    String soilStr = ExcelCellReader.readString(
+                            getCell(row, colMap, "soil_type"));
+                    req.setSoilType(SoilType.fromString(soilStr));
+
                     rows.add(new ParsedRow(rowNumber, req, null));
                 } catch (Exception ex) {
                     log.warn("Field Excel row {} failed: {}", rowNumber, ex.getMessage());
@@ -63,7 +71,8 @@ public class FieldExcelParser {
         } catch (ExcelProcessingException e) {
             throw e;
         } catch (Exception e) {
-            throw new ExcelProcessingException("Failed to parse Excel file: " + e.getMessage(), e);
+            throw new ExcelProcessingException(
+                    "Failed to parse Excel file: " + e.getMessage(), e);
         }
 
         return rows;

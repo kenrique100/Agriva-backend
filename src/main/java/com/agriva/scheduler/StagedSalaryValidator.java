@@ -61,9 +61,8 @@ public class StagedSalaryValidator {
         LocalDateTime now = LocalDateTime.now();
         StagedSalary staged = stagedRepo.findDueByIdForUpdate(
                 stagedId, now, StagedSalaryStatus.PENDING, StagedSalaryStatus.RETRYING).orElse(null);
-        if (staged == null) {
-            return;
-        }
+        if (staged == null) return;
+
         staged.setLastAttemptAt(now);
         try {
             SalaryPaymentRequest req = objectMapper.readValue(
@@ -90,13 +89,15 @@ public class StagedSalaryValidator {
         }
     }
 
-    private String validate(SalaryPaymentRequest req, java.util.UUID farmId) {
+    private String validate(SalaryPaymentRequest req, UUID farmId) {
         if (req.getPersonnelId() == null) return "Personnel is required";
         if (req.getAmount() == null || req.getAmount().compareTo(BigDecimal.ZERO) <= 0)
             return "Amount must be positive";
         if (req.getPaymentDate() == null) return "Payment date is required";
-        if (req.getPaymentDate().isAfter(LocalDate.now())) return "Payment date cannot be in the future";
-        if (personnelRepo.findByIdAndFarmId(req.getPersonnelId(), farmId).isEmpty())
+        if (req.getPaymentDate().isAfter(LocalDate.now()))
+            return "Payment date cannot be in the future";
+        // Use the Live finder — soft-deleted personnel are treated as "not found".
+        if (personnelRepo.findByIdAndFarmIdLive(req.getPersonnelId(), farmId).isEmpty())
             return "Personnel not found in farm";
         return null;
     }

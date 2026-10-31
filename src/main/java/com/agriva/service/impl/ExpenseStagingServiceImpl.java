@@ -1,5 +1,7 @@
 package com.agriva.service.impl;
 
+import com.agriva.config.ExpenseKafkaConfig;
+import com.agriva.kafka.consumer.IdempotencyGuard;
 import com.agriva.model.dto.expense.ExpenseSubmissionEvent;
 import com.agriva.model.entity.StagedExpense;
 import com.agriva.model.entity.enums.StagedExpenseStatus;
@@ -18,6 +20,7 @@ import java.time.LocalDateTime;
 public class ExpenseStagingServiceImpl implements ExpenseStagingService {
 
     private final StagedExpenseRepository stagedRepo;
+    private final IdempotencyGuard idempotencyGuard;
 
     @Override
     @Transactional
@@ -27,8 +30,9 @@ public class ExpenseStagingServiceImpl implements ExpenseStagingService {
             return;
         }
 
-        if (stagedRepo.existsById(event.getSubmissionId())) {
-            log.info("Staged expense {} already exists — skipping (idempotent)", event.getSubmissionId());
+        if (!idempotencyGuard.tryMarkProcessed(
+                event.getSubmissionId(), ExpenseKafkaConfig.STAGING_CONSUMER_GROUP)) {
+            log.info("Duplicate delivery of expense event {} — skipping", event.getSubmissionId());
             return;
         }
 
@@ -39,10 +43,10 @@ public class ExpenseStagingServiceImpl implements ExpenseStagingService {
                 .status(StagedExpenseStatus.PENDING)
                 .submittedByUserId(event.getSubmittedByUserId())
                 .submittedByEmail(event.getSubmittedByEmail())
-                .submittedAt(event.getSubmittedAt() != null ? event.getSubmittedAt() : LocalDateTime.now())
+                .submittedAt(event.getSubmittedAt() != null
+                        ? event.getSubmittedAt() : LocalDateTime.now())
                 .retryCount(0)
                 .build();
-
         stagedRepo.save(staged);
         log.info("Staged expense {} persisted with status PENDING", staged.getId());
     }

@@ -1,125 +1,108 @@
 package com.agriva.controller;
 
-import com.agriva.model.dto.auth.TokenValidationResponse;
+import com.agriva.model.dto.common.PageResponse;
 import com.agriva.model.dto.investment.InvestmentRequest;
 import com.agriva.model.dto.investment.InvestmentResponse;
-import com.agriva.service.AuthService;
+import com.agriva.security.AuthenticatedUser;
 import com.agriva.service.InvestmentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 
+import java.util.Set;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/investments")
 @RequiredArgsConstructor
-@Slf4j
 public class InvestmentController {
 
+    private static final Set<String> SORTABLE = Set.of("investmentDate", "amount", "createdAt");
+
     private final InvestmentService investmentService;
-    private final AuthService authService;
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<InvestmentResponse> create(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @Valid @RequestBody InvestmentRequest request) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMasterOrAdmin(token);
-        return ResponseEntity.status(HttpStatus.CREATED).body(investmentService.createInvestment(
-                request, token.getFarmId(), token.getUserId()));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(investmentService.createInvestment(request, u.farmId(), u.userId()));
     }
 
     @GetMapping
-    public ResponseEntity<Page<InvestmentResponse>> list(
-            @RequestHeader("Authorization") String authHeader,
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<PageResponse<InvestmentResponse>> list(
+            @AuthenticationPrincipal AuthenticatedUser u,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "investmentDate,desc") String sort) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMasterOrAdmin(token);
-        return ResponseEntity.ok(investmentService.listInvestments(
-                token.getFarmId(),
-                PageRequest.of(page, size, parseSort(sort))));
+        return ResponseEntity.ok(PageResponse.of(investmentService.listInvestments(
+                u.farmId(),
+                PageRequest.of(page, Math.min(size, 100), parseSort(sort)))));
     }
 
     @GetMapping("/active")
-    public ResponseEntity<InvestmentResponse> getActive(
-            @RequestHeader("Authorization") String authHeader) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        // Accessible to ALL farm roles — expense submitters need this for UI banners
-        InvestmentResponse active = investmentService.getActive(token.getFarmId());
-        return active == null
-                ? ResponseEntity.noContent().build()
-                : ResponseEntity.ok(active);
+    public ResponseEntity<InvestmentResponse> getActive(@AuthenticationPrincipal AuthenticatedUser u) {
+        InvestmentResponse active = investmentService.getActive(u.farmId());
+        return active == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(active);
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<InvestmentResponse> getOne(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMasterOrAdmin(token);
-        return ResponseEntity.ok(investmentService.getInvestment(id, token.getFarmId()));
+        return ResponseEntity.ok(investmentService.getInvestment(id, u.farmId()));
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<InvestmentResponse> update(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id,
             @Valid @RequestBody InvestmentRequest request) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMasterOrAdmin(token);
-        return ResponseEntity.ok(investmentService.updateInvestment(id, request, token.getFarmId()));
+        return ResponseEntity.ok(investmentService.updateInvestment(id, request, u.farmId()));
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<Void> delete(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMasterOrAdmin(token);
-        investmentService.deleteInvestment(id, token.getFarmId());
+        investmentService.deleteInvestment(id, u.farmId());
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{id}/activate")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<InvestmentResponse> activate(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMasterOrAdmin(token);
-        return ResponseEntity.ok(investmentService.activate(id, token.getFarmId()));
+        return ResponseEntity.ok(investmentService.activate(id, u.farmId()));
     }
 
     @PostMapping("/{id}/deactivate")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<InvestmentResponse> deactivate(
-            @RequestHeader("Authorization") String authHeader,
+            @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id) {
-        TokenValidationResponse token = authService.validateToken(authHeader);
-        requireMasterOrAdmin(token);
-        return ResponseEntity.ok(investmentService.deactivate(id, token.getFarmId()));
-    }
-
-    private void requireMasterOrAdmin(TokenValidationResponse token) {
-        String role = token.getRole();
-        if (!"MASTER".equals(role) && !"ADMIN".equals(role)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "Only MASTER or ADMIN can access investments");
-        }
+        return ResponseEntity.ok(investmentService.deactivate(id, u.farmId()));
     }
 
     private Sort parseSort(String sort) {
         String[] parts = sort.split(",");
+        if (!SORTABLE.contains(parts[0])) {
+            throw new IllegalArgumentException("Invalid sort field: " + parts[0]);
+        }
         Sort.Direction dir = (parts.length > 1 && parts[1].equalsIgnoreCase("asc"))
                 ? Sort.Direction.ASC : Sort.Direction.DESC;
         return Sort.by(dir, parts[0]);

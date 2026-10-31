@@ -55,7 +55,7 @@ public class SalaryServiceImpl implements SalaryService {
     @Override
     @Transactional
     public SalaryPaymentResponse create(SalaryPaymentRequest req, UUID farmId, UUID actorUserId) {
-        Personnel p = personnelRepository.findByIdAndFarmId(req.getPersonnelId(), farmId)
+        Personnel p = personnelRepository.findByIdAndFarmIdLive(req.getPersonnelId(), farmId)
                 .orElseThrow(() -> new PersonnelNotFoundException(
                         "Personnel not found with ID: " + req.getPersonnelId()));
         validator.validate(p);
@@ -135,16 +135,14 @@ public class SalaryServiceImpl implements SalaryService {
         SalaryPayment sp = load(id, farmId);
         Personnel p = sp.getPersonnel();
 
-        // Fetch Farm and Master details for the receipt header
         Farm farm = farmRepository.findById(farmId).orElse(null);
         String farmName = farm != null ? farm.getName() : "Agriva Farm";
 
         String managerName = "Farm Manager";
         if (farm != null && farm.getMasterId() != null) {
-            Personnel masterPersonnel = personnelRepository.findByUserId(farm.getMasterId()).orElse(null);
-            if (masterPersonnel != null) {
-                managerName = masterPersonnel.getName();
-            }
+            Personnel masterPersonnel = personnelRepository
+                    .findByUserId(farm.getMasterId()).orElse(null);
+            if (masterPersonnel != null) managerName = masterPersonnel.getName();
         }
 
         List<Task> tasks = taskRepository.findByPersonnelIdAndStatusAndValidationTimeBetween(
@@ -164,7 +162,8 @@ public class SalaryServiceImpl implements SalaryService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         BigDecimal rate = expected.compareTo(BigDecimal.ZERO) > 0
-                ? actual.divide(expected, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100))
+                ? actual.divide(expected, 4, RoundingMode.HALF_UP)
+                  .multiply(BigDecimal.valueOf(100))
                 : BigDecimal.ZERO;
 
         List<SalaryReceiptLineItem> lines = tasks.stream().map(t -> {
@@ -173,7 +172,8 @@ public class SalaryServiceImpl implements SalaryService {
             BigDecimal a = t.getActualHours() != null
                     ? BigDecimal.valueOf(t.getActualHours()) : BigDecimal.ZERO;
             BigDecimal cr = e.compareTo(BigDecimal.ZERO) > 0
-                    ? a.divide(e, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100))
+                    ? a.divide(e, 4, RoundingMode.HALF_UP)
+                      .multiply(BigDecimal.valueOf(100))
                     : BigDecimal.ZERO;
             return SalaryReceiptLineItem.builder()
                     .title(t.getTitle())
@@ -212,15 +212,14 @@ public class SalaryServiceImpl implements SalaryService {
     }
 
     @Override
-    public SalaryBulkUploadResponse bulkUpload(MultipartFile file, UUID farmId, UUID userId, String email) {
+    public SalaryBulkUploadResponse bulkUpload(MultipartFile file, UUID farmId,
+                                               UUID userId, String email) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("Excel file is required");
         }
-
         List<SalaryExcelParser.ParsedRow> rows;
-        try {
-            rows = excelParser.parse(file.getInputStream(), farmId);
-        } catch (Exception e) {
+        try { rows = excelParser.parse(file.getInputStream(), farmId); }
+        catch (Exception e) {
             throw new IllegalArgumentException("Failed to read Excel file: " + e.getMessage(), e);
         }
 
@@ -234,7 +233,6 @@ public class SalaryServiceImpl implements SalaryService {
                         row.rowNumber(), null, "FAILED", row.error()));
                 continue;
             }
-
             UUID submissionId = UUID.randomUUID();
             try {
                 String payload = objectMapper.writeValueAsString(row.request());
