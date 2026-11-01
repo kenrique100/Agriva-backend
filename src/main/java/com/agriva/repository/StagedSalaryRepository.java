@@ -6,6 +6,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -52,4 +53,8 @@ public interface StagedSalaryRepository extends JpaRepository<StagedSalary, UUID
             @Param("now") LocalDateTime now,
             @Param("pending") StagedSalaryStatus pending,
             @Param("retrying") StagedSalaryStatus retrying);
+
+    @Modifying
+    @Query("DELETE FROM StagedSalary s WHERE s.farmId = :farmId")
+    int deleteByFarmId(@Param("farmId") UUID farmId);
 }

@@ -4,12 +4,14 @@ import com.agriva.model.entity.Expense;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -99,4 +101,14 @@ public interface ExpenseRepository extends JpaRepository<Expense, UUID> {
         BigDecimal v = sumAmountByFarmId(farmId);
         return v == null ? BigDecimal.ZERO : v;
     }
+
+    @Query("SELECT e.receipt FROM Expense e " +
+            "WHERE e.farmId = :farmId AND e.receipt IS NOT NULL")
+    List<String> findReceiptsByFarmId(@Param("farmId") UUID farmId);
+
+    @Modifying
+    @Query("UPDATE Expense e SET e.deletedAt = :now " +
+            "WHERE e.farmId = :farmId AND e.deletedAt IS NULL")
+    int softDeleteByFarmId(@Param("farmId") UUID farmId,
+                           @Param("now") LocalDateTime now);
 }

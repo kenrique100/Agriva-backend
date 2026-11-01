@@ -17,6 +17,7 @@ import com.agriva.security.AuthenticatedUser;
 import com.agriva.security.JwtUtil;
 import com.agriva.security.RoleConstants;
 import com.agriva.service.AuthService;
+import com.agriva.service.FileStorageService;
 import com.agriva.service.PasswordResetService;
 import com.agriva.service.RefreshTokenService;
 import com.agriva.service.TokenBlacklistService;
@@ -52,6 +53,13 @@ public class AuthServiceImpl implements AuthService {
     private final TransactionRepository transactionRepository;
     private final PersonnelRepository personnelRepository;
     private final PersonnelStatusHistoryRepository personnelStatusHistoryRepository;
+    private final FieldRepository fieldRepository;
+    private final CropRepository cropRepository;
+    private final StagedIncomeRepository stagedIncomeRepository;
+    private final StagedExpenseRepository stagedExpenseRepository;
+    private final StagedTaskRepository stagedTaskRepository;
+    private final StagedSalaryRepository stagedSalaryRepository;
+    private final StagedCropCycleRepository stagedCropCycleRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final RefreshTokenService refreshTokenService;
@@ -60,6 +68,7 @@ public class AuthServiceImpl implements AuthService {
     private final UserMapper userMapper;
     private final FarmMapper farmMapper;
     private final PasswordValidator passwordValidator;
+    private final FileStorageService fileStorageService;
     private final StringRedisTemplate redis;
 
     @Value("${agriva.security.password-reset.expose-token:false}")
@@ -68,7 +77,6 @@ public class AuthServiceImpl implements AuthService {
     @Value("${agriva.security.password-reset.ttl-seconds:900}")
     private long resetTokenTtlSeconds;
 
-    /** Reuses the existing property — see application.properties. */
     @Value("${agriva.rate-limit.login-per-hour-per-user:10}")
     private int maxFailedLoginAttempts;
 
@@ -89,7 +97,6 @@ public class AuthServiceImpl implements AuthService {
 
         Optional<User> userOpt = authRepository.findByEmailOrUsernameLive(identity, identity);
 
-        // Constant-time failure path
         String storedHash = userOpt.map(User::getPassword).orElse(
                 "$2a$12$C6UzMDM.H6dfI/f/IKcEeO7ZBvnpCL6VgIi89oBW3eZ6y2r6WJZWi");
         boolean matches = passwordEncoder.matches(request.getPassword(), storedHash);
@@ -100,7 +107,6 @@ public class AuthServiceImpl implements AuthService {
             throw new InvalidCredentialsException("Invalid credentials");
         }
 
-        // Success: clear counter
         try { redis.delete(lockKey); } catch (Exception ignored) { }
 
         User user = userOpt.get();
@@ -232,8 +238,6 @@ public class AuthServiceImpl implements AuthService {
         log.info("Master registered: {} for farm {}", master.getEmail(), farm.getName());
 
         String jti = UUID.randomUUID().toString();
-
-        // ⬇⬇⬇ THE COMPILE ERROR FIX: `user.getId()` → `master.getId()`
         return new AuthResponse(
                 master.getId(),
                 jwtUtil.generateToken(master, jti),
@@ -268,8 +272,8 @@ public class AuthServiceImpl implements AuthService {
                 .email(request.getEmail())
                 .username(trimToNull(request.getUsername()))
                 .password(passwordEncoder.encode(request.getPassword()))
-                .role(RoleConstants.SUB_USER)          // role is ALWAYS SUB_USER
-                .farmId(masterFarmId)                   // farm from token, not body
+                .role(RoleConstants.SUB_USER)
+                .farmId(masterFarmId)
                 .gender(request.getGender())
                 .dateOfBirth(request.getDateOfBirth())
                 .phoneNumber(request.getPhoneNumber())
@@ -430,22 +434,23 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     public void deleteOwnAccount(UUID userId, String confirmationPhrase) {
         if (!"DELETE_MY_ACCOUNT".equals(confirmationPhrase)) {
-            throw new BusinessException("Confirmation phrase is required: ?confirmation=DELETE_MY_ACCOUNT");
+            throw new BusinessException(
+                    "Confirmation phrase is required: ?confirmation=DELETE_MY_ACCOUNT");
         }
         User user = loadUser(userId);
 
         if (RoleConstants.MASTER.equals(user.getRole()) && user.getFarmId() != null) {
+            // deleteFarmAndAllUsersInternal already revokes tokens for the
+            // master and every sub-user.
             deleteFarmAndAllUsersInternal(user.getFarmId());
         } else if (RoleConstants.ADMIN.equals(user.getRole())) {
             long adminCount = authRepository.countByRoleLive(RoleConstants.ADMIN);
             if (adminCount <= 1) throw new BusinessException("Cannot delete the only ADMIN user");
-            softDeleteUserAndRelated(user);
+            softDeleteUserAndRelated(user);      // also revokes tokens
         } else {
-            softDeleteUserAndRelated(user);
+            softDeleteUserAndRelated(user);      // also revokes tokens
         }
 
-        tokenBlacklistService.blacklistAllForUser(userId, jwtUtil.getAccessTtlSeconds());
-        refreshTokenService.revokeAllForUser(userId);
         log.info("Account {} deleted by self-service", userId);
     }
 
@@ -491,7 +496,7 @@ public class AuthServiceImpl implements AuthService {
         passwordResetService.resetPassword(request.getToken(), request.getNewPassword());
     }
 
-    // ---------------- Internal helpers ----------------
+    // ---------------- Internal: soft-delete single user ----------------
 
     private void softDeleteUserAndRelated(User user) {
         personnelRepository.findByUserId(user.getId()).ifPresent(p -> {
@@ -505,26 +510,101 @@ public class AuthServiceImpl implements AuthService {
         log.info("Soft-deleted user {}", user.getId());
     }
 
+    // ---------------- Internal: full farm deletion ----------------
+
+    /**
+     * Deletes the farm, every user in it, and all data related to the farm.
+     *
+     * Strategy:
+     *   1. Uploaded files      → deleted from disk (best-effort)
+     *   2. Operational data    → hard-deleted (crops, fields, personnel;
+     *                            tasks/salaries/history via DB cascade)
+     *   3. Staged records      → hard-deleted (transient)
+     *   4. Financial records   → soft-deleted (audit trail retained)
+     *   5. Users               → soft-deleted + tokens revoked
+     *   6. Farm                → soft-deleted (auth audit trail)
+     */
     private void deleteFarmAndAllUsersInternal(UUID farmId) {
         Farm farm = farmRepository.findByIdLive(farmId)
                 .orElseThrow(() -> new BusinessException("Farm not found with ID: " + farmId));
 
         LocalDateTime now = LocalDateTime.now();
         List<User> farmUsers = authRepository.findByFarmIdLive(farmId);
+
+        // 1. Uploaded files
+        int filesDeleted = deleteFarmFiles(farmId);
+
+        // 2. Hard-delete operational data.
+        //    DB cascade handles children:
+        //      field     → crop_cycles → crop_activities, harvests
+        //      crop      → crop_cycles → crop_activities, harvests
+        //      personnel → tasks, salary_payments, personnel_status_history
+        fieldRepository.deleteByFarmId(farmId);
+        cropRepository.deleteByFarmId(farmId);
+        personnelRepository.deleteByFarmId(farmId);
+
+        // 3. Hard-delete staged (transient) records
+        stagedIncomeRepository.deleteByFarmId(farmId);
+        stagedExpenseRepository.deleteByFarmId(farmId);
+        stagedTaskRepository.deleteByFarmId(farmId);
+        stagedSalaryRepository.deleteByFarmId(farmId);
+        stagedCropCycleRepository.deleteByFarmId(farmId);
+
+        // 4. Soft-delete financial records (preserve audit trail)
+        int incomesDeleted      = incomeRepository.softDeleteByFarmId(farmId, now);
+        int expensesDeleted     = expenseRepository.softDeleteByFarmId(farmId, now);
+        int investmentsDeleted  = investmentRepository.softDeleteByFarmId(farmId, now);
+        int transactionsDeleted = transactionRepository.softDeleteByFarmId(farmId, now);
+
+        // 5. Soft-delete users + revoke sessions
         for (User u : farmUsers) {
-            personnelRepository.findByUserId(u.getId()).ifPresent(p -> {
-                p.setDeletedAt(now); personnelRepository.save(p);
-            });
             u.setDeletedAt(now);
             authRepository.save(u);
             tokenBlacklistService.blacklistAllForUser(u.getId(), jwtUtil.getAccessTtlSeconds());
             refreshTokenService.revokeAllForUser(u.getId());
         }
 
+        // 6. Soft-delete farm
         farm.setDeletedAt(now);
         farmRepository.save(farm);
-        log.info("Soft-deleted farm {} with {} user(s)", farm.getName(), farmUsers.size());
+
+        log.info("Deleted farm '{}': {} users, {} files, {} incomes, {} expenses, " +
+                        "{} investments, {} transactions removed",
+                farm.getName(), farmUsers.size(), filesDeleted,
+                incomesDeleted, expensesDeleted, investmentsDeleted, transactionsDeleted);
     }
+
+    private int deleteFarmFiles(UUID farmId) {
+        int deleted = 0;
+
+        for (String receipt : incomeRepository.findReceiptsByFarmId(farmId)) {
+            try { fileStorageService.delete(receipt); deleted++; }
+            catch (Exception e) {
+                log.warn("Failed to delete income receipt {}: {}", receipt, e.getMessage());
+            }
+        }
+        for (String receipt : expenseRepository.findReceiptsByFarmId(farmId)) {
+            try { fileStorageService.delete(receipt); deleted++; }
+            catch (Exception e) {
+                log.warn("Failed to delete expense receipt {}: {}", receipt, e.getMessage());
+            }
+        }
+        for (String path : personnelRepository.findProfilePicturePathsByFarmId(farmId)) {
+            try { fileStorageService.delete(path); deleted++; }
+            catch (Exception e) {
+                log.warn("Failed to delete profile picture {}: {}", path, e.getMessage());
+            }
+        }
+        for (String path : personnelRepository.findProfilePictureThumbnailPathsByFarmId(farmId)) {
+            try { fileStorageService.delete(path); deleted++; }
+            catch (Exception e) {
+                log.warn("Failed to delete thumbnail {}: {}", path, e.getMessage());
+            }
+        }
+        return deleted;
+    }
+
+    // ---------------- Internal helpers ----------------
 
     private void applyProfileUpdates(User user, UpdateUserRequest request, UUID userId) {
         if (request.getEmail() != null && !request.getEmail().equals(user.getEmail())) {

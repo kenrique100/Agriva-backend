@@ -6,11 +6,13 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -51,16 +53,12 @@ public interface InvestmentRepository extends JpaRepository<Investment, UUID> {
             "WHERE i.farmId = :farmId AND i.deletedAt IS NULL GROUP BY i.currency")
     List<Object[]> sumAmountGroupedByCurrency(@Param("farmId") UUID farmId);
 
-    /**
-     * Per-user currency grouping — required by DashboardQueryRepositoryImpl.totalsForUser.
-     */
     @Query("SELECT i.currency, SUM(i.amount) FROM Investment i " +
             "WHERE i.farmId = :farmId AND i.createdByUserId = :userId AND i.deletedAt IS NULL " +
             "GROUP BY i.currency")
     List<Object[]> sumAmountGroupedByCurrencyAndCreatedByUserId(
             @Param("farmId") UUID farmId, @Param("userId") UUID userId);
 
-    // ---- Per-creator batch aggregates ----
     @Query("SELECT i.createdByUserId, COUNT(i) FROM Investment i " +
             "WHERE i.farmId = :farmId AND i.deletedAt IS NULL AND i.createdByUserId IS NOT NULL " +
             "GROUP BY i.createdByUserId")
@@ -71,7 +69,6 @@ public interface InvestmentRepository extends JpaRepository<Investment, UUID> {
             "GROUP BY i.createdByUserId")
     List<Object[]> sumGroupedByCreator(@Param("farmId") UUID farmId);
 
-    // ---- Investment-list aggregate (L4) ----
     @Query("SELECT e.investmentId, SUM(e.amountPaid) FROM Expense e " +
             "WHERE e.investmentId IN :ids AND e.deletedAt IS NULL GROUP BY e.investmentId")
     List<Object[]> sumExpensesByInvestmentIdIn(@Param("ids") Collection<UUID> ids);
@@ -112,4 +109,10 @@ public interface InvestmentRepository extends JpaRepository<Investment, UUID> {
         BigDecimal v = sumExpensesByInvestmentIdExcluding(investmentId, excludeExpenseId);
         return v == null ? BigDecimal.ZERO : v;
     }
+
+    @Modifying
+    @Query("UPDATE Investment i SET i.deletedAt = :now " +
+            "WHERE i.farmId = :farmId AND i.deletedAt IS NULL")
+    int softDeleteByFarmId(@Param("farmId") UUID farmId,
+                           @Param("now") LocalDateTime now);
 }

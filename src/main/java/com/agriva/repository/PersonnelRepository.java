@@ -67,4 +67,24 @@ public interface PersonnelRepository extends JpaRepository<Personnel, UUID> {
           AND p.deletedAt IS NULL
     """)
     int bulkResetProductivity(@Param("today") LocalDate today);
+
+    /**
+     * Hard-deletes every personnel row for a farm. DB-level ON DELETE CASCADE
+     * removes dependent personnel_status_history, tasks and salary_payments.
+     */
+    @Modifying
+    @Query("DELETE FROM Personnel p WHERE p.farmId = :farmId")
+    int deleteByFarmId(@Param("farmId") UUID farmId);
+
+    @Query("""
+        SELECT p.profilePicturePath FROM Personnel p
+        WHERE p.farmId = :farmId AND p.profilePicturePath IS NOT NULL
+    """)
+    List<String> findProfilePicturePathsByFarmId(@Param("farmId") UUID farmId);
+
+    @Query("""
+        SELECT p.profilePictureThumbnailPath FROM Personnel p
+        WHERE p.farmId = :farmId AND p.profilePictureThumbnailPath IS NOT NULL
+    """)
+    List<String> findProfilePictureThumbnailPathsByFarmId(@Param("farmId") UUID farmId);
 }

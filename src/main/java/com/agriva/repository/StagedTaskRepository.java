@@ -7,6 +7,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -41,4 +42,8 @@ public interface StagedTaskRepository extends JpaRepository<StagedTask, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT s FROM StagedTask s WHERE s.id = :id")
     Optional<StagedTask> findByIdForUpdate(@Param("id") UUID id);
+
+    @Modifying
+    @Query("DELETE FROM StagedTask s WHERE s.farmId = :farmId")
+    int deleteByFarmId(@Param("farmId") UUID farmId);
 }

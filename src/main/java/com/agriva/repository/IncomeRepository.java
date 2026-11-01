@@ -4,12 +4,14 @@ import com.agriva.model.entity.Income;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -23,12 +25,6 @@ public interface IncomeRepository extends JpaRepository<Income, UUID> {
     Page<Income> findByFarmIdLive(@Param("farmId") UUID farmId, Pageable pageable);
 
     // ---- Keyset pagination ----
-    /**
-     * Returns up to {@code limit + 1} rows. The caller slices off the extra
-     * row to detect hasNext and to compute nextCursor.
-     * <p>
-     * On the first page, pass {@code cursorDate = null} and {@code cursorId = null}.
-     */
     @Query("""
         SELECT i FROM Income i
         WHERE i.farmId = :farmId
@@ -109,4 +105,14 @@ public interface IncomeRepository extends JpaRepository<Income, UUID> {
         BigDecimal v = sumAmountByFarmId(farmId);
         return v == null ? BigDecimal.ZERO : v;
     }
+
+    @Query("SELECT i.receipt FROM Income i " +
+            "WHERE i.farmId = :farmId AND i.receipt IS NOT NULL")
+    List<String> findReceiptsByFarmId(@Param("farmId") UUID farmId);
+
+    @Modifying
+    @Query("UPDATE Income i SET i.deletedAt = :now " +
+            "WHERE i.farmId = :farmId AND i.deletedAt IS NULL")
+    int softDeleteByFarmId(@Param("farmId") UUID farmId,
+                           @Param("now") LocalDateTime now);
 }
