@@ -46,7 +46,7 @@ class InvestmentServiceIT {
 
         MasterRegisterRequest reg = new MasterRegisterRequest();
         reg.setEmail("invest@test.local");
-        reg.setPassword("MasterPass1");
+        reg.setPassword("MasterPass1!");
         reg.setFarmName("Investment Test Farm " + UUID.randomUUID());
         AuthResponse master = authService.registerMaster(reg);
         farmId = master.getFarmId();
@@ -57,7 +57,7 @@ class InvestmentServiceIT {
     void createAndList() {
         InvestmentRequest req = new InvestmentRequest();
         req.setAmount(new BigDecimal("5000"));
-        req.setCurrency(Currency.USD); // FIX: enum, not String
+        req.setCurrency(Currency.USD);
         req.setInvestorName("East Africa Agri Fund");
         req.setType("EQUIPMENT");
         req.setDescription("Industrial water pump");
@@ -86,6 +86,8 @@ class InvestmentServiceIT {
         assertThat(updated.getAmount()).isEqualByComparingTo("2000");
 
         investmentService.deleteInvestment(created.getId(), farmId);
-        assertThat(investmentRepo.count()).isZero();
+        // InvestmentServiceImpl.deleteInvestment soft-deletes (setDeletedAt)
+        assertThat(investmentRepo.findById(created.getId()))
+                .hasValueSatisfying(i -> assertThat(i.getDeletedAt()).isNotNull());
     }
 }

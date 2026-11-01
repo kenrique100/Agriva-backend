@@ -65,7 +65,7 @@ class PersonnelLifecycleIT {
         MasterRegisterRequest reg = new MasterRegisterRequest();
         reg.setEmail("master@test.local");
         reg.setUsername("master_test");
-        reg.setPassword("MasterPass1");
+        reg.setPassword("MasterPass1!");
         reg.setFarmName("Lifecycle Farm " + UUID.randomUUID());
         reg.setName("Master Owner");
         reg.setGender(Gender.MALE);
@@ -173,10 +173,6 @@ class PersonnelLifecycleIT {
         assertThat(profile.getPersonnel().getName()).isEqualTo("Self Service");
     }
 
-    /**
-     * Deletion is now soft: the row is preserved for audit, but Live finders no
-     * longer see it, and the caller-visible contract is the same as before.
-     */
     @Test
     void deletePersonnel_softDeletesPersonnelAndUser() {
         UUID subUserId = registerSubUser("gone@test.local", "Gone Soon");
@@ -184,11 +180,9 @@ class PersonnelLifecycleIT {
 
         personnelService.delete(p.getId(), farmId);
 
-        // Live finders no longer see them.
         assertThat(personnelRepository.findByIdAndFarmIdLive(p.getId(), farmId)).isEmpty();
         assertThat(personnelRepository.findByUserIdLive(subUserId)).isEmpty();
 
-        // But the underlying rows survive with deletedAt set — audit trail preserved.
         Personnel softDeleted = personnelRepository.findById(p.getId()).orElseThrow();
         assertThat(softDeleted.getDeletedAt()).isNotNull();
 
@@ -208,7 +202,7 @@ class PersonnelLifecycleIT {
         req.setEmail(email);
         req.setName(name);
         req.setUsername(email.split("@")[0]);
-        req.setPassword("SubPass123");
+        req.setPassword("SubPass1234!");
         req.setGender(Gender.FEMALE);
         req.setDateOfBirth(LocalDate.now().minusYears(25));
         req.setPhoneNumber("+237600000001");

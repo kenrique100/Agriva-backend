@@ -65,7 +65,7 @@ class PersonnelStatusLifecycleIT {
 
         MasterRegisterRequest reg = new MasterRegisterRequest();
         reg.setEmail("status@test.local");
-        reg.setPassword("MasterPass1");
+        reg.setPassword("MasterPass1!");
         reg.setFarmName("Status Farm " + UUID.randomUUID());
         reg.setName("Status Master");
         reg.setGender(Gender.MALE);
@@ -85,7 +85,7 @@ class PersonnelStatusLifecycleIT {
         sub.setEmail("worker@test.local");
         sub.setName("Worker");
         sub.setUsername("worker");
-        sub.setPassword("WorkerPass1");
+        sub.setPassword("WorkerPass1!");
         sub.setGender(Gender.FEMALE);
         sub.setDateOfBirth(LocalDate.now().minusYears(25));
         sub.setPhoneNumber("+237600000002");

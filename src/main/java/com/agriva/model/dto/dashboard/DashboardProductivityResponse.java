@@ -23,6 +23,7 @@ public class DashboardProductivityResponse {
         private String name;
         private String department;
         private Double totalHoursWorked;
+        private Double expectedHours;
         private Integer workingDays;
         private Double productivityPercentage;
     }

@@ -16,16 +16,14 @@ import java.util.Arrays;
 import java.util.Set;
 import java.util.UUID;
 
-/**
- * S9: extension check is a hint; the authoritative check is Tika's magic-byte
- * detection on the actual bytes. A file named "receipt.pdf" containing an
- * executable is rejected.
- */
 @Service
 @Slf4j
 public class FileStorageService {
 
     private static final Tika TIKA = new Tika();
+
+    /** 8 KB — enough for DOCX (ZIP + [Content_Types].xml) magic detection. */
+    private static final int TIKA_HEAD_BYTES = 8192;
 
     private final Path root;
     private volatile boolean ready = false;
@@ -61,10 +59,10 @@ public class FileStorageService {
             throw new BusinessException("File exceeds maximum size of " + maxSizeBytes + " bytes");
         }
 
-        // S9: authoritative content check.
+        // Read 8 KB (not 2 KB) so DOCX detection is reliable.
         byte[] head;
         try (var is = file.getInputStream()) {
-            head = is.readNBytes(2048);
+            head = is.readNBytes(TIKA_HEAD_BYTES);
         } catch (IOException e) {
             throw new BusinessException("Could not read uploaded file", e);
         }

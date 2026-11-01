@@ -23,6 +23,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -33,9 +34,19 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+/**
+ * The retry loop test expects the validator to be callable back-to-back
+ * without waiting. Because the validator schedules the next retry at
+ * now + retry-delay-minutes, the retry-delay MUST be 0 here — otherwise
+ * each call after the first finds the row "not yet due" and no-ops.
+ */
 @SpringBootTest
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
+@TestPropertySource(properties = {
+        "agriva.income.validator.retry-delay-minutes=0",
+        "agriva.income.validator.max-attempts=4"
+})
 class IncomePipelineIT {
 
     @Autowired IncomeService incomeService;
@@ -57,7 +68,7 @@ class IncomePipelineIT {
 
         MasterRegisterRequest reg = new MasterRegisterRequest();
         reg.setEmail("income@test.local");
-        reg.setPassword("MasterPass1");
+        reg.setPassword("MasterPass1!");
         reg.setFarmName("Income Test Farm " + UUID.randomUUID());
         AuthResponse master = authService.registerMaster(reg);
         farmId = master.getFarmId();
@@ -118,6 +129,7 @@ class IncomePipelineIT {
         await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
                 assertThat(stagedRepo.findById(ack.getSubmissionId())).isPresent());
 
+        // retry-delay-minutes=0 → every loop iteration processes the row
         for (int i = 0; i < 4; i++) {
             validator.processStagedIncomes();
         }

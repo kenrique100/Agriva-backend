@@ -4,6 +4,7 @@ import com.agriva.security.JwtAuthFilter;
 import com.agriva.security.RateLimitFilter;
 import com.agriva.security.RequestIdFilter;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -49,16 +50,39 @@ public class SecurityConfig {
         this.requestIdFilter = requestIdFilter;
     }
 
+    // ------------------------------------------------------------------
+    // Disable Boot's auto-registration so each filter runs exactly ONCE
+    // (in the security chain) — fixes audit A4.
+    // ------------------------------------------------------------------
+
+    @Bean
+    public FilterRegistrationBean<RequestIdFilter> requestIdFilterRegistration(RequestIdFilter filter) {
+        FilterRegistrationBean<RequestIdFilter> reg = new FilterRegistrationBean<>(filter);
+        reg.setEnabled(false);
+        return reg;
+    }
+
+    @Bean
+    public FilterRegistrationBean<RateLimitFilter> rateLimitFilterRegistration(RateLimitFilter filter) {
+        FilterRegistrationBean<RateLimitFilter> reg = new FilterRegistrationBean<>(filter);
+        reg.setEnabled(false);
+        return reg;
+    }
+
+    @Bean
+    public FilterRegistrationBean<JwtAuthFilter> jwtAuthFilterRegistration(JwtAuthFilter filter) {
+        FilterRegistrationBean<JwtAuthFilter> reg = new FilterRegistrationBean<>(filter);
+        reg.setEnabled(false);
+        return reg;
+    }
+
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-
-                // S11: security headers (extracted — see below)
                 .headers(this::configureHeaders)
-
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
                                 "/api/v1/users/login",
@@ -79,7 +103,6 @@ public class SecurityConfig {
                         .hasAnyRole("MASTER", "ADMIN")
                         .anyRequest().authenticated()
                 )
-
                 .addFilterBefore(requestIdFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterAfter(rateLimitFilter, RequestIdFilter.class)
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
@@ -87,17 +110,10 @@ public class SecurityConfig {
         return http.build();
     }
 
-    /**
-     * Security headers configuration.
-     * <p>
-     * `permissionsPolicy(Customizer)` is deprecated since Spring Security 6.4 —
-     * the replacement is a plain HeaderWriter that emits the same header. This
-     * keeps the response identical while removing the deprecation warning.
-     */
     private void configureHeaders(HeadersConfigurer<HttpSecurity> headers) {
         headers
                 .contentSecurityPolicy(csp -> csp.policyDirectives(
-                        "default-src 'self'; img-src 'self' data:; " +
+                        "default-src 'self'; img-src 'self' data: blob:; " +
                                 "script-src 'self'; style-src 'self' 'unsafe-inline'; " +
                                 "connect-src 'self'; frame-ancestors 'none'"))
                 .referrerPolicy(rp -> rp.policy(

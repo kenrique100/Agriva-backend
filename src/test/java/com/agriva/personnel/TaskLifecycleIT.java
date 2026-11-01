@@ -65,7 +65,7 @@ class TaskLifecycleIT {
 
         MasterRegisterRequest reg = new MasterRegisterRequest();
         reg.setEmail("taskmaster@test.local");
-        reg.setPassword("MasterPass1");
+        reg.setPassword("MasterPass1!");
         reg.setFarmName("Task Farm " + UUID.randomUUID());
         reg.setName("Task Master");
         reg.setGender(Gender.MALE);
@@ -86,7 +86,7 @@ class TaskLifecycleIT {
         sub.setEmail("worker@test.local");
         sub.setName("Task Worker");
         sub.setUsername("taskworker");
-        sub.setPassword("WorkerPass1");
+        sub.setPassword("WorkerPass1!");
         sub.setGender(Gender.FEMALE);
         sub.setDateOfBirth(LocalDate.now().minusYears(25));
         sub.setPhoneNumber("+237600000002");
@@ -127,7 +127,6 @@ class TaskLifecycleIT {
         taskRepository.save(raw2);
 
         TaskResponse submitted = taskService.action(t.getId(), farmId, workerUserId, false, "SUBMIT");
-        // After SUBMIT, the task is in SUBMITTED state awaiting validation.
         assertThat(submitted.getStatus()).isEqualTo(TaskStatus.SUBMITTED);
         assertThat(submitted.getIsSubmitted()).isTrue();
         assertThat(submitted.getActualHours()).isBetween(2.9, 3.1);
@@ -180,7 +179,7 @@ class TaskLifecycleIT {
         other.setEmail("other@test.local");
         other.setName("Other");
         other.setUsername("other");
-        other.setPassword("OtherPass1");
+        other.setPassword("OtherPass12!");
         other.setGender(Gender.MALE);
         other.setDateOfBirth(LocalDate.now().minusYears(28));
         other.setPhoneNumber("+237600000005");

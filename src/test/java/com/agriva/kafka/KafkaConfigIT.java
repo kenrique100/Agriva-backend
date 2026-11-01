@@ -30,11 +30,6 @@ class KafkaConfigIT {
 
     @Test
     void incomeConsumerBindsToItsTypedFactory() {
-        // If IncomeStagingConsumer were still wired to the missing
-        // "kafkaListenerContainerFactory" bean, Spring would refuse to start and
-        // every @SpringBootTest in the suite would fail. Passing this test proves
-        // the entire listener lifecycle (endpoint registration + message adapter
-        // binding) succeeds.
         assertThat(ctx.containsBean("incomeStagingConsumer")).isTrue();
         assertThat(ctx.containsBean("expenseStagingConsumer")).isTrue();
     }

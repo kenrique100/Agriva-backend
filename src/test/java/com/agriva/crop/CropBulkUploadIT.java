@@ -86,7 +86,7 @@ class CropBulkUploadIT {
 
         MasterRegisterRequest reg = new MasterRegisterRequest();
         reg.setEmail("bulk@test.local");
-        reg.setPassword("MasterPass1");
+        reg.setPassword("MasterPass1!");
         reg.setFarmName("Bulk Farm " + UUID.randomUUID());
         reg.setName("Bulk Master");
         reg.setGender(Gender.MALE);

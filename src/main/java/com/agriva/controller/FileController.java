@@ -52,9 +52,12 @@ public class FileController {
 
         try {
             Path filePath = this.fileStorageLocation.resolve(fileName).normalize();
+
+            // Do not differentiate "bad path" from "missing file" — same 404
+            // in both branches so we don't leak filesystem state (audit C8).
             if (!filePath.startsWith(this.fileStorageLocation)) {
-                log.warn("Path traversal attempt: {}", fileName);
-                return ResponseEntity.badRequest().build();
+                log.warn("Path traversal attempt rejected: {}", fileName);
+                return ResponseEntity.notFound().build();
             }
 
             Resource resource = new UrlResource(filePath.toUri());
@@ -63,17 +66,29 @@ public class FileController {
             }
 
             String lower = fileName.toLowerCase();
-            String contentType = lower.endsWith(".pdf")  ? "application/pdf"
-                    : lower.endsWith(".png") ? "image/png"
+            boolean isImage = lower.endsWith(".png")
+                    || lower.endsWith(".jpg")
+                    || lower.endsWith(".jpeg");
+
+            String contentType = lower.endsWith(".pdf")   ? "application/pdf"
+                    : lower.endsWith(".png")              ? "image/png"
                       : lower.endsWith(".jpg") || lower.endsWith(".jpeg") ? "image/jpeg"
-                        : lower.endsWith(".docx") ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        : lower.endsWith(".docx")             ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                           : "application/octet-stream";
+
+            // Images must be inline (for <img> tags).
+            // Everything else — PDFs especially — must be attachment, because
+            // inline PDFs let an attacker upload a payload PDF and execute it
+            // with the victim's session cookie (audit C9).
+            String disposition = isImage
+                    ? "inline; filename=\"" + resource.getFilename() + "\""
+                    : "attachment; filename=\"" + resource.getFilename() + "\"";
 
             return ResponseEntity.ok()
                     .contentType(MediaType.parseMediaType(contentType))
-                    .header(HttpHeaders.CONTENT_DISPOSITION,
-                            "inline; filename=\"" + resource.getFilename() + "\"")
+                    .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
                     .header(HttpHeaders.CACHE_CONTROL, "private, max-age=3600")
+                    .header("X-Content-Type-Options", "nosniff")
                     .body(resource);
         } catch (Exception ex) {
             log.error("Failed to serve file {}: {}", fileName, ex.getMessage());

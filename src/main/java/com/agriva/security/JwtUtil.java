@@ -24,7 +24,6 @@ public class JwtUtil {
             @Value("${agriva.security.jwt.secret}") String secret,
             @Value("${agriva.security.jwt.access-token-ttl-seconds:900}") long accessTtlSeconds,
             @Value("${agriva.security.jwt.issuer:agriva}") String issuer) {
-        // HS512 requires >= 64 bytes.
         byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
         if (keyBytes.length < 64) {
             throw new IllegalStateException(
@@ -37,7 +36,6 @@ public class JwtUtil {
 
     public long getAccessTtlSeconds() { return accessTtlSeconds; }
 
-    /** S5: jti is mandatory so the blacklist keys on a short, per-token ID. */
     public String generateToken(User user, String jti) {
         String normalizedRole = RoleConstants.normalizeRole(user.getRole());
         long now = System.currentTimeMillis();
@@ -62,6 +60,7 @@ public class JwtUtil {
 
     public String extractEmail(String token)     { return parseClaims(token).getSubject(); }
     public String extractJti(String token)       { return parseClaims(token).getId(); }
+    public Date   extractIssuedAt(String token)  { return parseClaims(token).getIssuedAt(); }
 
     public UUID extractUserId(String token) {
         try {

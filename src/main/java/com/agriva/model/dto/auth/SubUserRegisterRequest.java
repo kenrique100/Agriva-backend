@@ -7,7 +7,6 @@ import jakarta.validation.constraints.*;
 import lombok.Data;
 
 import java.time.LocalDate;
-import java.util.UUID;
 
 @Data
 public class SubUserRegisterRequest {
@@ -25,13 +24,8 @@ public class SubUserRegisterRequest {
     private String username;
 
     @NotBlank(message = "Password is required")
-    @Size(min = 6, max = 100)
+    @Size(min = 12, max = 100, message = "Password must be between 12 and 100 characters")
     private String password;
-
-    @NotNull(message = "Farm ID is required")
-    private UUID farmId;
-
-    private String role = "SUB_USER";
 
     @NotNull(message = "Gender is required")
     private Gender gender;

@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.Date;
 import java.util.List;
 import java.util.UUID;
 
@@ -45,31 +46,34 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        // jti-keyed blacklist. One Redis lookup total per request.
         String jti = jwtUtil.extractJti(token);
-        if (tokenBlacklistService.isBlacklisted(jti)) {
+        if (jti == null || tokenBlacklistService.isBlacklisted(jti)) {
             filterChain.doFilter(request, response);
             return;
         }
 
         UUID userId = jwtUtil.extractUserId(token);
-        UUID farmId = jwtUtil.extractFarmId(token);
-        String role = jwtUtil.extractRole(token);
-        String email = jwtUtil.extractEmail(token);
-        String username = jwtUtil.extractUsername(token);
-
         if (userId == null) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        // revoke-all support — reject tokens older than the user's revoked-at marker.
-        long iat = jwtUtil.extractExpiration(token).getTime() / 1000L
-                - jwtUtil.getAccessTtlSeconds();
+        // read iat from the claim (fixes audit A10)
+        Date issuedAt = jwtUtil.extractIssuedAt(token);
+        if (issuedAt == null) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+        long iat = issuedAt.getTime() / 1000L;
         if (tokenBlacklistService.isUserRevoked(userId, iat)) {
             filterChain.doFilter(request, response);
             return;
         }
+
+        UUID farmId   = jwtUtil.extractFarmId(token);
+        String role   = jwtUtil.extractRole(token);
+        String email  = jwtUtil.extractEmail(token);
+        String username = jwtUtil.extractUsername(token);
 
         AuthenticatedUser principal = new AuthenticatedUser(userId, farmId, email, username, role, jti);
 

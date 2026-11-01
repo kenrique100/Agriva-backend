@@ -45,7 +45,7 @@ class JwtSessionIT {
 
         MasterRegisterRequest reg = new MasterRegisterRequest();
         reg.setEmail("ttl@test.local");
-        reg.setPassword("MasterPass1");
+        reg.setPassword("MasterPass1!");
         reg.setFarmName("TTL Farm");
         reg.setName("TTL Master");
         reg.setGender(Gender.MALE);
@@ -65,9 +65,8 @@ class JwtSessionIT {
     void accessToken_ttlIs24Hours() throws Exception {
         LoginRequest login = new LoginRequest();
         login.setEmailOrUsername("ttl@test.local");
-        login.setPassword("MasterPass1");
+        login.setPassword("MasterPass1!");
 
-        // login() now returns the full AuthResponse, not a raw String.
         AuthResponse session = authService.login(login);
         String token = session.getToken();
 
@@ -81,5 +80,12 @@ class JwtSessionIT {
         long exp = claims.get("exp").asLong();
 
         assertThat(exp - iat).isEqualTo(86400L);
+
+        // jti must be present (blacklist key)
+        assertThat(claims.get("jti").asText()).isNotBlank();
+        // iat should be very close to "now" — sanity check the claim we now
+        // read in JwtAuthFilter (audit A10)
+        long nowSec = System.currentTimeMillis() / 1000L;
+        assertThat(Math.abs(nowSec - iat)).isLessThan(10);
     }
 }

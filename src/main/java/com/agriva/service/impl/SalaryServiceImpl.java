@@ -124,9 +124,14 @@ public class SalaryServiceImpl implements SalaryService {
     public void delete(UUID id, UUID farmId) {
         SalaryPayment sp = load(id, farmId);
         if (sp.getExpenseId() != null) {
-            expenseRepository.findById(sp.getExpenseId()).ifPresent(expenseRepository::delete);
+            expenseRepository.findById(sp.getExpenseId()).ifPresent(e -> {
+                e.setDeletedAt(LocalDateTime.now());
+                expenseRepository.save(e);
+            });
         }
         salaryRepository.delete(sp);
+
+        log.info("Deleted salary payment {} and soft-deleted linked expense {}", id, sp.getExpenseId());
     }
 
     @Override

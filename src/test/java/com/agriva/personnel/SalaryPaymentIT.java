@@ -71,7 +71,7 @@ class SalaryPaymentIT {
 
         MasterRegisterRequest reg = new MasterRegisterRequest();
         reg.setEmail("paymaster@test.local");
-        reg.setPassword("MasterPass1");
+        reg.setPassword("MasterPass1!");
         reg.setFarmName("Payroll Farm " + UUID.randomUUID());
         reg.setName("Payroll Master");
         reg.setGender(Gender.MALE);
@@ -92,7 +92,7 @@ class SalaryPaymentIT {
         sub.setEmail("payee@test.local");
         sub.setName("Payee Person");
         sub.setUsername("payee");
-        sub.setPassword("PayeePass1");
+        sub.setPassword("PayeePass12!");
         sub.setGender(Gender.FEMALE);
         sub.setDateOfBirth(LocalDate.now().minusYears(25));
         sub.setPhoneNumber("+237600000002");

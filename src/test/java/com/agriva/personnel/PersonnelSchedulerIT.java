@@ -65,7 +65,7 @@ class PersonnelSchedulerIT {
 
         MasterRegisterRequest reg = new MasterRegisterRequest();
         reg.setEmail("schedmaster@test.local");
-        reg.setPassword("MasterPass1");
+        reg.setPassword("MasterPass1!");
         reg.setFarmName("Scheduler Farm " + UUID.randomUUID());
         reg.setName("Scheduler Master");
         reg.setGender(Gender.MALE);
@@ -86,7 +86,7 @@ class PersonnelSchedulerIT {
         sub.setEmail("schedworker@test.local");
         sub.setName("Scheduler Worker");
         sub.setUsername("schedworker");
-        sub.setPassword("WorkerPass1");
+        sub.setPassword("WorkerPass1!");
         sub.setGender(Gender.FEMALE);
         sub.setDateOfBirth(LocalDate.now().minusYears(25));
         sub.setPhoneNumber("+237600000002");

@@ -25,7 +25,6 @@ public class AuthController {
 
     private final AuthService authService;
 
-
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
         return ResponseEntity.ok(authService.login(request));
@@ -77,13 +76,7 @@ public class AuthController {
         return ResponseEntity.noContent().build();
     }
 
-    @PostMapping("/me/reset-password")
-    public ResponseEntity<Void> resetOwnPassword(
-            @AuthenticationPrincipal AuthenticatedUser principal,
-            @Valid @RequestBody MeResetPasswordRequest request) {
-        authService.resetOwnPassword(principal.userId(), request);
-        return ResponseEntity.noContent().build();
-    }
+    // NOTE: /me/reset-password has been removed — see /change-password above.
 
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(@RequestHeader(value = "Authorization", required = false) String authHeader) {
@@ -96,15 +89,20 @@ public class AuthController {
     public ResponseEntity<UserResponse> getUserById(
             @AuthenticationPrincipal AuthenticatedUser principal,
             @PathVariable UUID userId) {
-        boolean isAdmin = principal.isAdmin();
-        boolean isSelf = principal.userId().equals(userId);
+
+        // Load once — see audit B8.
+        UserResponse target = authService.getUserById(userId);
+
+        boolean isAdmin         = principal.isAdmin();
+        boolean isSelf          = principal.userId().equals(userId);
         boolean isMasterSameFarm = principal.isMaster()
-                && authService.getUserById(userId).getFarmId() != null
-                && authService.getUserById(userId).getFarmId().equals(principal.farmId());
+                && target.getFarmId() != null
+                && target.getFarmId().equals(principal.farmId());
+
         if (!isAdmin && !isSelf && !isMasterSameFarm) {
             return ResponseEntity.status(403).build();
         }
-        return ResponseEntity.ok(authService.getUserById(userId));
+        return ResponseEntity.ok(target);
     }
 
     @PostMapping("/register/sub-user")
@@ -112,7 +110,6 @@ public class AuthController {
     public ResponseEntity<SubUserRegisteredResponse> registerSubUser(
             @AuthenticationPrincipal AuthenticatedUser principal,
             @Valid @RequestBody SubUserRegisterRequest request) {
-        // S1: farmId comes from the principal — never from the body.
         return ResponseEntity.status(201)
                 .body(authService.registerSubUser(request, principal.farmId(), principal.role()));
     }
@@ -150,11 +147,6 @@ public class AuthController {
         return ResponseEntity.ok(new MessageResponse("Sub-user deleted successfully"));
     }
 
-    /**
-     * MASTER self-service account deletion. Deletes the farm, every user in it,
-     * all financial records (soft-deleted for audit), all personnel, tasks, crops.
-     * Requires an explicit confirmation phrase.
-     */
     @DeleteMapping("/me")
     public ResponseEntity<MessageResponse> deleteMyAccount(
             @AuthenticationPrincipal AuthenticatedUser principal,

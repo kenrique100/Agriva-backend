@@ -55,7 +55,7 @@ class ExpenseServiceIT {
 
         MasterRegisterRequest reg = new MasterRegisterRequest();
         reg.setEmail("expense@test.local");
-        reg.setPassword("MasterPass1");
+        reg.setPassword("MasterPass1!");
         reg.setFarmName("Expense Test Farm " + UUID.randomUUID());
         AuthResponse master = authService.registerMaster(reg);
         farmId = master.getFarmId();
@@ -114,6 +114,8 @@ class ExpenseServiceIT {
         assertThat(page.getTotalElements()).isEqualTo(1);
 
         expenseService.deleteExpense(created.getId(), farmId);
-        assertThat(expenseRepo.count()).isZero();
+        // deleteExpense soft-deletes → findAll() still sees the row
+        assertThat(expenseRepo.findAll())
+                .allMatch(e -> e.getDeletedAt() != null);
     }
 }

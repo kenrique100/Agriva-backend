@@ -171,6 +171,7 @@ public class DashboardServiceImpl implements DashboardService {
                 .name(p.getName())
                 .department(p.getDepartment() != null ? p.getDepartment().name() : null)
                 .totalHoursWorked(hours)
+                .expectedHours(expected)
                 .workingDays(p.getWorkingDaysCount() == null ? 0 : p.getWorkingDaysCount())
                 .productivityPercentage(pct)
                 .build();

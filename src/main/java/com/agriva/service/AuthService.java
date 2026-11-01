@@ -9,18 +9,10 @@ import java.util.UUID;
 
 public interface AuthService {
 
-    /** returns the full AuthResponse so the controller does not call getUserDetails again. */
     AuthResponse login(LoginRequest request);
-
-    /**issue a fresh access + refresh token pair. */
     AuthResponse refresh(String refreshToken);
-
-    /** no longer hits the DB — the principal already contains everything. */
     AuthenticatedUserInfo whoAmI();
-
     AuthResponse registerMaster(MasterRegisterRequest request);
-
-    /** takes farmId from the authenticated MASTER's token, not the body. */
     SubUserRegisteredResponse registerSubUser(SubUserRegisterRequest request, UUID masterFarmId, String masterRole);
 
     UserResponse getUserById(UUID userId);
@@ -32,7 +24,6 @@ public interface AuthService {
 
     UserResponse updateUser(UUID userId, UpdateUserRequest request, String requesterRole);
     void changePassword(UUID userId, ChangePasswordRequest request);
-    void resetOwnPassword(UUID userId, MeResetPasswordRequest request);
 
     UserResponse updateSubUserByMaster(UUID masterFarmId, UUID subUserId, UpdateUserRequest request);
     UserResponse updateUserByAdmin(UUID userId, UpdateUserRequest request);

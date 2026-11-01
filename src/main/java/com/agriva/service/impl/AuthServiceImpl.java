@@ -3,6 +3,7 @@ package com.agriva.service.impl;
 import com.agriva.exception.BusinessException;
 import com.agriva.exception.InvalidCredentialsException;
 import com.agriva.exception.InvalidTokenException;
+import com.agriva.exception.RateLimitExceededException;
 import com.agriva.mapper.FarmMapper;
 import com.agriva.mapper.UserMapper;
 import com.agriva.model.dto.auth.*;
@@ -23,12 +24,14 @@ import com.agriva.utils.PasswordValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -37,6 +40,9 @@ import java.util.*;
 @RequiredArgsConstructor
 @Slf4j
 public class AuthServiceImpl implements AuthService {
+
+    private static final String LOGIN_FAIL_KEY_PREFIX = "agriva:auth:loginfail:";
+    private static final Duration LOCKOUT_WINDOW = Duration.ofMinutes(15);
 
     private final AuthRepository authRepository;
     private final FarmRepository farmRepository;
@@ -53,6 +59,8 @@ public class AuthServiceImpl implements AuthService {
     private final TokenBlacklistService tokenBlacklistService;
     private final UserMapper userMapper;
     private final FarmMapper farmMapper;
+    private final PasswordValidator passwordValidator;
+    private final StringRedisTemplate redis;
 
     @Value("${agriva.security.password-reset.expose-token:false}")
     private boolean exposeResetToken;
@@ -60,25 +68,40 @@ public class AuthServiceImpl implements AuthService {
     @Value("${agriva.security.password-reset.ttl-seconds:900}")
     private long resetTokenTtlSeconds;
 
-    /**
-     * S7: returns the full AuthResponse (token + details) so the controller
-     * does not need a second DB call to getUserDetails.
-     * S8: timing-safe — always runs one BCrypt comparison.
-     */
+    /** Reuses the existing property — see application.properties. */
+    @Value("${agriva.rate-limit.login-per-hour-per-user:10}")
+    private int maxFailedLoginAttempts;
+
+    // ---------------- Login ----------------
+
     @Override
     public AuthResponse login(LoginRequest request) {
-        Optional<User> userOpt = authRepository.findByEmailOrUsernameLive(
-                request.getEmailOrUsername(), request.getEmailOrUsername());
+        String identity = request.getEmailOrUsername() == null
+                ? "" : request.getEmailOrUsername().toLowerCase().trim();
+        String lockKey = LOGIN_FAIL_KEY_PREFIX + identity;
 
-        // Dummy hash keeps the failure path timing constant.
+        if (isLocked(lockKey)) {
+            log.warn("Login attempt for locked account: {}", identity);
+            throw new RateLimitExceededException(
+                    "Too many failed login attempts. Try again later.",
+                    LOCKOUT_WINDOW.getSeconds());
+        }
+
+        Optional<User> userOpt = authRepository.findByEmailOrUsernameLive(identity, identity);
+
+        // Constant-time failure path
         String storedHash = userOpt.map(User::getPassword).orElse(
-                "$2a$12$C6UzMDM.H6dfI/f/IKcEeO7ZBvnpCL6VgIi89oBW3eZ6y2r6WJZWi"); // bcrypt of garbage
+                "$2a$12$C6UzMDM.H6dfI/f/IKcEeO7ZBvnpCL6VgIi89oBW3eZ6y2r6WJZWi");
         boolean matches = passwordEncoder.matches(request.getPassword(), storedHash);
 
         if (userOpt.isEmpty() || !matches) {
-            log.warn("Failed login attempt for {}", request.getEmailOrUsername());
+            recordLoginFailure(lockKey);
+            log.warn("Failed login attempt for {}", identity);
             throw new InvalidCredentialsException("Invalid credentials");
         }
+
+        // Success: clear counter
+        try { redis.delete(lockKey); } catch (Exception ignored) { }
 
         User user = userOpt.get();
         String farmName = user.getFarmId() != null
@@ -92,9 +115,29 @@ public class AuthServiceImpl implements AuthService {
         log.info("Successful login for {} role={}", user.getEmail(), user.getRole());
 
         return new AuthResponse(
+                user.getId(),
                 accessToken, refreshToken, jwtUtil.getAccessTtlSeconds(),
                 user.getEmail(), user.getUsername(), user.getRole(),
                 user.getFarmId(), farmName, user.getPreferredCurrency());
+    }
+
+    private boolean isLocked(String key) {
+        try {
+            String v = redis.opsForValue().get(key);
+            return v != null && Integer.parseInt(v) >= maxFailedLoginAttempts;
+        } catch (Exception e) {
+            log.warn("Login lockout lookup failed (fail-open): {}", e.getMessage());
+            return false;
+        }
+    }
+
+    private void recordLoginFailure(String key) {
+        try {
+            Long n = redis.opsForValue().increment(key);
+            if (n != null && n == 1L) redis.expire(key, LOCKOUT_WINDOW);
+        } catch (Exception e) {
+            log.warn("Login lockout write failed: {}", e.getMessage());
+        }
     }
 
     @Override
@@ -112,6 +155,7 @@ public class AuthServiceImpl implements AuthService {
         String newRefresh = refreshTokenService.issue(user.getId());
 
         return new AuthResponse(
+                user.getId(),
                 newAccess, newRefresh, jwtUtil.getAccessTtlSeconds(),
                 user.getEmail(), user.getUsername(), user.getRole(),
                 user.getFarmId(), farmName, user.getPreferredCurrency());
@@ -137,17 +181,18 @@ public class AuthServiceImpl implements AuthService {
         if (jti != null && ttl > 0) {
             tokenBlacklistService.blacklist(jti, ttl);
         }
-        // Also revoke refresh tokens so the session cannot be resurrected.
         UUID userId = jwtUtil.extractUserId(token);
         if (userId != null) {
             refreshTokenService.revokeAllForUser(userId);
         }
     }
 
+    // ---------------- Registration ----------------
+
     @Override
     @Transactional
     public AuthResponse registerMaster(MasterRegisterRequest request) {
-        PasswordValidator.validatePasswordStrength(request.getPassword());
+        passwordValidator.validatePasswordStrength(request.getPassword());
         validateEmailNotExists(request.getEmail());
         validateUsernameNotExists(request.getUsername());
 
@@ -187,7 +232,10 @@ public class AuthServiceImpl implements AuthService {
         log.info("Master registered: {} for farm {}", master.getEmail(), farm.getName());
 
         String jti = UUID.randomUUID().toString();
+
+        // ⬇⬇⬇ THE COMPILE ERROR FIX: `user.getId()` → `master.getId()`
         return new AuthResponse(
+                master.getId(),
                 jwtUtil.generateToken(master, jti),
                 refreshTokenService.issue(master.getId()),
                 jwtUtil.getAccessTtlSeconds(),
@@ -195,10 +243,6 @@ public class AuthServiceImpl implements AuthService {
                 master.getFarmId(), farm.getName(), master.getPreferredCurrency());
     }
 
-    /**
-     * called only by a MASTER/ADMIN principal.
-     * farmId comes from the caller's token, not from the request body.
-     */
     @Override
     @Transactional
     public SubUserRegisteredResponse registerSubUser(SubUserRegisterRequest request,
@@ -211,7 +255,7 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException("Only MASTER or ADMIN can register sub-users");
         }
 
-        PasswordValidator.validatePasswordStrength(request.getPassword());
+        passwordValidator.validatePasswordStrength(request.getPassword());
         validateEmailNotExists(request.getEmail());
         validateUsernameNotExists(request.getUsername());
 
@@ -224,8 +268,8 @@ public class AuthServiceImpl implements AuthService {
                 .email(request.getEmail())
                 .username(trimToNull(request.getUsername()))
                 .password(passwordEncoder.encode(request.getPassword()))
-                .role(RoleConstants.SUB_USER)
-                .farmId(masterFarmId)   // trust the token, not the body
+                .role(RoleConstants.SUB_USER)          // role is ALWAYS SUB_USER
+                .farmId(masterFarmId)                   // farm from token, not body
                 .gender(request.getGender())
                 .dateOfBirth(request.getDateOfBirth())
                 .phoneNumber(request.getPhoneNumber())
@@ -271,6 +315,8 @@ public class AuthServiceImpl implements AuthService {
         return p;
     }
 
+    // ---------------- Reads ----------------
+
     @Override public UserResponse getUserById(UUID userId) { return userMapper.toResponse(loadUser(userId)); }
     @Override public List<UserListResponse> getUsersByFarmId(UUID farmId) {
         return userMapper.toListResponse(authRepository.findByFarmIdLive(farmId));
@@ -295,6 +341,8 @@ public class AuthServiceImpl implements AuthService {
         return farmMapper.toList(details);
     }
 
+    // ---------------- Updates ----------------
+
     @Override
     @Transactional
     public UserResponse updateUser(UUID userId, UpdateUserRequest request, String requesterRole) {
@@ -314,25 +362,10 @@ public class AuthServiceImpl implements AuthService {
         if (request.getCurrentPassword().equals(request.getNewPassword())) {
             throw new BusinessException("New password must be different from the current one");
         }
-        PasswordValidator.validatePasswordStrength(request.getNewPassword());
+        passwordValidator.validatePasswordStrength(request.getNewPassword());
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         authRepository.save(user);
 
-        // Revoke all tokens issued before this password change.
-        tokenBlacklistService.blacklistAllForUser(userId, jwtUtil.getAccessTtlSeconds());
-        refreshTokenService.revokeAllForUser(userId);
-    }
-
-    @Override
-    @Transactional
-    public void resetOwnPassword(UUID userId, MeResetPasswordRequest request) {
-        User user = loadUser(userId);
-        if (passwordEncoder.matches(request.getNewPassword(), user.getPassword())) {
-            throw new BusinessException("New password must be different from the current one");
-        }
-        PasswordValidator.validatePasswordStrength(request.getNewPassword());
-        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
-        authRepository.save(user);
         tokenBlacklistService.blacklistAllForUser(userId, jwtUtil.getAccessTtlSeconds());
         refreshTokenService.revokeAllForUser(userId);
     }
@@ -362,6 +395,8 @@ public class AuthServiceImpl implements AuthService {
         applyRoleChange(user, request.getRole(), RoleConstants.ADMIN);
         return userMapper.toResponse(authRepository.save(user));
     }
+
+    // ---------------- Deletes ----------------
 
     @Override
     @Transactional
@@ -409,7 +444,6 @@ public class AuthServiceImpl implements AuthService {
             softDeleteUserAndRelated(user);
         }
 
-        // Invalidate any remaining session tokens.
         tokenBlacklistService.blacklistAllForUser(userId, jwtUtil.getAccessTtlSeconds());
         refreshTokenService.revokeAllForUser(userId);
         log.info("Account {} deleted by self-service", userId);
@@ -439,6 +473,8 @@ public class AuthServiceImpl implements AuthService {
         return subUsers.size();
     }
 
+    // ---------------- Password reset ----------------
+
     @Override
     public ForgotPasswordResponse forgotPassword(ForgotPasswordRequest request) {
         String token = passwordResetService.initiateReset(request.getEmail());
@@ -455,15 +491,15 @@ public class AuthServiceImpl implements AuthService {
         passwordResetService.resetPassword(request.getToken(), request.getNewPassword());
     }
 
+    // ---------------- Internal helpers ----------------
+
     private void softDeleteUserAndRelated(User user) {
-        // Soft-delete the personnel record first (keeps FK integrity).
         personnelRepository.findByUserId(user.getId()).ifPresent(p -> {
             p.setDeletedAt(LocalDateTime.now());
             personnelRepository.save(p);
         });
         user.setDeletedAt(LocalDateTime.now());
         authRepository.save(user);
-        // Revoke tokens for the deleted user.
         tokenBlacklistService.blacklistAllForUser(user.getId(), jwtUtil.getAccessTtlSeconds());
         refreshTokenService.revokeAllForUser(user.getId());
         log.info("Soft-deleted user {}", user.getId());
@@ -577,13 +613,12 @@ public class AuthServiceImpl implements AuthService {
                 investmentRepository.sumAmountByFarmIdOrZero(farmId)
         );
 
-        // batch aggregate queries instead of 6 per user.
         Map<UUID, FarmMapper.UserActivity> activityByUser = new HashMap<>();
-        Map<UUID, long[]> incomeCounts = toUuidLongMap(incomeRepository.countByFarmIdGroupedByCreator(farmId));
-        Map<UUID, long[]> expenseCounts = toUuidLongMap(expenseRepository.countByFarmIdGroupedByCreator(farmId));
+        Map<UUID, long[]> incomeCounts     = toUuidLongMap(incomeRepository.countByFarmIdGroupedByCreator(farmId));
+        Map<UUID, long[]> expenseCounts    = toUuidLongMap(expenseRepository.countByFarmIdGroupedByCreator(farmId));
         Map<UUID, long[]> investmentCounts = toUuidLongMap(investmentRepository.countByFarmIdGroupedByCreator(farmId));
-        Map<UUID, java.math.BigDecimal> incomeSums = toUuidDecimalMap(incomeRepository.sumGroupedByCreator(farmId));
-        Map<UUID, java.math.BigDecimal> expenseSums = toUuidDecimalMap(expenseRepository.sumGroupedByCreator(farmId));
+        Map<UUID, java.math.BigDecimal> incomeSums     = toUuidDecimalMap(incomeRepository.sumGroupedByCreator(farmId));
+        Map<UUID, java.math.BigDecimal> expenseSums    = toUuidDecimalMap(expenseRepository.sumGroupedByCreator(farmId));
         Map<UUID, java.math.BigDecimal> investmentSums = toUuidDecimalMap(investmentRepository.sumGroupedByCreator(farmId));
 
         for (User u : users) {

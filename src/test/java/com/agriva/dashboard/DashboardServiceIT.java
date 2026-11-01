@@ -47,7 +47,7 @@ class DashboardServiceIT {
 
         MasterRegisterRequest reg = new MasterRegisterRequest();
         reg.setEmail("dash-master@test.local");
-        reg.setPassword("MasterPass1");
+        reg.setPassword("MasterPass1!");
         reg.setFarmName("Dashboard Test " + UUID.randomUUID());
         reg.setName("Dash Master");
         reg.setGender(Gender.MALE);
@@ -67,7 +67,7 @@ class DashboardServiceIT {
 
         SubUserRegisterRequest sub = new SubUserRegisterRequest();
         sub.setEmail("dash-sub@test.local");
-        sub.setPassword("SubPass123");
+        sub.setPassword("SubPass1234!");
         sub.setName("Dash Sub");
         sub.setGender(Gender.FEMALE);
         sub.setDateOfBirth(LocalDate.now().minusYears(25));
@@ -114,7 +114,6 @@ class DashboardServiceIT {
 
     @Test
     void master_dashboard_setsTotalsToNullWhenCategoryHasMixedCurrencies() {
-        // Second investment must be a DIFFERENT currency from the first (USD default).
         InvestmentRequest inv = new InvestmentRequest();
         inv.setAmount(new BigDecimal("1200"));
         inv.setCurrency(Currency.EUR);

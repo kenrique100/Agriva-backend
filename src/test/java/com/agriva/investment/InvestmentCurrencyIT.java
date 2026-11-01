@@ -60,7 +60,7 @@ class InvestmentCurrencyIT {
 
         MasterRegisterRequest reg = new MasterRegisterRequest();
         reg.setEmail("curr@test.local");
-        reg.setPassword("MasterPass1");
+        reg.setPassword("MasterPass1!");
         reg.setFarmName("Currency Farm " + UUID.randomUUID());
         reg.setName("Currency Master");
         reg.setGender(Gender.MALE);
@@ -85,11 +85,9 @@ class InvestmentCurrencyIT {
         InvestmentResponse created = investmentService.createInvestment(req, farmId, masterUserId);
         assertThat(created.getCurrency()).isEqualTo(Currency.EUR);
 
-        // DB round-trip
         Investment raw = investmentRepository.findById(created.getId()).orElseThrow();
         assertThat(raw.getCurrency()).isEqualTo(Currency.EUR);
 
-        // Service re-read
         InvestmentResponse reread = investmentService.getInvestment(created.getId(), farmId);
         assertThat(reread.getCurrency()).isEqualTo(Currency.EUR);
     }
@@ -98,7 +96,7 @@ class InvestmentCurrencyIT {
     void investmentCurrency_nullDefaultsToUsd() {
         InvestmentRequest req = new InvestmentRequest();
         req.setAmount(new BigDecimal("1000"));
-        req.setCurrency(null); // omitted
+        req.setCurrency(null);
         req.setInvestorName("Anonymous");
         req.setInvestmentDate(LocalDate.now());
 

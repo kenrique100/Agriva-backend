@@ -1,5 +1,7 @@
 package com.agriva.security;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import io.github.bucket4j.ConsumptionProbe;
@@ -18,39 +20,30 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.time.Duration;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Per-JVM rate limiter.
- * <p>
- * Buckets are keyed by (rule-name + caller identity). The identity is
- * chosen per rule:
- * <p>
- *   - Public endpoints (login / register-master / forgot-password):
- *     keyed by client IP — there is no principal yet.
- *   - Authenticated endpoints (everything else, including
- *     /register/sub-user): keyed by userId — a legitimate MASTER can
- *     create as many sub-users as his per-user budget allows, without
- *     consuming the public registration budget.
- * <p>
- * For horizontally-scaled deployments replace {@link #buckets} with a
- * Redis-backed bucket store (bucket4j-redis). The identity logic stays
- * the same.
+ * Per-JVM rate limiter using a bounded Caffeine cache (evicts idle buckets,
+ * hard memory cap) — see audit A5.
+ *
+ * For horizontal scaling, swap the cache for bucket4j-redis. The identity
+ * resolution and Rule shape stay the same.
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 10)
 public class RateLimitFilter extends OncePerRequestFilter {
 
-    @Value("${agriva.rate-limit.enabled:true}")            private boolean enabled;
-    @Value("${agriva.rate-limit.login-per-minute:5}")      private int loginPerMin;
-    @Value("${agriva.rate-limit.register-per-hour-per-ip:5}") private int registerMasterPerHour;
-    @Value("${agriva.rate-limit.sub-user-per-hour-per-user:30}") private int subUserPerHour;
+    @Value("${agriva.rate-limit.enabled:true}")                    private boolean enabled;
+    @Value("${agriva.rate-limit.login-per-minute:5}")              private int loginPerMin;
+    @Value("${agriva.rate-limit.register-per-hour-per-ip:5}")      private int registerMasterPerHour;
+    @Value("${agriva.rate-limit.sub-user-per-hour-per-user:30}")   private int subUserPerHour;
     @Value("${agriva.rate-limit.forgot-password-per-hour-per-email:3}") private int forgotPerHour;
-    @Value("${agriva.rate-limit.default-per-minute:120}")  private int defaultPerMin;
-    @Value("${agriva.rate-limit.upload-per-minute:30}")    private int uploadPerMin;
+    @Value("${agriva.rate-limit.default-per-minute:120}")          private int defaultPerMin;
+    @Value("${agriva.rate-limit.upload-per-minute:30}")            private int uploadPerMin;
 
-    private final Map<String, Bucket> buckets = new ConcurrentHashMap<>();
+    private final Cache<String, Bucket> buckets = Caffeine.newBuilder()
+            .expireAfterAccess(Duration.ofHours(2))
+            .maximumSize(200_000)
+            .build();
 
     @Override
     protected void doFilterInternal(HttpServletRequest req,
@@ -61,10 +54,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
         if (!enabled) { chain.doFilter(req, resp); return; }
 
         Rule rule = resolveRule(req);
-        if (rule == null) { chain.doFilter(req, resp); return; }
-
         String key = rule.name + ":" + identity(req, rule);
-        Bucket bucket = buckets.computeIfAbsent(key, k -> newBucket(rule));
+        Bucket bucket = buckets.get(key, k -> newBucket(rule));
 
         ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
         if (probe.isConsumed()) {
@@ -86,7 +77,6 @@ public class RateLimitFilter extends OncePerRequestFilter {
         String path   = req.getRequestURI();
         String method = req.getMethod();
 
-        // Public, IP-limited
         if (path.equals("/api/v1/users/login") && method.equals("POST")) {
             return new Rule("login", loginPerMin, Duration.ofMinutes(1));
         }
@@ -96,8 +86,6 @@ public class RateLimitFilter extends OncePerRequestFilter {
         if (path.equals("/api/v1/users/forgot-password") && method.equals("POST")) {
             return new Rule("forgot", forgotPerHour, Duration.ofHours(1));
         }
-
-        // Authenticated, per-user-limited
         if (path.equals("/api/v1/users/register/sub-user") && method.equals("POST")) {
             return new Rule("register-sub-user", subUserPerHour, Duration.ofHours(1));
         }
@@ -114,16 +102,11 @@ public class RateLimitFilter extends OncePerRequestFilter {
     }
 
     private String identity(HttpServletRequest req, Rule rule) {
-        // Public endpoints — no principal available, key by IP.
         if (rule.name.equals("login")
                 || rule.name.equals("register-master")
                 || rule.name.equals("forgot")) {
             return clientIp(req);
         }
-
-        // Authenticated endpoints — key by userId so each MASTER has his own
-        // bucket and does not share a pool with other users or with the
-        // public registration limit.
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.getPrincipal() instanceof AuthenticatedUser u) {
             return "u:" + u.userId();

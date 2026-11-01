@@ -24,14 +24,6 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Cycle state machine + harvest wiring.
- * <p>
- * PLANNED/PLANTED -> GROWING -> HARVESTED
- * PLANNED/PLANTED -> GROWING -> FAILED
- * <p>
- * Asserts both the returned DTO and the persisted entity.
- */
 @SpringBootTest
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
@@ -82,7 +74,7 @@ class CropCycleLifecycleIT {
 
         MasterRegisterRequest reg = new MasterRegisterRequest();
         reg.setEmail("lifecycle@test.local");
-        reg.setPassword("MasterPass1");
+        reg.setPassword("MasterPass1!");
         reg.setFarmName("Lifecycle Farm " + UUID.randomUUID());
         reg.setName("Lifecycle Master");
         reg.setGender(Gender.MALE);
@@ -105,11 +97,9 @@ class CropCycleLifecycleIT {
         CropCycleResponse cycle = createCycle("North Plot", "Maize", 90);
         UUID cycleId = cycle.getId();
 
-        // Transition 1: start growing
         CropCycleResponse growing = cropService.updateCycleStatus(cycleId, "GROWING", farmId);
         assertThat(growing.getStatus()).isEqualTo("GROWING");
 
-        // Harvest via the dedicated endpoint
         HarvestRequest harvest = new HarvestRequest();
         harvest.setHarvestDate(LocalDate.now());
         harvest.setQuantity(new BigDecimal("1200.50"));
@@ -117,12 +107,10 @@ class CropCycleLifecycleIT {
         harvest.setQualityGrade("Grade A");
         cropService.logHarvest(cycleId, harvest, farmId);
 
-        // Entity state
         var persisted = cycleRepo.findById(cycleId).orElseThrow();
         assertThat(persisted.getStatus()).isEqualTo(CropCycleStatus.HARVESTED);
         assertThat(persisted.getActualHarvestDate()).isEqualTo(LocalDate.now());
 
-        // Harvest row exists and points to the cycle
         var harvests = harvestRepo.findByCropCycleId(cycleId);
         assertThat(harvests).hasSize(1);
         assertThat(harvests.get(0).getQuantity()).isEqualByComparingTo("1200.50");
@@ -162,8 +150,6 @@ class CropCycleLifecycleIT {
 
     @Test
     void harvestWithoutPriorGrowing_stillSetsHarvested() {
-        // Documented behavior — the current implementation allows harvesting
-        // directly from PLANTED without requiring GROWING first.
         CropCycleResponse cycle = createCycle("North Plot", "Maize", 90);
 
         HarvestRequest harvest = new HarvestRequest();

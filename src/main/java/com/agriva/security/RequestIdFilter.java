@@ -13,15 +13,11 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.util.UUID;
 
-/**
- * Ensures every request has an X-Request-Id available for logs and error
- * responses (fixes A7). Also propagates it back to the client.
- */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class RequestIdFilter extends OncePerRequestFilter {
 
-    public static final String HEADER = "X-Request-Id";
+    public static final String HEADER  = "X-Request-Id";
     public static final String MDC_KEY = "requestId";
 
     @Override

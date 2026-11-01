@@ -30,7 +30,7 @@ class AdminBootstrapIT {
         authRepository.deleteAll();
         // Recreate the admin so tests can inspect a known state.
         adminBootstrapService.createAdminIfAbsent(
-                "admin@test.local", "test-admin", "TestAdminPass1");
+                "admin@test.local", "test-admin", "TestAdminPass1!");
     }
 
     @Test
@@ -47,7 +47,7 @@ class AdminBootstrapIT {
         assertThat(before).isGreaterThanOrEqualTo(1);
 
         adminBootstrapService.createAdminIfAbsent(
-                "admin@test.local", "test-admin", "TestAdminPass1");
+                "admin@test.local", "test-admin", "TestAdminPass1!");
 
         long after = authRepository.findByRole(RoleConstants.ADMIN).size();
         assertThat(after).isEqualTo(before);
@@ -59,7 +59,7 @@ class AdminBootstrapIT {
         String originalPassword = original.getPassword();
 
         adminBootstrapService.createAdminIfAbsent(
-                "admin@test.local", "some-other-name", "DifferentPass1");
+                "admin@test.local", "some-other-name", "DifferentPass1!");
 
         User reloaded = authRepository.findByEmail("admin@test.local").orElseThrow();
         assertThat(reloaded.getId()).isEqualTo(original.getId());

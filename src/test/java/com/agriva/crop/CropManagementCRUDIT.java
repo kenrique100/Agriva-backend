@@ -78,7 +78,7 @@ class CropManagementCRUDIT {
 
         MasterRegisterRequest reg = new MasterRegisterRequest();
         reg.setEmail("crop@test.local");
-        reg.setPassword("MasterPass1");
+        reg.setPassword("MasterPass1!");
         reg.setFarmName("Crop Farm " + UUID.randomUUID());
         reg.setName("Crop Master");
         reg.setGender(Gender.MALE);

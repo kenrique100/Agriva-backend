@@ -33,6 +33,7 @@ public class PasswordResetServiceImpl implements PasswordResetService {
     private final StringRedisTemplate redisTemplate;
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
+    private final PasswordValidator passwordValidator;
 
     @Override
     public String initiateReset(String email) {
@@ -78,7 +79,7 @@ public class PasswordResetServiceImpl implements PasswordResetService {
         User user = authRepository.findById(userId)
                 .orElseThrow(() -> new InvalidTokenException("Reset token is invalid or has expired"));
 
-        PasswordValidator.validatePasswordStrength(newPassword);
+        passwordValidator.validatePasswordStrength(newPassword);
 
         if (passwordEncoder.matches(newPassword, user.getPassword())) {
             throw new InvalidTokenException("New password must be different from the current one");
