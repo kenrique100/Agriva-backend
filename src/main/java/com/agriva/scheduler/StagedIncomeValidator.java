@@ -6,6 +6,7 @@ import com.agriva.model.entity.StagedIncome;
 import com.agriva.model.entity.enums.StagedIncomeStatus;
 import com.agriva.repository.IncomeRepository;
 import com.agriva.repository.StagedIncomeRepository;
+import com.agriva.service.DistributedLockService;
 import com.agriva.utils.IncomeValidator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +17,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -32,6 +34,7 @@ public class StagedIncomeValidator {
     private final IncomeValidator incomeValidator;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
+    private final DistributedLockService lock;
 
     @Value("${agriva.income.validator.batch-size:100}")
     private int batchSize;
@@ -44,23 +47,26 @@ public class StagedIncomeValidator {
 
     @Scheduled(cron = "${agriva.income.validator.cron:0 * * * * *}")
     public void processStagedIncomes() {
-        List<StagedIncome> due = stagedRepo.findDueForProcessing(
-                LocalDateTime.now(),
-                StagedIncomeStatus.PENDING,
-                StagedIncomeStatus.RETRYING,
-                PageRequest.of(0, batchSize));
+        lock.runIfLocked("staged-income-validator", Duration.ofSeconds(55), () -> {
+            List<StagedIncome> due = stagedRepo.findDueForProcessing(
+                    LocalDateTime.now(),
+                    StagedIncomeStatus.PENDING,
+                    StagedIncomeStatus.RETRYING,
+                    PageRequest.of(0, batchSize));
 
-        if (due.isEmpty()) return;
+            if (due.isEmpty()) return null;
 
-        log.info("StagedIncomeValidator: {} row(s) due for processing", due.size());
+            log.info("StagedIncomeValidator: {} row(s) due for processing", due.size());
 
-        for (StagedIncome staged : due) {
-            UUID stagedId = staged.getId();
-            transactionTemplate.execute(status -> {
-                processOne(stagedId);
-                return null;
-            });
-        }
+            for (StagedIncome staged : due) {
+                UUID stagedId = staged.getId();
+                transactionTemplate.execute(status -> {
+                    processOne(stagedId);
+                    return null;
+                });
+            }
+            return null;
+        });
     }
 
     private void processOne(UUID stagedId) {

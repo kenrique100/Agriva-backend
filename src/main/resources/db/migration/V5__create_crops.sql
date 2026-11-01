@@ -1,3 +1,4 @@
+
 CREATE TABLE fields (
                         id              UUID PRIMARY KEY,
                         farm_id         UUID          NOT NULL,

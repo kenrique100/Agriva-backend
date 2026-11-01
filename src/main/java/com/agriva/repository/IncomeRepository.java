@@ -18,10 +18,33 @@ import java.util.UUID;
 @Repository
 public interface IncomeRepository extends JpaRepository<Income, UUID> {
 
-    // ---- Live (soft-delete aware) reads ----
+    // ---- OFFSET pagination (kept for backward compatibility) ----
     @Query("SELECT i FROM Income i WHERE i.farmId = :farmId AND i.deletedAt IS NULL")
     Page<Income> findByFarmIdLive(@Param("farmId") UUID farmId, Pageable pageable);
 
+    // ---- Keyset pagination ----
+    /**
+     * Returns up to {@code limit + 1} rows. The caller slices off the extra
+     * row to detect hasNext and to compute nextCursor.
+     * <p>
+     * On the first page, pass {@code cursorDate = null} and {@code cursorId = null}.
+     */
+    @Query("""
+        SELECT i FROM Income i
+        WHERE i.farmId = :farmId
+          AND i.deletedAt IS NULL
+          AND (:cursorDate IS NULL
+               OR i.incomeDate < :cursorDate
+               OR (i.incomeDate = :cursorDate AND i.id < :cursorId))
+        ORDER BY i.incomeDate DESC, i.id DESC
+    """)
+    List<Income> findCursorPage(
+            @Param("farmId") UUID farmId,
+            @Param("cursorDate") LocalDate cursorDate,
+            @Param("cursorId") UUID cursorId,
+            Pageable limit);
+
+    // ---- Single-row reads ----
     @Query("SELECT i FROM Income i WHERE i.id = :id AND i.farmId = :farmId AND i.deletedAt IS NULL")
     Optional<Income> findByIdAndFarmIdLive(@Param("id") UUID id, @Param("farmId") UUID farmId);
 
@@ -35,8 +58,8 @@ public interface IncomeRepository extends JpaRepository<Income, UUID> {
             "AND i.transactionId IS NULL AND i.deletedAt IS NULL")
     List<Income> findByFarmIdAndTransactionIdIsNull(@Param("farmId") UUID farmId);
 
-    // ---- Duplicate / file-ownership checks ----
-    @Query("SELECT CASE WHEN COUNT(i) > 0 THEN true ELSE false END FROM Income i " +
+    // ---- Duplicate / receipt-ownership checks ----
+    @Query("SELECT CASE WHEN COUNT(i) > 0 THEN TRUE ELSE FALSE END FROM Income i " +
             "WHERE i.farmId = :farmId AND i.amountReceived = :amountReceived " +
             "AND i.incomeDate = :incomeDate AND i.reason = :reason AND i.deletedAt IS NULL")
     boolean existsByFarmIdAndAmountReceivedAndIncomeDateAndReasonLive(
@@ -45,16 +68,15 @@ public interface IncomeRepository extends JpaRepository<Income, UUID> {
             @Param("incomeDate") LocalDate incomeDate,
             @Param("reason") String reason);
 
-    @Query("SELECT CASE WHEN COUNT(i) > 0 THEN true ELSE false END FROM Income i " +
+    @Query("SELECT CASE WHEN COUNT(i) > 0 THEN TRUE ELSE FALSE END FROM Income i " +
             "WHERE i.farmId = :farmId AND i.receipt = :receipt AND i.deletedAt IS NULL")
     boolean existsByFarmIdAndReceipt(@Param("farmId") UUID farmId,
                                      @Param("receipt") String receipt);
 
-    // ---- Counts ----
+    // ---- Counts / aggregates ----
     long countByFarmId(UUID farmId);
     long countByFarmIdAndCreatedByUserId(UUID farmId, UUID userId);
 
-    // ---- Aggregates ----
     @Query("SELECT SUM(i.amountReceived) FROM Income i WHERE i.farmId = :farmId AND i.deletedAt IS NULL")
     BigDecimal sumAmountByFarmId(@Param("farmId") UUID farmId);
 
@@ -67,17 +89,12 @@ public interface IncomeRepository extends JpaRepository<Income, UUID> {
             "WHERE i.farmId = :farmId AND i.deletedAt IS NULL GROUP BY i.currency")
     List<Object[]> sumAmountGroupedByCurrency(@Param("farmId") UUID farmId);
 
-    /**
-     * Per-user currency grouping — required by DashboardQueryRepositoryImpl.totalsForUser.
-     * Preserves the mixed-currency detection behaviour.
-     */
     @Query("SELECT i.currency, SUM(i.amountReceived) FROM Income i " +
             "WHERE i.farmId = :farmId AND i.createdByUserId = :userId AND i.deletedAt IS NULL " +
             "GROUP BY i.currency")
     List<Object[]> sumAmountGroupedByCurrencyAndCreatedByUserId(
             @Param("farmId") UUID farmId, @Param("userId") UUID userId);
 
-    // ---- Per-creator batch aggregates (dashboard/farm details) ----
     @Query("SELECT i.createdByUserId, COUNT(i) FROM Income i " +
             "WHERE i.farmId = :farmId AND i.deletedAt IS NULL AND i.createdByUserId IS NOT NULL " +
             "GROUP BY i.createdByUserId")

@@ -1,5 +1,6 @@
 package com.agriva.controller;
 
+import com.agriva.model.dto.common.CursorPageResponse;
 import com.agriva.model.dto.common.PageResponse;
 import com.agriva.model.dto.expense.*;
 import com.agriva.security.AuthenticatedUser;
@@ -109,6 +110,15 @@ public class ExpenseController {
                 u.farmId(), status,
                 PageRequest.of(page, Math.min(size, 100),
                         Sort.by(Sort.Direction.DESC, "submittedAt")))));
+    }
+
+    @GetMapping("/cursor")
+    public ResponseEntity<CursorPageResponse<ExpenseResponse>> listByCursor(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(
+                expenseService.listExpensesByCursor(u.farmId(), cursor, size));
     }
 
     private Sort parseSort(String sort) {

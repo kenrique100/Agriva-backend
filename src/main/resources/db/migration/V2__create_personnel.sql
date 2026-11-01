@@ -1,5 +1,4 @@
 
-
 CREATE TABLE personnel (
                            id                               UUID PRIMARY KEY,
                            farm_id                          UUID          NOT NULL,
@@ -36,13 +35,8 @@ CREATE TABLE personnel (
                                FOREIGN KEY (farm_id) REFERENCES farms (id) ON DELETE CASCADE,
                            CONSTRAINT fk_personnel_user
                                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
-
-    -- 1:1 with users
                            CONSTRAINT ux_personnel_user_id UNIQUE (user_id),
-
-    -- HR de-dup within a farm
                            CONSTRAINT ux_personnel_farm_national_id UNIQUE (farm_id, national_id),
-
                            CONSTRAINT chk_personnel_gender
                                CHECK (gender IS NULL OR gender IN ('MALE','FEMALE','OTHER')),
                            CONSTRAINT chk_personnel_status

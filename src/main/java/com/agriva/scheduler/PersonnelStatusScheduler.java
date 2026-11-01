@@ -7,11 +7,11 @@ import com.agriva.repository.PersonnelRepository;
 import com.agriva.repository.PersonnelStatusHistoryRepository;
 import com.agriva.repository.SalaryPaymentRepository;
 import com.agriva.repository.TaskRepository;
+import com.agriva.service.DistributedLockService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -26,13 +26,16 @@ public class PersonnelStatusScheduler {
     private final PersonnelStatusHistoryRepository historyRepository;
     private final TaskRepository taskRepository;
     private final SalaryPaymentRepository salaryRepository;
+    private final DistributedLockService lock;
 
-    @Scheduled(cron = "0 * * * * *") // every minute
-    @Transactional
+    @Scheduled(cron = "0 * * * * *")
     public void tick() {
-        LocalDateTime now = LocalDateTime.now();
-        reactivateExpired(now);
-        purgeTerminated(now);
+        lock.runIfLocked("personnel-status-tick", Duration.ofSeconds(55), () -> {
+            LocalDateTime now = LocalDateTime.now();
+            reactivateExpired(now);
+            purgeTerminated(now);
+            return null;
+        });
     }
 
     private void reactivateExpired(LocalDateTime now) {

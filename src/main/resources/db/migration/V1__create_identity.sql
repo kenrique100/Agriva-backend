@@ -1,3 +1,4 @@
+
 CREATE TABLE farms (
                        id          UUID PRIMARY KEY,
                        name        VARCHAR(100) NOT NULL,
@@ -33,7 +34,6 @@ CREATE TABLE users (
                        updated_at         TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
--- Mutual FKs after both tables exist
 ALTER TABLE farms
     ADD CONSTRAINT fk_farms_master
         FOREIGN KEY (master_id) REFERENCES users (id) ON DELETE SET NULL;
@@ -42,19 +42,16 @@ ALTER TABLE users
     ADD CONSTRAINT fk_users_farm
         FOREIGN KEY (farm_id) REFERENCES farms (id) ON DELETE SET NULL;
 
--- Role guard
 ALTER TABLE users
     ADD CONSTRAINT chk_users_role
         CHECK (role IN ('ADMIN', 'MASTER', 'SUB_USER', 'USER'));
 
--- Lookup indexes
 CREATE INDEX idx_users_farm_id    ON users (farm_id);
 CREATE INDEX idx_users_role       ON users (role);
 CREATE INDEX idx_farms_master_id  ON farms (master_id);
 
--- Partial unique indexes: replace the old global UNIQUE with live-scoped
--- ones so a soft-deleted row does not block re-creating the same email,
--- username or farm name.
+-- Partial unique indexes so soft-deleted rows do not block re-creation
+-- of the same email / username / farm name.
 CREATE UNIQUE INDEX ux_users_email_live
     ON users (LOWER(email))
     WHERE deleted_at IS NULL;

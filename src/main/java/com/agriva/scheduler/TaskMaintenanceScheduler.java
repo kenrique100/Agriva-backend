@@ -1,53 +1,55 @@
 package com.agriva.scheduler;
 
+import com.agriva.service.DistributedLockService;
 import com.agriva.service.TaskService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
+
+/**
+ * The idempotency-marker cleanup that used to live here has moved into
+ * RetentionCleanupScheduler.daily() so all housekeeping runs under one
+ * distributed lock.
+ */
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class TaskMaintenanceScheduler {
 
     private final TaskService taskService;
-    private final JdbcTemplate jdbc;
+    private final DistributedLockService lock;
 
-    @Scheduled(cron = "0 */5 * * * *")
+    @Scheduled(cron = "0 */5 * * * *") // every 5 minutes
     public void tick() {
-        try {
-            taskService.processExpiredTasks();
-            taskService.processUnvalidatedTasks();
-        } catch (Exception e) {
-            log.error("TaskMaintenanceScheduler tick failed: {}", e.getMessage(), e);
-        }
+        lock.runIfLocked("task-maintenance-tick", Duration.ofMinutes(4), () -> {
+            try {
+                taskService.processExpiredTasks();
+                taskService.processUnvalidatedTasks();
+            } catch (Exception e) {
+                log.error("TaskMaintenanceScheduler tick failed: {}", e.getMessage(), e);
+            }
+            return null;
+        });
     }
 
-    @Scheduled(cron = "0 5 0 * * *")
+    @Scheduled(cron = "0 5 0 * * *") // daily 00:05
     public void dailyProductivity() {
-        try { taskService.updateDailyProductivity(); }
-        catch (Exception e) { log.error("updateDailyProductivity failed: {}", e.getMessage(), e); }
+        lock.runIfLocked("task-daily-productivity", Duration.ofMinutes(30), () -> {
+            try { taskService.updateDailyProductivity(); }
+            catch (Exception e) { log.error("updateDailyProductivity failed: {}", e.getMessage(), e); }
+            return null;
+        });
     }
 
-    @Scheduled(cron = "0 10 0 1 * *")
+    @Scheduled(cron = "0 10 0 1 * *") // 1st of month, 00:10
     public void monthlyReset() {
-        try { taskService.resetProductivityMetrics(); }
-        catch (Exception e) { log.error("resetProductivityMetrics failed: {}", e.getMessage(), e); }
-    }
-
-    /** Prune idempotency markers older than 30 days (Postgres). */
-    @Scheduled(cron = "0 30 3 * * *")   // daily 03:30
-    @Transactional
-    public void cleanupProcessedEvents() {
-        try {
-            int deleted = jdbc.update(
-                    "DELETE FROM consumer_processed_events WHERE processed_at < NOW() - INTERVAL '30 days'");
-            if (deleted > 0) log.info("Pruned {} old idempotency markers", deleted);
-        } catch (Exception e) {
-            log.error("Idempotency-marker cleanup failed: {}", e.getMessage(), e);
-        }
+        lock.runIfLocked("task-monthly-reset", Duration.ofMinutes(30), () -> {
+            try { taskService.resetProductivityMetrics(); }
+            catch (Exception e) { log.error("resetProductivityMetrics failed: {}", e.getMessage(), e); }
+            return null;
+        });
     }
 }

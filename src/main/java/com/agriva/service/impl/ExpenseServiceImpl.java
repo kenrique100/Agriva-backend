@@ -6,6 +6,7 @@ import com.agriva.exception.InvestmentLimitExceededException;
 import com.agriva.exception.NoActiveInvestmentException;
 import com.agriva.kafka.producer.ExpenseProducer;
 import com.agriva.mapper.ExpenseMapper;
+import com.agriva.model.dto.common.CursorPageResponse;
 import com.agriva.model.dto.expense.*;
 import com.agriva.model.entity.Expense;
 import com.agriva.model.entity.Investment;
@@ -17,11 +18,13 @@ import com.agriva.repository.ExpenseRepository;
 import com.agriva.repository.InvestmentRepository;
 import com.agriva.repository.StagedExpenseRepository;
 import com.agriva.service.ExpenseService;
+import com.agriva.utils.CursorCodec;
 import com.agriva.utils.ExpenseExcelParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -252,5 +255,39 @@ public class ExpenseServiceImpl implements ExpenseService {
         if (userIds.isEmpty()) return Map.of();
         return authRepository.findAllById(userIds).stream()
                 .collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public CursorPageResponse<ExpenseResponse> listExpensesByCursor(UUID farmId, String cursor, int size) {
+        int cappedSize = Math.clamp(size, 1, 100);
+
+        org.springframework.data.domain.Pageable limit =
+                PageRequest.of(0, cappedSize + 1);
+
+        java.time.LocalDate cursorDate = null;
+        java.util.UUID cursorId = null;
+        if (cursor != null && !cursor.isBlank()) {
+            CursorCodec.Decoded d = CursorCodec.decodeDate(cursor);
+            cursorDate = (java.time.LocalDate) d.sortValue();
+            cursorId = d.id();
+        }
+
+        List<Expense> rows = expenseRepo.findCursorPage(farmId, cursorDate, cursorId, limit);
+
+        boolean hasNext = rows.size() > cappedSize;
+        List<Expense> page = hasNext ? rows.subList(0, cappedSize) : rows;
+
+        Map<UUID, User> userById = lookupUsers(page);
+        List<ExpenseResponse> dtos = page.stream()
+                .map(e -> mapper.toResponse(e, userById))
+                .toList();
+
+        String nextCursor = hasNext
+                ? CursorCodec.encode(page.get(page.size() - 1).getExpenseDate(),
+                page.get(page.size() - 1).getId())
+                : null;
+
+        return new CursorPageResponse<>(dtos, nextCursor, hasNext, dtos.size());
     }
 }

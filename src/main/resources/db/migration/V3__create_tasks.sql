@@ -1,5 +1,4 @@
 
-
 CREATE TABLE tasks (
                        id                    UUID PRIMARY KEY,
                        farm_id               UUID          NOT NULL,
@@ -49,7 +48,6 @@ CREATE INDEX idx_tasks_deadline  ON tasks (deadline);
 CREATE INDEX idx_tasks_submitted ON tasks (status, is_submitted, stop_time);
 CREATE INDEX idx_tasks_deleted_at ON tasks (deleted_at);
 
--- Partial index used by TaskAutoStopScheduler.findTasksDueForAutoStop().
 CREATE INDEX idx_tasks_in_progress_resume
     ON tasks (status, last_resume_time)
     WHERE status = 'IN_PROGRESS' AND last_resume_time IS NOT NULL;

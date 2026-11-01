@@ -4,6 +4,7 @@ import com.agriva.exception.DuplicateIncomeException;
 import com.agriva.exception.IncomeNotFoundException;
 import com.agriva.kafka.producer.IncomeProducer;
 import com.agriva.mapper.IncomeMapper;
+import com.agriva.model.dto.common.CursorPageResponse;
 import com.agriva.model.dto.income.*;
 import com.agriva.model.entity.Income;
 import com.agriva.model.entity.StagedIncome;
@@ -13,11 +14,13 @@ import com.agriva.repository.AuthRepository;
 import com.agriva.repository.IncomeRepository;
 import com.agriva.repository.StagedIncomeRepository;
 import com.agriva.service.IncomeService;
+import com.agriva.utils.CursorCodec;
 import com.agriva.utils.IncomeExcelParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -184,5 +187,40 @@ public class IncomeServiceImpl implements IncomeService {
         if (userIds.isEmpty()) return Map.of();
         return authRepository.findAllById(userIds).stream()
                 .collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public CursorPageResponse<IncomeResponse> listIncomeByCursor(UUID farmId, String cursor, int size) {
+        int cappedSize = Math.clamp(size, 1, 100);   // enforce ceiling
+
+        // Fetch limit+1 rows to detect "hasNext" without a second COUNT query.
+        org.springframework.data.domain.Pageable limit =
+                PageRequest.of(0, cappedSize + 1);
+
+        java.time.LocalDate cursorDate = null;
+        java.util.UUID cursorId = null;
+        if (cursor != null && !cursor.isBlank()) {
+            CursorCodec.Decoded d = CursorCodec.decodeDate(cursor);
+            cursorDate = (java.time.LocalDate) d.sortValue();
+            cursorId = d.id();
+        }
+
+        List<Income> rows = incomeRepo.findCursorPage(farmId, cursorDate, cursorId, limit);
+
+        boolean hasNext = rows.size() > cappedSize;
+        List<Income> page = hasNext ? rows.subList(0, cappedSize) : rows;
+
+        Map<UUID, User> userById = lookupUsers(page);
+        List<IncomeResponse> dtos = page.stream()
+                .map(i -> mapper.toResponse(i, userById))
+                .toList();
+
+        String nextCursor = hasNext
+                ? CursorCodec.encode(page.get(page.size() - 1).getIncomeDate(),
+                page.get(page.size() - 1).getId())
+                : null;
+
+        return new CursorPageResponse<>(dtos, nextCursor, hasNext, dtos.size());
     }
 }

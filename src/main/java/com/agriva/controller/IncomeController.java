@@ -1,5 +1,6 @@
 package com.agriva.controller;
 
+import com.agriva.model.dto.common.CursorPageResponse;
 import com.agriva.model.dto.common.PageResponse;
 import com.agriva.model.dto.income.*;
 import com.agriva.security.AuthenticatedUser;
@@ -31,6 +32,8 @@ public class IncomeController {
     private final IncomeService incomeService;
     private final FileStorageService fileStorageService;
 
+    // ----- Write endpoints (unchanged) -----
+
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
     public ResponseEntity<IncomeSubmissionAck> submit(
@@ -53,14 +56,43 @@ public class IncomeController {
                 file, u.farmId(), u.userId(), u.email()));
     }
 
+    // ----- Read endpoints: OFFSET (backward-compat) -----
+
     @GetMapping
     public ResponseEntity<PageResponse<IncomeResponse>> list(
             @AuthenticationPrincipal AuthenticatedUser u,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "incomeDate,desc") String sort) {
-        return ResponseEntity.ok(PageResponse.of(
-                incomeService.listIncome(u.farmId(), PageRequest.of(page, Math.min(size, 100), parseSort(sort)))));
+        return ResponseEntity.ok(PageResponse.of(incomeService.listIncome(
+                u.farmId(),
+                PageRequest.of(page, Math.min(size, 100), parseSort(sort)))));
+    }
+
+    // ----- Read endpoints: CURSOR (preferred for large lists) -----
+
+    /**
+     * Keyset (cursor) pagination.
+     * <p>
+     * First call: GET /incomes/cursor?size=20
+     *   → { content: [...20 rows], nextCursor: "…", hasNext: true, size: 20 }
+     * <p>
+     * Next call: GET /incomes/cursor?size=20&cursor=… (same cursor string)
+     * <p>
+     * When hasNext is false, nextCursor is null — stop.
+     * <p>
+     * Why this endpoint exists: OFFSET /incomes?page=500 gets progressively
+     * slower (Postgres scans and discards page*size rows). Cursor is O(1)
+     * per page because it seeks directly to the row position via the
+     * (farm_id, income_date DESC, id DESC) composite index.
+     */
+    @GetMapping("/cursor")
+    public ResponseEntity<CursorPageResponse<IncomeResponse>> listByCursor(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(
+                incomeService.listIncomeByCursor(u.farmId(), cursor, size));
     }
 
     @GetMapping("/{id}")
@@ -93,7 +125,8 @@ public class IncomeController {
 
     @GetMapping("/staging/stats")
     @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
-    public ResponseEntity<Map<String, Long>> stagingStats(@AuthenticationPrincipal AuthenticatedUser u) {
+    public ResponseEntity<Map<String, Long>> stagingStats(
+            @AuthenticationPrincipal AuthenticatedUser u) {
         return ResponseEntity.ok(incomeService.stagingStats(u.farmId()));
     }
 
@@ -106,7 +139,8 @@ public class IncomeController {
             @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok(PageResponse.of(incomeService.listStaging(
                 u.farmId(), status,
-                PageRequest.of(page, Math.min(size, 100), Sort.by(Sort.Direction.DESC, "submittedAt")))));
+                PageRequest.of(page, Math.min(size, 100),
+                        Sort.by(Sort.Direction.DESC, "submittedAt")))));
     }
 
     private Sort parseSort(String sort) {

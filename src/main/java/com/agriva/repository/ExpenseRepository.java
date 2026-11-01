@@ -18,10 +18,27 @@ import java.util.UUID;
 @Repository
 public interface ExpenseRepository extends JpaRepository<Expense, UUID> {
 
-    // ---- Live reads ----
+    // ---- OFFSET pagination (backward compat) ----
     @Query("SELECT e FROM Expense e WHERE e.farmId = :farmId AND e.deletedAt IS NULL")
     Page<Expense> findByFarmIdLive(@Param("farmId") UUID farmId, Pageable pageable);
 
+    // ---- Keyset pagination ----
+    @Query("""
+        SELECT e FROM Expense e
+        WHERE e.farmId = :farmId
+          AND e.deletedAt IS NULL
+          AND (:cursorDate IS NULL
+               OR e.expenseDate < :cursorDate
+               OR (e.expenseDate = :cursorDate AND e.id < :cursorId))
+        ORDER BY e.expenseDate DESC, e.id DESC
+    """)
+    List<Expense> findCursorPage(
+            @Param("farmId") UUID farmId,
+            @Param("cursorDate") LocalDate cursorDate,
+            @Param("cursorId") UUID cursorId,
+            Pageable limit);
+
+    // ---- Single-row reads ----
     @Query("SELECT e FROM Expense e WHERE e.id = :id AND e.farmId = :farmId AND e.deletedAt IS NULL")
     Optional<Expense> findByIdAndFarmIdLive(@Param("id") UUID id, @Param("farmId") UUID farmId);
 
@@ -31,8 +48,8 @@ public interface ExpenseRepository extends JpaRepository<Expense, UUID> {
     @Query("SELECT e FROM Expense e WHERE e.transactionId IN :ids AND e.deletedAt IS NULL")
     List<Expense> findByTransactionIdInLive(@Param("ids") Collection<UUID> ids);
 
-    // ---- Duplicate / file-ownership checks ----
-    @Query("SELECT CASE WHEN COUNT(e) > 0 THEN true ELSE false END FROM Expense e " +
+    // ---- Duplicate / receipt-ownership checks ----
+    @Query("SELECT CASE WHEN COUNT(e) > 0 THEN TRUE ELSE FALSE END FROM Expense e " +
             "WHERE e.farmId = :farmId AND e.amountPaid = :amountPaid " +
             "AND e.expenseDate = :expenseDate AND e.reason = :reason AND e.deletedAt IS NULL")
     boolean existsByFarmIdAndAmountPaidAndExpenseDateAndReasonLive(
@@ -41,16 +58,15 @@ public interface ExpenseRepository extends JpaRepository<Expense, UUID> {
             @Param("expenseDate") LocalDate expenseDate,
             @Param("reason") String reason);
 
-    @Query("SELECT CASE WHEN COUNT(e) > 0 THEN true ELSE false END FROM Expense e " +
+    @Query("SELECT CASE WHEN COUNT(e) > 0 THEN TRUE ELSE FALSE END FROM Expense e " +
             "WHERE e.farmId = :farmId AND e.receipt = :receipt AND e.deletedAt IS NULL")
     boolean existsByFarmIdAndReceipt(@Param("farmId") UUID farmId,
                                      @Param("receipt") String receipt);
 
-    // ---- Counts ----
+    // ---- Counts / aggregates ----
     long countByFarmId(UUID farmId);
     long countByFarmIdAndCreatedByUserId(UUID farmId, UUID userId);
 
-    // ---- Aggregates ----
     @Query("SELECT SUM(e.amountPaid) FROM Expense e WHERE e.farmId = :farmId AND e.deletedAt IS NULL")
     BigDecimal sumAmountByFarmId(@Param("farmId") UUID farmId);
 
@@ -63,16 +79,12 @@ public interface ExpenseRepository extends JpaRepository<Expense, UUID> {
             "WHERE e.farmId = :farmId AND e.deletedAt IS NULL GROUP BY e.currency")
     List<Object[]> sumAmountGroupedByCurrency(@Param("farmId") UUID farmId);
 
-    /**
-     * Per-user currency grouping — required by DashboardQueryRepositoryImpl.totalsForUser.
-     */
     @Query("SELECT e.currency, SUM(e.amountPaid) FROM Expense e " +
             "WHERE e.farmId = :farmId AND e.createdByUserId = :userId AND e.deletedAt IS NULL " +
             "GROUP BY e.currency")
     List<Object[]> sumAmountGroupedByCurrencyAndCreatedByUserId(
             @Param("farmId") UUID farmId, @Param("userId") UUID userId);
 
-    // ---- Per-creator batch aggregates ----
     @Query("SELECT e.createdByUserId, COUNT(e) FROM Expense e " +
             "WHERE e.farmId = :farmId AND e.deletedAt IS NULL AND e.createdByUserId IS NOT NULL " +
             "GROUP BY e.createdByUserId")

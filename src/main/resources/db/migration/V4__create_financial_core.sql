@@ -26,13 +26,11 @@ CREATE INDEX idx_transactions_farm     ON transactions (farm_id);
 CREATE INDEX idx_transactions_occurred ON transactions (occurred_at);
 CREATE INDEX idx_transactions_status   ON transactions (status);
 
--- Unique on (farm_id, transaction_ref) but scoped to live rows so a
--- soft-deleted transaction no longer blocks re-using its ref.
 CREATE UNIQUE INDEX ux_transactions_farm_ref
     ON transactions (farm_id, transaction_ref)
     WHERE deleted_at IS NULL;
 
--- investment
+-- ----- investment --------------------------------------------------
 CREATE TABLE investment (
                             id                 UUID PRIMARY KEY,
                             farm_id            UUID            NOT NULL,
@@ -71,15 +69,13 @@ CREATE INDEX idx_investment_farm_date        ON investment (farm_id, investment_
 CREATE INDEX idx_investment_creator          ON investment (created_by_user_id);
 CREATE INDEX idx_investment_transaction      ON investment (transaction_id);
 
--- At most ONE active investment per farm
 CREATE UNIQUE INDEX uq_investment_one_active_per_farm
     ON investment (farm_id) WHERE active = TRUE;
 
--- Lookup index used by getActive() and doActivate()
 CREATE INDEX idx_investment_active
     ON investment (farm_id) WHERE active = TRUE AND deleted_at IS NULL;
 
--- expense
+-- ----- expense -----------------------------------------------------
 CREATE TABLE expense (
                          id                 UUID PRIMARY KEY,
                          farm_id            UUID            NOT NULL,
@@ -123,7 +119,7 @@ CREATE INDEX idx_expense_creator        ON expense (created_by_user_id);
 CREATE INDEX idx_expense_transaction    ON expense (transaction_id);
 CREATE INDEX idx_expense_investment_id  ON expense (investment_id);
 
--- income
+-- ----- income ------------------------------------------------------
 CREATE TABLE income (
                         id                 UUID PRIMARY KEY,
                         farm_id            UUID            NOT NULL,
@@ -163,7 +159,7 @@ CREATE INDEX idx_income_farm_date   ON income (farm_id, income_date);
 CREATE INDEX idx_income_creator     ON income (created_by_user_id);
 CREATE INDEX idx_income_transaction ON income (transaction_id);
 
--- salary_payments
+-- ----- salary_payments ---------------------------------------------
 CREATE TABLE salary_payments (
                                  id                 UUID PRIMARY KEY,
                                  farm_id            UUID            NOT NULL,
@@ -196,6 +192,7 @@ CREATE INDEX idx_sp_personnel ON salary_payments (personnel_id);
 CREATE INDEX idx_sp_date      ON salary_payments (payment_date);
 CREATE INDEX idx_sp_expense   ON salary_payments (expense_id);
 
+-- ----- per-creator partial indexes (dashboards) -------------------
 CREATE INDEX idx_income_creator_live
     ON income (farm_id, created_by_user_id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_expense_creator_live

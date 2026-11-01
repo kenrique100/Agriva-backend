@@ -1,5 +1,6 @@
 package com.agriva.service;
 
+import com.agriva.model.dto.common.CursorPageResponse;
 import com.agriva.model.dto.expense.*;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -15,6 +16,9 @@ public interface ExpenseService {
     ExpenseBulkUploadResponse bulkUpload(MultipartFile file, UUID farmId, UUID userId, String email);
 
     Page<ExpenseResponse> listExpenses(UUID farmId, Pageable pageable);
+
+    /** Keyset (cursor) pagination. */
+    CursorPageResponse<ExpenseResponse> listExpensesByCursor(UUID farmId, String cursor, int size);
 
     ExpenseResponse getExpense(UUID id, UUID farmId);
 

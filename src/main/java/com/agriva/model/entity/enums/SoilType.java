@@ -1,5 +1,8 @@
 package com.agriva.model.entity.enums;
 
+import lombok.Getter;
+
+@Getter
 public enum SoilType {
     SANDY("Sandy"),
     CLAY("Clay"),
@@ -20,7 +23,6 @@ public enum SoilType {
     private final String displayName;
 
     SoilType(String displayName) { this.displayName = displayName; }
-    public String getDisplayName() { return displayName; }
 
     /** Accepts both enum names and display names (case-insensitive). */
     public static SoilType fromString(String s) {

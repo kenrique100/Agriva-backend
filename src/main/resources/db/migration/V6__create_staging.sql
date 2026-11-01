@@ -1,6 +1,5 @@
 
-
--- staged_income
+-- ----- staged_income -----------------------------------------------
 CREATE TABLE staged_income (
                                id                    UUID          PRIMARY KEY,
                                farm_id               UUID          NOT NULL,
@@ -28,14 +27,14 @@ CREATE TABLE staged_income (
                                    CHECK (retry_count >= 0)
 );
 
-CREATE INDEX idx_staged_income_status         ON staged_income (status);
-CREATE INDEX idx_staged_income_farm_id        ON staged_income (farm_id);
-CREATE INDEX idx_staged_income_status_farm    ON staged_income (status, farm_id);
-CREATE INDEX idx_staged_income_due            ON staged_income (status, next_retry_at);
+CREATE INDEX idx_staged_income_status       ON staged_income (status);
+CREATE INDEX idx_staged_income_farm_id      ON staged_income (farm_id);
+CREATE INDEX idx_staged_income_status_farm  ON staged_income (status, farm_id);
+CREATE INDEX idx_staged_income_due          ON staged_income (status, next_retry_at);
 CREATE INDEX idx_staged_income_status_submitted
     ON staged_income (status, submitted_at);
 
--- staged_expense
+-- ----- staged_expense ----------------------------------------------
 CREATE TABLE staged_expense (
                                 id                    UUID          PRIMARY KEY,
                                 farm_id               UUID          NOT NULL,
@@ -63,12 +62,12 @@ CREATE TABLE staged_expense (
                                     CHECK (retry_count >= 0)
 );
 
-CREATE INDEX idx_staged_expense_status        ON staged_expense (status);
-CREATE INDEX idx_staged_expense_farm_id       ON staged_expense (farm_id);
-CREATE INDEX idx_staged_expense_status_farm   ON staged_expense (status, farm_id);
-CREATE INDEX idx_staged_expense_due           ON staged_expense (status, next_retry_at);
+CREATE INDEX idx_staged_expense_status       ON staged_expense (status);
+CREATE INDEX idx_staged_expense_farm_id      ON staged_expense (farm_id);
+CREATE INDEX idx_staged_expense_status_farm  ON staged_expense (status, farm_id);
+CREATE INDEX idx_staged_expense_due          ON staged_expense (status, next_retry_at);
 
--- staged_task
+-- ----- staged_task -------------------------------------------------
 CREATE TABLE staged_task (
                              id                    UUID          PRIMARY KEY,
                              farm_id               UUID          NOT NULL,
@@ -96,12 +95,12 @@ CREATE TABLE staged_task (
                                  CHECK (retry_count >= 0)
 );
 
-CREATE INDEX idx_staged_task_status        ON staged_task (status);
-CREATE INDEX idx_staged_task_farm_id       ON staged_task (farm_id);
-CREATE INDEX idx_staged_task_status_farm   ON staged_task (status, farm_id);
-CREATE INDEX idx_staged_task_due           ON staged_task (status, next_retry_at);
+CREATE INDEX idx_staged_task_status       ON staged_task (status);
+CREATE INDEX idx_staged_task_farm_id      ON staged_task (farm_id);
+CREATE INDEX idx_staged_task_status_farm  ON staged_task (status, farm_id);
+CREATE INDEX idx_staged_task_due          ON staged_task (status, next_retry_at);
 
--- staged_salary
+-- ----- staged_salary -----------------------------------------------
 CREATE TABLE staged_salary (
                                id                    UUID          PRIMARY KEY,
                                farm_id               UUID          NOT NULL,
@@ -129,12 +128,12 @@ CREATE TABLE staged_salary (
                                    CHECK (retry_count >= 0)
 );
 
-CREATE INDEX idx_staged_salary_status        ON staged_salary (status);
-CREATE INDEX idx_staged_salary_farm_id       ON staged_salary (farm_id);
-CREATE INDEX idx_staged_salary_status_farm   ON staged_salary (status, farm_id);
-CREATE INDEX idx_staged_salary_due           ON staged_salary (status, next_retry_at);
+CREATE INDEX idx_staged_salary_status       ON staged_salary (status);
+CREATE INDEX idx_staged_salary_farm_id      ON staged_salary (farm_id);
+CREATE INDEX idx_staged_salary_status_farm  ON staged_salary (status, farm_id);
+CREATE INDEX idx_staged_salary_due          ON staged_salary (status, next_retry_at);
 
--- staged_crop_cycle
+-- ----- staged_crop_cycle -------------------------------------------
 CREATE TABLE staged_crop_cycle (
                                    id                    UUID          PRIMARY KEY,
                                    farm_id               UUID          NOT NULL,
@@ -158,6 +157,7 @@ CREATE TABLE staged_crop_cycle (
 
 CREATE INDEX idx_staged_crop_due ON staged_crop_cycle (status, next_retry_at);
 
+-- ----- consumer_processed_events -----------------------------------
 CREATE TABLE consumer_processed_events (
                                            event_id        UUID          PRIMARY KEY,
                                            consumer_group  VARCHAR(100)  NOT NULL,
