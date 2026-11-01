@@ -1,83 +1,74 @@
 package com.agriva.utils;
 
 import com.agriva.exception.BusinessException;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import com.agriva.exception.InvalidPersonnelStatusException;
+import com.agriva.model.dto.personnel.PersonnelStatusUpdateRequest;
+import com.agriva.model.dto.personnel.PersonnelUpdateRequest;
+import com.agriva.model.entity.Personnel;
+import com.agriva.model.entity.enums.Department;
+import com.agriva.model.entity.enums.PersonnelStatus;
+import com.agriva.repository.PersonnelRepository;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.util.HexFormat;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.Period;
 
 @Component
-@Slf4j
-public class PasswordValidator {
+@RequiredArgsConstructor
+public class PersonnelValidator {
 
-    private static final RestClient HIBP = RestClient.builder()
-            .baseUrl("https://api.pwnedpasswords.com")
-            .build();
+    private final PersonnelRepository personnelRepository;
 
-    @Value("${agriva.security.password.min-length:12}")
-    private int minLength;
-
-    @Value("${agriva.security.password.check-hibp:true}")
-    private boolean checkHibp;
-
-    @Value("${agriva.security.password.require-symbol:true}")
-    private boolean requireSymbol;
-
-    public void validatePasswordStrength(String password) {
-        if (password == null || password.length() < minLength) {
-            throw new BusinessException(
-                    "Password must be at least " + minLength + " characters long");
+    public void validateUpdate(Personnel p, PersonnelUpdateRequest req) {
+        if (req.getDateOfBirth() != null &&
+                Period.between(req.getDateOfBirth(), LocalDate.now()).getYears() < 18) {
+            throw new BusinessException("Personnel must be at least 18 years old");
         }
-
-        boolean hasUpper = false, hasLower = false, hasDigit = false, hasSymbol = false;
-        for (char c : password.toCharArray()) {
-            if (Character.isUpperCase(c))      hasUpper  = true;
-            else if (Character.isLowerCase(c)) hasLower  = true;
-            else if (Character.isDigit(c))     hasDigit  = true;
-            else                               hasSymbol = true;
-        }
-
-        StringBuilder missing = new StringBuilder();
-        if (!hasUpper)                    missing.append("uppercase, ");
-        if (!hasLower)                    missing.append("lowercase, ");
-        if (!hasDigit)                    missing.append("digit, ");
-        if (requireSymbol && !hasSymbol)  missing.append("symbol, ");
-        if (missing.length() > 0) {
-            String list = missing.substring(0, missing.length() - 2);
-            throw new BusinessException("Password must contain at least one " + list);
-        }
-
-        if (checkHibp && isPwned(password)) {
-            throw new BusinessException(
-                    "This password has appeared in a known data breach. Please choose a different one.");
+        if (req.getNationalId() != null
+                && !req.getNationalId().isBlank()
+                && !req.getNationalId().equals(p.getNationalId())
+                && personnelRepository.existsByFarmIdAndNationalIdAndIdNot(
+                p.getFarmId(), req.getNationalId(), p.getId())) {
+            throw new BusinessException("National ID already exists on this farm");
         }
     }
 
-    /** HIBP k-anonymity — only the first 5 chars of the SHA-1 leave the JVM. */
-    private boolean isPwned(String password) {
-        try {
-            byte[] hash = MessageDigest.getInstance("SHA-1")
-                    .digest(password.getBytes(StandardCharsets.UTF_8));
-            String sha1   = HexFormat.of().formatHex(hash).toUpperCase();
-            String prefix = sha1.substring(0, 5);
-            String suffix = sha1.substring(5);
+    public void validateStatusTransition(Personnel p, PersonnelStatus newStatus) {
+        if (p.getStatus() == PersonnelStatus.TERMINATED) {
+            throw new InvalidPersonnelStatusException(
+                    "Terminated personnel cannot be modified");
+        }
+        if (newStatus == PersonnelStatus.ON_LEAVE
+                && p.getDepartment() == Department.FARM_MANAGEMENT) {
+            throw new InvalidPersonnelStatusException("Farm managers cannot take leave");
+        }
+    }
 
-            String body = HIBP.get()
-                    .uri("/range/{prefix}", prefix)
-                    .retrieve()
-                    .body(String.class);
-
-            if (body == null) return false;
-            return body.lines()
-                    .map(l -> l.split(":", 2)[0])
-                    .anyMatch(suffix::equals);
-        } catch (Exception e) {
-            log.warn("HIBP check skipped (fail-open): {}", e.getMessage());
-            return false;
+    public void validateStatusPayload(PersonnelStatusUpdateRequest req) {
+        switch (req.getStatus()) {
+            case ON_LEAVE -> {
+                if (req.getLeaveStartDate() == null || req.getExpectedReturnDate() == null) {
+                    throw new BusinessException("Leave start and return dates are required");
+                }
+                if (req.getExpectedReturnDate().isBefore(req.getLeaveStartDate())) {
+                    throw new BusinessException("Return date must be after start date");
+                }
+                if (req.getExpectedReturnDate().isBefore(LocalDate.now())) {
+                    throw new BusinessException("Return date cannot be in the past");
+                }
+            }
+            case SUSPENDED -> {
+                Duration d = req.getSuspensionDuration();
+                if (d == null || d.isZero() || d.isNegative()) {
+                    throw new BusinessException("Suspension duration must be positive");
+                }
+                if (d.toDays() > 30) {
+                    throw new BusinessException("Suspension cannot exceed 30 days");
+                }
+            }
+            default -> { }
         }
     }
 }
