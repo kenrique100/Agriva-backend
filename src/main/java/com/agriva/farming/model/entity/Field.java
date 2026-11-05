@@ -18,7 +18,8 @@ import java.util.UUID;
 @AllArgsConstructor
 public class Field {
 
-    @Id @GeneratedValue(strategy = GenerationType.UUID)
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
     @Column(name = "farm_id", nullable = false)
@@ -34,9 +35,11 @@ public class Field {
     @Column(name = "soil_type", length = 50)
     private SoilType soilType;
 
-    @CreationTimestamp @Column(name = "created_at", updatable = false)
+    @CreationTimestamp
+    @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
-    @UpdateTimestamp @Column(name = "updated_at")
+    @UpdateTimestamp
+    @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 }

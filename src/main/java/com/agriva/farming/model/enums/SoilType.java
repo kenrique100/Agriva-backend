@@ -22,7 +22,9 @@ public enum SoilType {
 
     private final String displayName;
 
-    SoilType(String displayName) { this.displayName = displayName; }
+    SoilType(String displayName) {
+        this.displayName = displayName;
+    }
 
     /** Accepts both enum names and display names (case-insensitive). */
     public static SoilType fromString(String s) {

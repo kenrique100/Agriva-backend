@@ -50,11 +50,6 @@ public class SecurityConfig {
         this.requestIdFilter = requestIdFilter;
     }
 
-    // ------------------------------------------------------------------
-    // Disable Boot's auto-registration so each filter runs exactly ONCE
-    // (in the security chain) — fixes audit A4.
-    // ------------------------------------------------------------------
-
     @Bean
     public FilterRegistrationBean<RequestIdFilter> requestIdFilterRegistration(RequestIdFilter filter) {
         FilterRegistrationBean<RequestIdFilter> reg = new FilterRegistrationBean<>(filter);

@@ -1,4 +1,5 @@
 package com.agriva.farming.model.enums;
+
 public enum ActivityType {
     IRRIGATION,
     FERTILIZER,

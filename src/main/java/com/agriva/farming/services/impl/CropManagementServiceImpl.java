@@ -1,19 +1,19 @@
 package com.agriva.farming.services.impl;
 
+import com.agriva.farming.kafka.producer.CropCycleProducer;
+import com.agriva.farming.mapper.CropMapper;
 import com.agriva.farming.model.dto.requests.*;
 import com.agriva.farming.model.dto.response.*;
 import com.agriva.farming.model.entity.*;
-import com.agriva.farming.repository.*;
-import com.agriva.shared.exception.BusinessException;
-import com.agriva.shared.exception.ResourceNotFoundException;
-import com.agriva.farming.kafka.producer.CropCycleProducer;
-import com.agriva.farming.mapper.CropMapper;
 import com.agriva.farming.model.enums.CropCycleStatus;
 import com.agriva.farming.model.enums.StagedCropCycleStatus;
+import com.agriva.farming.repository.*;
 import com.agriva.farming.services.CropManagementService;
 import com.agriva.farming.utils.CropCycleExcelParser;
 import com.agriva.farming.utils.CropExcelParser;
 import com.agriva.farming.utils.FieldExcelParser;
+import com.agriva.shared.exception.BusinessException;
+import com.agriva.shared.exception.ResourceNotFoundException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -73,6 +73,31 @@ public class CropManagementServiceImpl implements CropManagementService {
 
     @Override
     @Transactional
+    public FieldResponse updateField(UUID id, FieldRequest req, UUID farmId) {
+        Field field = fieldRepo.findByIdAndFarmId(id, farmId)
+                .orElseThrow(() -> new ResourceNotFoundException("Field not found"));
+
+        if (!field.getName().equals(req.getName()) && fieldRepo.existsByFarmIdAndName(farmId, req.getName())) {
+            throw new BusinessException("Field with this name already exists");
+        }
+
+        field.setName(req.getName());
+        field.setSizeHectares(req.getSizeHectares());
+        field.setSoilType(req.getSoilType());
+        return mapper.toResponse(fieldRepo.save(field));
+    }
+
+    @Override
+    @Transactional
+    public void deleteField(UUID id, UUID farmId) {
+        Field field = fieldRepo.findByIdAndFarmId(id, farmId)
+                .orElseThrow(() -> new ResourceNotFoundException("Field not found"));
+        fieldRepo.delete(field);
+        log.info("Deleted field {} from farm {}", id, farmId);
+    }
+
+    @Override
+    @Transactional
     public CropBulkUploadResponse bulkUploadFields(MultipartFile file, UUID farmId) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("Excel file is required");
@@ -122,6 +147,27 @@ public class CropManagementServiceImpl implements CropManagementService {
                 .expectedDaysToHarvest(req.getExpectedDaysToHarvest())
                 .build();
         return mapper.toResponse(cropRepo.save(c));
+    }
+
+    @Override
+    @Transactional
+    public CropResponse updateCrop(UUID id, CropRequest req, UUID farmId) {
+        Crop crop = cropRepo.findByIdAndFarmId(id, farmId)
+                .orElseThrow(() -> new ResourceNotFoundException("Crop not found"));
+
+        crop.setName(req.getName());
+        crop.setVariety(req.getVariety());
+        crop.setExpectedDaysToHarvest(req.getExpectedDaysToHarvest());
+        return mapper.toResponse(cropRepo.save(crop));
+    }
+
+    @Override
+    @Transactional
+    public void deleteCrop(UUID id, UUID farmId) {
+        Crop crop = cropRepo.findByIdAndFarmId(id, farmId)
+                .orElseThrow(() -> new ResourceNotFoundException("Crop not found"));
+        cropRepo.delete(crop);
+        log.info("Deleted crop {} from farm {}", id, farmId);
     }
 
     @Override
@@ -292,7 +338,7 @@ public class CropManagementServiceImpl implements CropManagementService {
     @Override
     @Transactional(readOnly = true)
     public List<CropActivityResponse> getActivities(UUID cycleId, UUID farmId) {
-        loadCycle(cycleId, farmId);   // validates ownership + non-deletion
+        loadCycle(cycleId, farmId);
         return activityRepo.findByCropCycleIdOrderByActivityDateDesc(cycleId).stream()
                 .map(mapper::toResponse).collect(Collectors.toList());
     }
@@ -313,6 +359,52 @@ public class CropManagementServiceImpl implements CropManagementService {
 
     @Override
     @Transactional
+    public CropActivityResponse updateActivity(UUID cycleId, UUID activityId, CropActivityRequest req, UUID farmId) {
+        loadCycle(cycleId, farmId);
+
+        CropActivity activity = activityRepo.findById(activityId)
+                .orElseThrow(() -> new ResourceNotFoundException("Activity not found"));
+
+        if (!activity.getFarmId().equals(farmId) || !activity.getCropCycle().getId().equals(cycleId)) {
+            throw new ResourceNotFoundException("Activity not found for this cycle");
+        }
+
+        activity.setActivityType(req.getActivityType());
+        activity.setActivityDate(req.getActivityDate());
+        activity.setNotes(req.getNotes());
+        activity.setLinkedExpenseId(req.getLinkedExpenseId());
+        activity.setLinkedTaskId(req.getLinkedTaskId());
+
+        return mapper.toResponse(activityRepo.save(activity));
+    }
+
+    @Override
+    @Transactional
+    public void deleteActivity(UUID cycleId, UUID activityId, UUID farmId) {
+        loadCycle(cycleId, farmId);
+
+        CropActivity activity = activityRepo.findById(activityId)
+                .orElseThrow(() -> new ResourceNotFoundException("Activity not found"));
+
+        if (!activity.getFarmId().equals(farmId) || !activity.getCropCycle().getId().equals(cycleId)) {
+            throw new ResourceNotFoundException("Activity not found for this cycle");
+        }
+
+        activityRepo.delete(activity);
+        log.info("Deleted activity {} from cycle {}", activityId, cycleId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<HarvestResponse> getHarvests(UUID cycleId, UUID farmId) {
+        loadCycle(cycleId, farmId);
+        return harvestRepo.findByCropCycleId(cycleId).stream()
+                .map(mapper::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
     public HarvestResponse logHarvest(UUID cycleId, HarvestRequest req, UUID farmId) {
         CropCycle cycle = loadCycle(cycleId, farmId);
         Harvest harvest = Harvest.builder()
@@ -327,6 +419,43 @@ public class CropManagementServiceImpl implements CropManagementService {
         cycleRepo.save(cycle);
 
         return mapper.toResponse(harvestRepo.save(harvest));
+    }
+
+    @Override
+    @Transactional
+    public HarvestResponse updateHarvest(UUID cycleId, UUID harvestId, HarvestRequest req, UUID farmId) {
+        loadCycle(cycleId, farmId);
+
+        Harvest harvest = harvestRepo.findById(harvestId)
+                .orElseThrow(() -> new ResourceNotFoundException("Harvest not found"));
+
+        if (!harvest.getFarmId().equals(farmId) || !harvest.getCropCycle().getId().equals(cycleId)) {
+            throw new ResourceNotFoundException("Harvest not found for this cycle");
+        }
+
+        harvest.setHarvestDate(req.getHarvestDate());
+        harvest.setQuantity(req.getQuantity());
+        harvest.setUnit(req.getUnit());
+        harvest.setQualityGrade(req.getQualityGrade());
+        harvest.setLinkedIncomeId(req.getLinkedIncomeId());
+
+        return mapper.toResponse(harvestRepo.save(harvest));
+    }
+
+    @Override
+    @Transactional
+    public void deleteHarvest(UUID cycleId, UUID harvestId, UUID farmId) {
+        loadCycle(cycleId, farmId);
+
+        Harvest harvest = harvestRepo.findById(harvestId)
+                .orElseThrow(() -> new ResourceNotFoundException("Harvest not found"));
+
+        if (!harvest.getFarmId().equals(farmId) || !harvest.getCropCycle().getId().equals(cycleId)) {
+            throw new ResourceNotFoundException("Harvest not found for this cycle");
+        }
+
+        harvestRepo.delete(harvest);
+        log.info("Deleted harvest {} from cycle {}", harvestId, cycleId);
     }
 
     private CropCycle loadCycle(UUID id, UUID farmId) {

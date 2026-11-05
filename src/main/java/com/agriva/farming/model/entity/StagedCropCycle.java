@@ -3,12 +3,20 @@ package com.agriva.farming.model.entity;
 import com.agriva.farming.model.enums.StagedCropCycleStatus;
 import jakarta.persistence.*;
 import lombok.*;
+
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-@Entity @Table(name = "staged_crop_cycle") @Data @Builder @NoArgsConstructor @AllArgsConstructor
+@Entity
+@Table(name = "staged_crop_cycle")
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class StagedCropCycle {
-    @Id @Column(name = "id", nullable = false, updatable = false)
+
+    @Id
+    @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
 
     @Column(name = "farm_id", nullable = false)
@@ -17,7 +25,8 @@ public class StagedCropCycle {
     @Column(name = "payload_json", nullable = false, columnDefinition = "TEXT")
     private String payloadJson;
 
-    @Enumerated(EnumType.STRING) @Column(nullable = false, length = 20)
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
     private StagedCropCycleStatus status;
 
     @Column(name = "validation_errors", length = 2000)
@@ -44,6 +53,7 @@ public class StagedCropCycle {
     @Column(name = "moved_cycle_id")
     private UUID movedCycleId;
 
-    @Column(name = "retry_count", nullable = false) @Builder.Default
+    @Column(name = "retry_count", nullable = false)
+    @Builder.Default
     private Integer retryCount = 0;
 }

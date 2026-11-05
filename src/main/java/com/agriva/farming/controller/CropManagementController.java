@@ -2,10 +2,10 @@ package com.agriva.farming.controller;
 
 import com.agriva.farming.model.dto.requests.*;
 import com.agriva.farming.model.dto.response.*;
-import com.agriva.shared.models.dto.PageResponse;
 import com.agriva.farming.model.enums.CropCycleStatus;
-import com.agriva.shared.security.AuthenticatedUser;
 import com.agriva.farming.services.CropManagementService;
+import com.agriva.shared.models.dto.PageResponse;
+import com.agriva.shared.security.AuthenticatedUser;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
@@ -30,7 +30,6 @@ public class CropManagementController {
 
     private final CropManagementService cropService;
 
-    // ---------- Cycle status update DTO ----------
     public record CycleStatusUpdate(@NotNull CropCycleStatus status) {}
 
     @GetMapping("/fields")
@@ -45,6 +44,25 @@ public class CropManagementController {
             @Valid @RequestBody FieldRequest req) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(cropService.createField(req, u.farmId()));
+    }
+
+    @PutMapping("/fields/{id}")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<FieldResponse> updateField(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID id,
+            @Valid @RequestBody FieldRequest req) {
+        return ResponseEntity.ok(cropService.updateField(id, req, u.farmId()));
+    }
+
+    @DeleteMapping("/fields/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<Void> deleteField(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID id) {
+        cropService.deleteField(id, u.farmId());
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping(value = "/fields/bulk", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -68,6 +86,25 @@ public class CropManagementController {
             @Valid @RequestBody CropRequest req) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(cropService.createCrop(req, u.farmId()));
+    }
+
+    @PutMapping("/catalog/{id}")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<CropResponse> updateCrop(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID id,
+            @Valid @RequestBody CropRequest req) {
+        return ResponseEntity.ok(cropService.updateCrop(id, req, u.farmId()));
+    }
+
+    @DeleteMapping("/catalog/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<Void> deleteCrop(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID id) {
+        cropService.deleteCrop(id, u.farmId());
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping(value = "/catalog/bulk", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -100,9 +137,6 @@ public class CropManagementController {
                 .body(cropService.createCycle(req, u.farmId()));
     }
 
-    /**
-     * A2 fix: status update now uses @RequestBody (not query param).
-     */
     @PatchMapping("/cycles/{id}/status")
     @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<CropCycleResponse> updateStatus(
@@ -158,6 +192,32 @@ public class CropManagementController {
                 cropService.logActivity(id, req, u.farmId(), u.userId()));
     }
 
+    @PutMapping("/cycles/{cycleId}/activities/{activityId}")
+    public ResponseEntity<CropActivityResponse> updateActivity(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID cycleId,
+            @PathVariable UUID activityId,
+            @Valid @RequestBody CropActivityRequest req) {
+        return ResponseEntity.ok(cropService.updateActivity(cycleId, activityId, req, u.farmId()));
+    }
+
+    @DeleteMapping("/cycles/{cycleId}/activities/{activityId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public ResponseEntity<Void> deleteActivity(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID cycleId,
+            @PathVariable UUID activityId) {
+        cropService.deleteActivity(cycleId, activityId, u.farmId());
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/cycles/{cycleId}/harvests")
+    public ResponseEntity<List<HarvestResponse>> getHarvests(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID cycleId) {
+        return ResponseEntity.ok(cropService.getHarvests(cycleId, u.farmId()));
+    }
+
     @PostMapping("/cycles/{id}/harvest")
     @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<HarvestResponse> logHarvest(
@@ -166,6 +226,27 @@ public class CropManagementController {
             @Valid @RequestBody HarvestRequest req) {
         return ResponseEntity.status(HttpStatus.CREATED).body(
                 cropService.logHarvest(id, req, u.farmId()));
+    }
+
+    @PutMapping("/cycles/{cycleId}/harvests/{harvestId}")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<HarvestResponse> updateHarvest(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID cycleId,
+            @PathVariable UUID harvestId,
+            @Valid @RequestBody HarvestRequest req) {
+        return ResponseEntity.ok(cropService.updateHarvest(cycleId, harvestId, req, u.farmId()));
+    }
+
+    @DeleteMapping("/cycles/{cycleId}/harvests/{harvestId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<Void> deleteHarvest(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID cycleId,
+            @PathVariable UUID harvestId) {
+        cropService.deleteHarvest(cycleId, harvestId, u.farmId());
+        return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/cycles/{id}")

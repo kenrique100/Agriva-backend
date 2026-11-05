@@ -13,12 +13,12 @@ import java.util.List;
 
 /**
  * Caffeine-backed in-process cache.
- *
+ * <p>
  * Different TTL per cache:
  *   - reference data (farm / user / crops / fields): 5–15 min
  *   - volatile aggregates (dashboardTotals): 30 s
  *   - activeInvestment: 30 s + explicit eviction on activate/deactivate
- *
+ * <p>
  * Cache size is bounded at 100 000 entries total. For 1 M users this
  * is more than enough — the working set of "currently active farms" is
  * always a small fraction of the total.

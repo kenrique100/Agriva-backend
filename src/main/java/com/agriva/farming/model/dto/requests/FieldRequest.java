@@ -8,7 +8,8 @@ import java.math.BigDecimal;
 
 @Data
 public class FieldRequest {
-    @NotBlank private String name;
+    @NotBlank
+    private String name;
     private BigDecimal sizeHectares;
     private SoilType soilType;
 }
