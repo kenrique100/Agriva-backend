@@ -1,24 +1,34 @@
 package com.agriva.personnel;
 
 import com.agriva.TestcontainersConfiguration;
-import com.agriva.exception.NoActiveInvestmentException;
-import com.agriva.model.dto.auth.AuthResponse;
-import com.agriva.model.dto.auth.MasterRegisterRequest;
-import com.agriva.model.dto.auth.SubUserRegisterRequest;
-import com.agriva.model.dto.investment.InvestmentRequest;
-import com.agriva.model.dto.investment.InvestmentResponse;
-import com.agriva.model.dto.salary.SalaryPaymentRequest;
-import com.agriva.model.dto.salary.SalaryPaymentResponse;
-import com.agriva.model.dto.salary.SalaryReceiptResponse;
-import com.agriva.model.entity.*;
-import com.agriva.model.entity.enums.Currency;
-import com.agriva.model.entity.enums.ExpenseCategory;
-import com.agriva.model.entity.enums.Gender;
-import com.agriva.model.entity.enums.SalaryPaymentStatus;
-import com.agriva.repository.*;
-import com.agriva.service.AuthService;
-import com.agriva.service.InvestmentService;
-import com.agriva.service.SalaryService;
+import com.agriva.farming.repository.FarmRepository;
+import com.agriva.finance.model.entity.Expense;
+import com.agriva.finance.repository.ExpenseRepository;
+import com.agriva.finance.repository.IncomeRepository;
+import com.agriva.finance.repository.InvestmentRepository;
+import com.agriva.finance.repository.TransactionRepository;
+import com.agriva.identity.repository.AuthRepository;
+import com.agriva.payroll.repository.SalaryPaymentRepository;
+import com.agriva.personnel.repository.PersonnelRepository;
+import com.agriva.personnel.repository.PersonnelStatusHistoryRepository;
+import com.agriva.shared.exception.InvestmentLimitExceededException;
+import com.agriva.shared.exception.NoActiveInvestmentException;
+import com.agriva.identity.models.dto.response.AuthResponse;
+import com.agriva.identity.models.dto.request.MasterRegisterRequest;
+import com.agriva.identity.models.dto.request.SubUserRegisterRequest;
+import com.agriva.finance.model.dto.request.InvestmentRequest;
+import com.agriva.finance.model.dto.response.InvestmentResponse;
+import com.agriva.payroll.model.dto.requests.SalaryPaymentRequest;
+import com.agriva.payroll.model.dto.response.SalaryPaymentResponse;
+import com.agriva.payroll.model.dto.response.SalaryReceiptResponse;
+import com.agriva.shared.models.enums.Currency;
+import com.agriva.finance.model.enums.ExpenseCategory;
+import com.agriva.personnel.models.enums.Gender;
+import com.agriva.payroll.model.enums.SalaryPaymentStatus;
+import com.agriva.identity.service.AuthService;
+import com.agriva.finance.service.InvestmentService;
+import com.agriva.payroll.service.SalaryService;
+import com.agriva.task.repository.TaskRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,16 +51,26 @@ class SalaryPaymentIT {
     @Autowired SalaryService salaryService;
     @Autowired InvestmentService investmentService;
     @Autowired AuthService authService;
-    @Autowired PersonnelRepository personnelRepository;
-    @Autowired PersonnelStatusHistoryRepository historyRepository;
-    @Autowired TaskRepository taskRepository;
-    @Autowired SalaryPaymentRepository salaryRepository;
-    @Autowired ExpenseRepository expenseRepository;
-    @Autowired InvestmentRepository investmentRepository;
-    @Autowired IncomeRepository incomeRepository;
-    @Autowired TransactionRepository transactionRepository;
-    @Autowired AuthRepository authRepository;
-    @Autowired FarmRepository farmRepository;
+    @Autowired
+    PersonnelRepository personnelRepository;
+    @Autowired
+    PersonnelStatusHistoryRepository historyRepository;
+    @Autowired
+    TaskRepository taskRepository;
+    @Autowired
+    SalaryPaymentRepository salaryRepository;
+    @Autowired
+    ExpenseRepository expenseRepository;
+    @Autowired
+    InvestmentRepository investmentRepository;
+    @Autowired
+    IncomeRepository incomeRepository;
+    @Autowired
+    TransactionRepository transactionRepository;
+    @Autowired
+    AuthRepository authRepository;
+    @Autowired
+    FarmRepository farmRepository;
 
     UUID farmId;
     UUID masterUserId;
@@ -144,7 +164,7 @@ class SalaryPaymentIT {
         req.setPaymentDate(LocalDate.now());
 
         assertThatThrownBy(() -> salaryService.create(req, farmId, masterUserId))
-                .isInstanceOf(com.agriva.exception.InvestmentLimitExceededException.class);
+                .isInstanceOf(InvestmentLimitExceededException.class);
 
         assertThat(salaryRepository.count()).isZero();
         assertThat(expenseRepository.count()).isZero();
@@ -166,7 +186,7 @@ class SalaryPaymentIT {
         third.setPaymentDate(LocalDate.now());
 
         assertThatThrownBy(() -> salaryService.create(third, farmId, masterUserId))
-                .isInstanceOf(com.agriva.exception.InvestmentLimitExceededException.class);
+                .isInstanceOf(InvestmentLimitExceededException.class);
     }
 
     @Test

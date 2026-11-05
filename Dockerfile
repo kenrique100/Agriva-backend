@@ -1,7 +1,8 @@
 FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
 
-RUN apt-get update && \
+# Disable all date checks to bypass the "Release file is not valid yet" error
+RUN apt-get -o Acquire::Check-Date=false update && \
     apt-get install -y --no-install-recommends wget && \
     rm -rf /var/lib/apt/lists/*
 

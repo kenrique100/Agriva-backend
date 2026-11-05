@@ -1,15 +1,19 @@
 package com.agriva.dashboard;
 
 import com.agriva.TestcontainersConfiguration;
-import com.agriva.model.dto.auth.*;
-import com.agriva.model.dto.dashboard.DashboardResponse;
-import com.agriva.model.dto.investment.InvestmentRequest;
-import com.agriva.model.entity.enums.Currency;
-import com.agriva.model.entity.enums.Gender;
-import com.agriva.repository.*;
-import com.agriva.service.AuthService;
-import com.agriva.service.DashboardService;
-import com.agriva.service.InvestmentService;
+import com.agriva.farming.repository.FarmRepository;
+import com.agriva.finance.repository.InvestmentRepository;
+import com.agriva.identity.models.dto.request.MasterRegisterRequest;
+import com.agriva.identity.models.dto.request.SubUserRegisterRequest;
+import com.agriva.identity.models.dto.response.AuthResponse;
+import com.agriva.identity.repository.AuthRepository;
+import com.agriva.dashboard.model.DashboardResponse;
+import com.agriva.finance.model.dto.request.InvestmentRequest;
+import com.agriva.shared.models.enums.Currency;
+import com.agriva.personnel.models.enums.Gender;
+import com.agriva.identity.service.AuthService;
+import com.agriva.dashboard.service.DashboardService;
+import com.agriva.finance.service.InvestmentService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,9 +35,12 @@ class DashboardServiceIT {
     @Autowired DashboardService dashboardService;
     @Autowired AuthService authService;
     @Autowired InvestmentService investmentService;
-    @Autowired AuthRepository authRepository;
-    @Autowired FarmRepository farmRepository;
-    @Autowired InvestmentRepository investmentRepo;
+    @Autowired
+    AuthRepository authRepository;
+    @Autowired
+    FarmRepository farmRepository;
+    @Autowired
+    InvestmentRepository investmentRepo;
 
     UUID farmId;
     UUID masterId;

@@ -1,11 +1,15 @@
 package com.agriva.security;
 
 import com.agriva.TestcontainersConfiguration;
-import com.agriva.model.dto.auth.AuthResponse;
-import com.agriva.model.dto.auth.LoginRequest;
-import com.agriva.model.dto.auth.MasterRegisterRequest;
-import com.agriva.model.entity.enums.Gender;
-import com.agriva.service.AuthService;
+import com.agriva.farming.repository.FarmRepository;
+import com.agriva.identity.models.dto.response.AuthResponse;
+import com.agriva.identity.models.dto.request.LoginRequest;
+import com.agriva.identity.models.dto.request.MasterRegisterRequest;
+import com.agriva.identity.repository.AuthRepository;
+import com.agriva.personnel.models.enums.Gender;
+import com.agriva.identity.service.AuthService;
+import com.agriva.personnel.repository.PersonnelRepository;
+import com.agriva.personnel.repository.PersonnelStatusHistoryRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,10 +35,14 @@ class JwtSessionIT {
 
     @Autowired AuthService authService;
     @Autowired ObjectMapper objectMapper;
-    @Autowired com.agriva.repository.AuthRepository authRepository;
-    @Autowired com.agriva.repository.FarmRepository farmRepository;
-    @Autowired com.agriva.repository.PersonnelRepository personnelRepository;
-    @Autowired com.agriva.repository.PersonnelStatusHistoryRepository historyRepository;
+    @Autowired
+    AuthRepository authRepository;
+    @Autowired
+    FarmRepository farmRepository;
+    @Autowired
+    PersonnelRepository personnelRepository;
+    @Autowired
+    PersonnelStatusHistoryRepository historyRepository;
 
     @BeforeEach
     void setUp() {

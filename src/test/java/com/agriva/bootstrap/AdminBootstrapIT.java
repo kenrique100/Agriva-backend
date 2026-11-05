@@ -1,11 +1,11 @@
 package com.agriva.bootstrap;
 
 import com.agriva.TestcontainersConfiguration;
-import com.agriva.model.entity.User;
-import com.agriva.repository.AuthRepository;
-import com.agriva.repository.FarmRepository;
-import com.agriva.security.RoleConstants;
-import com.agriva.service.impl.AdminBootstrapService;
+import com.agriva.identity.models.entity.User;
+import com.agriva.identity.repository.AuthRepository;
+import com.agriva.farming.repository.FarmRepository;
+import com.agriva.shared.security.RoleConstants;
+import com.agriva.identity.service.impl.AdminBootstrapService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
