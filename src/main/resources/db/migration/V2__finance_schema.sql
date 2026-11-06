@@ -1,4 +1,3 @@
-
 CREATE TABLE transactions (
                               id                 UUID PRIMARY KEY,
                               farm_id            UUID         NOT NULL,
@@ -25,31 +24,28 @@ CREATE TABLE transactions (
 CREATE INDEX idx_transactions_farm     ON transactions (farm_id);
 CREATE INDEX idx_transactions_occurred ON transactions (occurred_at);
 CREATE INDEX idx_transactions_status   ON transactions (status);
-
 CREATE UNIQUE INDEX ux_transactions_farm_ref
-    ON transactions (farm_id, transaction_ref)
-    WHERE deleted_at IS NULL;
+    ON transactions (farm_id, transaction_ref) WHERE deleted_at IS NULL;
 
--- ----- investment --------------------------------------------------
 CREATE TABLE investment (
                             id                 UUID PRIMARY KEY,
-                            farm_id            UUID            NOT NULL,
+                            farm_id            UUID          NOT NULL,
                             transaction_id     UUID,
-                            amount             NUMERIC(19,4)   NOT NULL,
-                            currency           VARCHAR(3)      NOT NULL DEFAULT 'USD',
-                            investor_name      VARCHAR(100)    NOT NULL,
+                            amount             NUMERIC(19,4) NOT NULL,
+                            currency           VARCHAR(3)    NOT NULL DEFAULT 'USD',
+                            investor_name      VARCHAR(100)  NOT NULL,
                             type               VARCHAR(50),
                             description        VARCHAR(500),
-                            investment_date    DATE            NOT NULL,
+                            investment_date    DATE          NOT NULL,
                             created_by_user_id UUID,
-                            active             BOOLEAN         NOT NULL DEFAULT FALSE,
+                            active             BOOLEAN       NOT NULL DEFAULT FALSE,
                             activated_at       TIMESTAMP,
                             deleted_at         TIMESTAMPTZ,
                             created_by         VARCHAR(50),
                             updated_by         VARCHAR(50),
-                            created_at         TIMESTAMP       NOT NULL DEFAULT NOW(),
-                            updated_at         TIMESTAMP       NOT NULL DEFAULT NOW(),
-                            version            BIGINT          NOT NULL DEFAULT 0,
+                            created_at         TIMESTAMP     NOT NULL DEFAULT NOW(),
+                            updated_at         TIMESTAMP     NOT NULL DEFAULT NOW(),
+                            version            BIGINT        NOT NULL DEFAULT 0,
 
                             CONSTRAINT fk_investment_farm
                                 FOREIGN KEY (farm_id) REFERENCES farms (id) ON DELETE CASCADE,
@@ -63,40 +59,37 @@ CREATE TABLE investment (
                                 CHECK (amount > 0)
 );
 
-CREATE INDEX idx_investment_farm_id          ON investment (farm_id);
-CREATE INDEX idx_investment_investment_date  ON investment (investment_date);
-CREATE INDEX idx_investment_farm_date        ON investment (farm_id, investment_date);
-CREATE INDEX idx_investment_creator          ON investment (created_by_user_id);
-CREATE INDEX idx_investment_transaction      ON investment (transaction_id);
-
+CREATE INDEX idx_investment_farm_id         ON investment (farm_id);
+CREATE INDEX idx_investment_investment_date ON investment (investment_date);
+CREATE INDEX idx_investment_farm_date       ON investment (farm_id, investment_date);
+CREATE INDEX idx_investment_creator         ON investment (created_by_user_id);
+CREATE INDEX idx_investment_transaction     ON investment (transaction_id);
 CREATE UNIQUE INDEX uq_investment_one_active_per_farm
     ON investment (farm_id) WHERE active = TRUE;
-
 CREATE INDEX idx_investment_active
     ON investment (farm_id) WHERE active = TRUE AND deleted_at IS NULL;
 
--- ----- expense -----------------------------------------------------
 CREATE TABLE expense (
                          id                 UUID PRIMARY KEY,
-                         farm_id            UUID            NOT NULL,
+                         farm_id            UUID          NOT NULL,
                          transaction_id     UUID,
                          investment_id      UUID,
-                         reason             VARCHAR(255)    NOT NULL,
-                         expense_date       DATE            NOT NULL,
-                         qty_purchased      INT             NOT NULL DEFAULT 1,
-                         amount_paid        NUMERIC(19,4)   NOT NULL,
-                         expected_amount    NUMERIC(19,4)   NOT NULL DEFAULT 0,
-                         due_balance        NUMERIC(19,4)   NOT NULL DEFAULT 0,
+                         reason             VARCHAR(255)  NOT NULL,
+                         expense_date       DATE          NOT NULL,
+                         qty_purchased      INT           NOT NULL DEFAULT 1,
+                         amount_paid        NUMERIC(19,4) NOT NULL,
+                         expected_amount    NUMERIC(19,4) NOT NULL DEFAULT 0,
+                         due_balance        NUMERIC(19,4) NOT NULL DEFAULT 0,
                          receipt            VARCHAR(255),
                          created_by_user_id UUID,
-                         currency           VARCHAR(3)      NOT NULL DEFAULT 'XAF',
-                         category           VARCHAR(50)     NOT NULL,
+                         currency           VARCHAR(3)    NOT NULL DEFAULT 'XAF',
+                         category           VARCHAR(50)   NOT NULL,
                          deleted_at         TIMESTAMPTZ,
                          created_by         VARCHAR(50),
                          updated_by         VARCHAR(50),
-                         created_at         TIMESTAMP       NOT NULL DEFAULT NOW(),
-                         updated_at         TIMESTAMP       NOT NULL DEFAULT NOW(),
-                         version            BIGINT          NOT NULL DEFAULT 0,
+                         created_at         TIMESTAMP     NOT NULL DEFAULT NOW(),
+                         updated_at         TIMESTAMP     NOT NULL DEFAULT NOW(),
+                         version            BIGINT        NOT NULL DEFAULT 0,
 
                          CONSTRAINT fk_expense_farm
                              FOREIGN KEY (farm_id) REFERENCES farms (id) ON DELETE CASCADE,
@@ -112,34 +105,33 @@ CREATE TABLE expense (
                              CHECK (amount_paid > 0)
 );
 
-CREATE INDEX idx_expense_farm_id        ON expense (farm_id);
-CREATE INDEX idx_expense_expense_date   ON expense (expense_date);
-CREATE INDEX idx_expense_farm_date      ON expense (farm_id, expense_date);
-CREATE INDEX idx_expense_creator        ON expense (created_by_user_id);
-CREATE INDEX idx_expense_transaction    ON expense (transaction_id);
-CREATE INDEX idx_expense_investment_id  ON expense (investment_id);
+CREATE INDEX idx_expense_farm_id       ON expense (farm_id);
+CREATE INDEX idx_expense_expense_date  ON expense (expense_date);
+CREATE INDEX idx_expense_farm_date     ON expense (farm_id, expense_date);
+CREATE INDEX idx_expense_creator       ON expense (created_by_user_id);
+CREATE INDEX idx_expense_transaction   ON expense (transaction_id);
+CREATE INDEX idx_expense_investment_id ON expense (investment_id);
 
--- ----- income ------------------------------------------------------
 CREATE TABLE income (
                         id                 UUID PRIMARY KEY,
-                        farm_id            UUID            NOT NULL,
+                        farm_id            UUID          NOT NULL,
                         transaction_id     UUID,
-                        reason             VARCHAR(255)    NOT NULL,
-                        income_date        DATE            NOT NULL,
-                        quantity           INT             NOT NULL DEFAULT 1,
-                        amount_received    NUMERIC(19,4)   NOT NULL,
-                        expected_amount    NUMERIC(19,4)   NOT NULL DEFAULT 0,
-                        due_balance        NUMERIC(19,4)   NOT NULL DEFAULT 0,
+                        reason             VARCHAR(255)  NOT NULL,
+                        income_date        DATE          NOT NULL,
+                        quantity           INT           NOT NULL DEFAULT 1,
+                        amount_received    NUMERIC(19,4) NOT NULL,
+                        expected_amount    NUMERIC(19,4) NOT NULL DEFAULT 0,
+                        due_balance        NUMERIC(19,4) NOT NULL DEFAULT 0,
                         receipt            VARCHAR(255),
                         created_by_user_id UUID,
-                        currency           VARCHAR(3)      NOT NULL DEFAULT 'XAF',
-                        category           VARCHAR(50)     NOT NULL,
+                        currency           VARCHAR(3)    NOT NULL DEFAULT 'XAF',
+                        category           VARCHAR(50)   NOT NULL,
                         deleted_at         TIMESTAMPTZ,
                         created_by         VARCHAR(50),
                         updated_by         VARCHAR(50),
-                        created_at         TIMESTAMP       NOT NULL DEFAULT NOW(),
-                        updated_at         TIMESTAMP       NOT NULL DEFAULT NOW(),
-                        version            BIGINT          NOT NULL DEFAULT 0,
+                        created_at         TIMESTAMP     NOT NULL DEFAULT NOW(),
+                        updated_at         TIMESTAMP     NOT NULL DEFAULT NOW(),
+                        version            BIGINT        NOT NULL DEFAULT 0,
 
                         CONSTRAINT fk_income_farm
                             FOREIGN KEY (farm_id) REFERENCES farms (id) ON DELETE CASCADE,
@@ -159,18 +151,17 @@ CREATE INDEX idx_income_farm_date   ON income (farm_id, income_date);
 CREATE INDEX idx_income_creator     ON income (created_by_user_id);
 CREATE INDEX idx_income_transaction ON income (transaction_id);
 
--- ----- salary_payments ---------------------------------------------
 CREATE TABLE salary_payments (
                                  id                 UUID PRIMARY KEY,
-                                 farm_id            UUID            NOT NULL,
-                                 personnel_id       UUID            NOT NULL,
-                                 amount             NUMERIC(19,4)   NOT NULL,
-                                 payment_date       DATE            NOT NULL,
-                                 status             VARCHAR(20)     NOT NULL DEFAULT 'PROCESSED',
-                                 payment_reference  VARCHAR(50)     NOT NULL,
+                                 farm_id            UUID          NOT NULL,
+                                 personnel_id       UUID          NOT NULL,
+                                 amount             NUMERIC(19,4) NOT NULL,
+                                 payment_date       DATE          NOT NULL,
+                                 status             VARCHAR(20)   NOT NULL DEFAULT 'PROCESSED',
+                                 payment_reference  VARCHAR(50)   NOT NULL,
                                  expense_id         UUID,
                                  paid_by_user_id    UUID,
-                                 created_at         TIMESTAMP       NOT NULL DEFAULT NOW(),
+                                 created_at         TIMESTAMP     NOT NULL DEFAULT NOW(),
 
                                  CONSTRAINT fk_sp_farm
                                      FOREIGN KEY (farm_id) REFERENCES farms (id) ON DELETE CASCADE,
@@ -191,11 +182,3 @@ CREATE INDEX idx_sp_farm      ON salary_payments (farm_id);
 CREATE INDEX idx_sp_personnel ON salary_payments (personnel_id);
 CREATE INDEX idx_sp_date      ON salary_payments (payment_date);
 CREATE INDEX idx_sp_expense   ON salary_payments (expense_id);
-
--- ----- per-creator partial indexes (dashboards) -------------------
-CREATE INDEX idx_income_creator_live
-    ON income (farm_id, created_by_user_id) WHERE deleted_at IS NULL;
-CREATE INDEX idx_expense_creator_live
-    ON expense (farm_id, created_by_user_id) WHERE deleted_at IS NULL;
-CREATE INDEX idx_investment_creator_live
-    ON investment (farm_id, created_by_user_id) WHERE deleted_at IS NULL;
