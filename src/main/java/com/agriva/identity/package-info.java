@@ -1,5 +1,5 @@
 @org.springframework.modulith.ApplicationModule(
         displayName = "Identity",
-        allowedDependencies = {"shared"}
+        type = org.springframework.modulith.ApplicationModule.Type.OPEN
 )
 package com.agriva.identity;

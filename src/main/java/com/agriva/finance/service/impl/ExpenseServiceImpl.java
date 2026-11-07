@@ -23,6 +23,7 @@ import com.agriva.finance.repository.ExpenseRepository;
 import com.agriva.finance.repository.InvestmentRepository;
 import com.agriva.finance.repository.StagedExpenseRepository;
 import com.agriva.finance.service.ExpenseService;
+import com.agriva.shared.models.ref.UserRef;
 import com.agriva.shared.utils.CursorCodec;
 import com.agriva.finance.utils.ExpenseExcelParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -151,7 +152,7 @@ public class ExpenseServiceImpl implements ExpenseService {
     @Transactional(readOnly = true)
     public Page<ExpenseResponse> listExpenses(UUID farmId, Pageable pageable) {
         Page<Expense> page = expenseRepo.findByFarmIdLive(farmId, pageable);
-        Map<UUID, User> userById = lookupUsers(page.getContent());
+        Map<UUID, UserRef> userById = lookupUsers(page.getContent());
         return page.map(e -> mapper.toResponse(e, userById));
     }
 
@@ -169,7 +170,6 @@ public class ExpenseServiceImpl implements ExpenseService {
         Expense expense = expenseRepo.findByIdAndFarmIdLive(id, farmId)
                 .orElseThrow(() -> new ExpenseNotFoundException("Expense not found with ID: " + id));
 
-        // Duplicate guard
         if (expenseRepo.existsByFarmIdAndAmountPaidAndExpenseDateAndReasonLive(
                 farmId, request.getAmountPaid(), request.getExpenseDate(), request.getReason())
                 && !(expense.getAmountPaid().compareTo(request.getAmountPaid()) == 0
@@ -179,7 +179,6 @@ public class ExpenseServiceImpl implements ExpenseService {
                     "Another expense with the same amount, date and reason already exists");
         }
 
-        // Budget guard
         if (expense.getInvestmentId() != null) {
             Investment investment = investmentRepo.findById(expense.getInvestmentId()).orElse(null);
             if (investment != null) {
@@ -252,14 +251,20 @@ public class ExpenseServiceImpl implements ExpenseService {
         }
     }
 
-    private Map<UUID, User> lookupUsers(List<Expense> expenses) {
+    private Map<UUID, UserRef> lookupUsers(List<Expense> expenses) {
         Set<UUID> userIds = expenses.stream()
                 .map(Expense::getCreatedByUserId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
         if (userIds.isEmpty()) return Map.of();
         return authRepository.findAllById(userIds).stream()
-                .collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+                .collect(Collectors.toMap(
+                        User::getId,
+                        u -> new UserRef(
+                                u.getId(), u.getEmail(), u.getUsername(),
+                                u.getRole(), u.getFarmId(),
+                                u.getCreatedAt(), u.getUpdatedAt()),
+                        (a, b) -> a));
     }
 
     @Override
@@ -283,7 +288,7 @@ public class ExpenseServiceImpl implements ExpenseService {
         boolean hasNext = rows.size() > cappedSize;
         List<Expense> page = hasNext ? rows.subList(0, cappedSize) : rows;
 
-        Map<UUID, User> userById = lookupUsers(page);
+        Map<UUID, UserRef> userById = lookupUsers(page);
         List<ExpenseResponse> dtos = page.stream()
                 .map(e -> mapper.toResponse(e, userById))
                 .toList();

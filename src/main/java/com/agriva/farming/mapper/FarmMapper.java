@@ -3,7 +3,7 @@ package com.agriva.farming.mapper;
 import com.agriva.farming.model.dto.response.FarmDetailsResponse;
 import com.agriva.farming.model.dto.response.FarmListResponse;
 import com.agriva.farming.model.entity.Farm;
-import com.agriva.identity.models.entity.User;
+import com.agriva.shared.models.ref.UserRef;
 import com.agriva.shared.security.RoleConstants;
 import org.springframework.stereotype.Component;
 
@@ -17,20 +17,20 @@ import java.util.UUID;
 public class FarmMapper {
 
     public FarmDetailsResponse toDetails(Farm farm,
-                                         List<User> users,
+                                         List<UserRef> users,
                                          FarmTotals totals,
                                          Map<UUID, UserActivity> activityByUser) {
 
         int masters = 0;
         int subUsers = 0;
-        for (User u : users) {
-            if (RoleConstants.MASTER.equals(u.getRole())) masters++;
-            else if (RoleConstants.SUB_USER.equals(u.getRole())) subUsers++;
+        for (UserRef u : users) {
+            if (RoleConstants.MASTER.equals(u.role())) masters++;
+            else if (RoleConstants.SUB_USER.equals(u.role())) subUsers++;
         }
 
         List<FarmDetailsResponse.FarmUser> userViews = new ArrayList<>();
-        for (User u : users) {
-            UserActivity activity = activityByUser == null ? null : activityByUser.get(u.getId());
+        for (UserRef u : users) {
+            UserActivity activity = activityByUser == null ? null : activityByUser.get(u.id());
 
             FarmDetailsResponse.UserActivity activityDto = activity == null ? null
                     : FarmDetailsResponse.UserActivity.builder()
@@ -46,12 +46,12 @@ public class FarmMapper {
                       .build();
 
             userViews.add(FarmDetailsResponse.FarmUser.builder()
-                    .userId(u.getId())
-                    .email(u.getEmail())
-                    .username(u.getUsername())
-                    .role(u.getRole())
-                    .createdAt(u.getCreatedAt())
-                    .updatedAt(u.getUpdatedAt())
+                    .userId(u.id())
+                    .email(u.email())
+                    .username(u.username())
+                    .role(u.role())
+                    .createdAt(u.createdAt())
+                    .updatedAt(u.updatedAt())
                     .activitySummary(activityDto)
                     .build());
         }

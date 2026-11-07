@@ -1,14 +1,12 @@
 package com.agriva.payroll.utils;
 
-import com.agriva.shared.exception.ExcelProcessingException;
 import com.agriva.payroll.model.dto.requests.SalaryPaymentRequest;
-import com.agriva.personnel.models.entity.Personnel;
-import com.agriva.personnel.repository.PersonnelRepository;
+import com.agriva.shared.port.PersonnelLookupPort;
 import com.agriva.shared.utils.ExcelCellReader;
+import com.agriva.shared.exception.ExcelProcessingException;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
 import java.io.InputStream;
@@ -19,18 +17,15 @@ import java.util.*;
 public class SalaryExcelParser {
 
     private static final int HEADER_ROW = 0;
-
-    private final PersonnelRepository personnelRepo;
+    private final PersonnelLookupPort personnelLookupPort;
 
     public List<ParsedRow> parse(InputStream in, UUID farmId) {
         List<ParsedRow> rows = new ArrayList<>();
         DataFormatter fmt = new DataFormatter();
 
-        // Preload email -> personnel for this farm (Live only).
-        Map<String, Personnel> byEmail = new HashMap<>();
-        for (Personnel p : personnelRepo.findByFarmIdLive(farmId, Pageable.unpaged())
-                .getContent()) {
-            if (p.getEmail() != null) byEmail.put(p.getEmail().toLowerCase(), p);
+        Map<String, PersonnelLookupPort.PersonnelInfo> byEmail = new HashMap<>();
+        for (PersonnelLookupPort.PersonnelInfo p : personnelLookupPort.findAllByFarmId(farmId)) {
+            if (p.email() != null) byEmail.put(p.email().toLowerCase(), p);
         }
 
         try (Workbook wb = new XSSFWorkbook(in)) {
@@ -53,8 +48,7 @@ public class SalaryExcelParser {
 
             for (int r = HEADER_ROW + 1; r <= sheet.getLastRowNum(); r++) {
                 Row row = sheet.getRow(r);
-                if (row == null || ExcelCellReader.isEmptyRow(row, header.getLastCellNum()))
-                    continue;
+                if (row == null || ExcelCellReader.isEmptyRow(row, header.getLastCellNum())) continue;
                 int rowNum = r + 1;
                 try {
                     SalaryPaymentRequest req = new SalaryPaymentRequest();
@@ -62,10 +56,10 @@ public class SalaryExcelParser {
                             getCell(row, colMap, "personnel_email"));
                     if (email == null || email.isBlank())
                         throw new ExcelProcessingException("personnel_email is required");
-                    Personnel p = byEmail.get(email.trim().toLowerCase());
+                    PersonnelLookupPort.PersonnelInfo p = byEmail.get(email.trim().toLowerCase());
                     if (p == null)
                         throw new ExcelProcessingException("Personnel not found: " + email);
-                    req.setPersonnelId(p.getId());
+                    req.setPersonnelId(p.id());
                     req.setAmount(ExcelCellReader.readBigDecimal(
                             getCell(row, colMap, "amount"), "Amount"));
                     req.setPaymentDate(ExcelCellReader.readDate(

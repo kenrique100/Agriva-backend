@@ -58,7 +58,6 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        // read iat from the claim (fixes audit A10)
         Date issuedAt = jwtUtil.extractIssuedAt(token);
         if (issuedAt == null) {
             filterChain.doFilter(request, response);

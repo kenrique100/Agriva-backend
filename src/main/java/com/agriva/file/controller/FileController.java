@@ -1,8 +1,6 @@
 package com.agriva.file.controller;
 
-import com.agriva.finance.repository.ExpenseRepository;
-import com.agriva.finance.repository.IncomeRepository;
-import com.agriva.personnel.repository.PersonnelRepository;
+import com.agriva.shared.port.FileOwnershipPort;
 import com.agriva.shared.security.AuthenticatedUser;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,6 +15,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -25,19 +24,13 @@ import java.util.UUID;
 public class FileController {
 
     private final Path fileStorageLocation;
-    private final IncomeRepository incomeRepo;
-    private final ExpenseRepository expenseRepo;
-    private final PersonnelRepository personnelRepo;
+    private final List<FileOwnershipPort> ownershipPorts;
 
     public FileController(
             @Value("${agriva.uploads.dir}") String uploadDir,
-            IncomeRepository incomeRepo,
-            ExpenseRepository expenseRepo,
-            PersonnelRepository personnelRepo) {
+            List<FileOwnershipPort> ownershipPorts) {
         this.fileStorageLocation = Paths.get(uploadDir).toAbsolutePath().normalize();
-        this.incomeRepo = incomeRepo;
-        this.expenseRepo = expenseRepo;
-        this.personnelRepo = personnelRepo;
+        this.ownershipPorts = ownershipPorts;
     }
 
     @GetMapping("/{fileName:.+}")
@@ -53,8 +46,6 @@ public class FileController {
         try {
             Path filePath = this.fileStorageLocation.resolve(fileName).normalize();
 
-            // Do not differentiate "bad path" from "missing file" — same 404
-            // in both branches so we don't leak filesystem state (audit C8).
             if (!filePath.startsWith(this.fileStorageLocation)) {
                 log.warn("Path traversal attempt rejected: {}", fileName);
                 return ResponseEntity.notFound().build();
@@ -76,10 +67,6 @@ public class FileController {
                         : lower.endsWith(".docx")             ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                           : "application/octet-stream";
 
-            // Images must be inline (for <img> tags).
-            // Everything else — PDFs especially — must be attachment, because
-            // inline PDFs let an attacker upload a payload PDF and execute it
-            // with the victim's session cookie (audit C9).
             String disposition = isImage
                     ? "inline; filename=\"" + resource.getFilename() + "\""
                     : "attachment; filename=\"" + resource.getFilename() + "\"";
@@ -97,9 +84,9 @@ public class FileController {
     }
 
     private boolean isOwnedByFarm(String fileName, UUID farmId) {
-        return incomeRepo.existsByFarmIdAndReceipt(farmId, fileName)
-                || expenseRepo.existsByFarmIdAndReceipt(farmId, fileName)
-                || personnelRepo.existsByFarmIdAndProfilePicturePath(farmId, fileName)
-                || personnelRepo.existsByFarmIdAndProfilePictureThumbnailPath(farmId, fileName);
+        for (FileOwnershipPort port : ownershipPorts) {
+            if (port.isOwnedByFarm(fileName, farmId)) return true;
+        }
+        return false;
     }
 }

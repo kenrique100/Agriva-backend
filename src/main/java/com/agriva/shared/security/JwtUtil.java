@@ -1,6 +1,6 @@
 package com.agriva.shared.security;
 
-import com.agriva.identity.models.entity.User;
+import com.agriva.shared.models.ref.UserRef;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -36,16 +36,16 @@ public class JwtUtil {
 
     public long getAccessTtlSeconds() { return accessTtlSeconds; }
 
-    public String generateToken(User user, String jti) {
-        String normalizedRole = RoleConstants.normalizeRole(user.getRole());
+    public String generateToken(UserRef user, String jti) {
+        String normalizedRole = RoleConstants.normalizeRole(user.role());
         long now = System.currentTimeMillis();
         return Jwts.builder()
                 .id(jti)
                 .issuer(issuer)
-                .subject(user.getEmail())
-                .claim("userId", user.getId().toString())
-                .claim("farmId", user.getFarmId() == null ? null : user.getFarmId().toString())
-                .claim("username", user.getUsername())
+                .subject(user.email())
+                .claim("userId", user.id().toString())
+                .claim("farmId", user.farmId() == null ? null : user.farmId().toString())
+                .claim("username", user.username())
                 .claim("role", normalizedRole)
                 .claim("roles", List.of(normalizedRole))
                 .issuedAt(new Date(now))

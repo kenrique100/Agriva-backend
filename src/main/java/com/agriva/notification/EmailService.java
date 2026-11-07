@@ -1,4 +1,4 @@
-package com.agriva.notification.service;
+package com.agriva.notification;
 
 public interface EmailService {
 

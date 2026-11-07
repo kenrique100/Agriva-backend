@@ -2,7 +2,7 @@ package com.agriva.finance.mapper;
 
 import com.agriva.finance.model.dto.response.InvestmentResponse;
 import com.agriva.finance.model.entity.Investment;
-import com.agriva.identity.models.entity.User;
+import com.agriva.shared.models.ref.UserRef;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -12,17 +12,17 @@ import java.util.UUID;
 @Component
 public class InvestmentMapper {
 
-    public InvestmentResponse toResponse(Investment inv, Map<UUID, User> userById) {
+    public InvestmentResponse toResponse(Investment inv, Map<UUID, UserRef> userById) {
         return toResponse(inv, userById, BigDecimal.ZERO);
     }
 
-    public InvestmentResponse toResponse(Investment inv, Map<UUID, User> userById, BigDecimal spentAmount) {
-        User creator = inv.getCreatedByUserId() == null
+    public InvestmentResponse toResponse(Investment inv, Map<UUID, UserRef> userById, BigDecimal spentAmount) {
+        UserRef creator = inv.getCreatedByUserId() == null
                 ? null
                 : userById.get(inv.getCreatedByUserId());
 
-        String username = creator != null ? creator.getUsername() : null;
-        String email = creator != null ? creator.getEmail() : null;
+        String username = creator != null ? creator.username() : null;
+        String email = creator != null ? creator.email() : null;
 
         if (username == null && email == null && inv.getCreatedByUserId() != null) {
             username = "deleted-user";

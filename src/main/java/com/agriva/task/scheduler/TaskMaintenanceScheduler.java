@@ -1,6 +1,6 @@
 package com.agriva.task.scheduler;
 
-import com.agriva.dashboard.service.DistributedLockService;
+import com.agriva.shared.lock.DistributedLockService;
 import com.agriva.task.service.TaskService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

@@ -6,13 +6,14 @@ import com.agriva.personnel.models.entity.PersonnelStatusHistory;
 import com.agriva.personnel.repository.PersonnelRepository;
 import com.agriva.personnel.repository.PersonnelStatusHistoryRepository;
 import com.agriva.payroll.repository.SalaryPaymentRepository;
+import com.agriva.shared.lock.DistributedLockService;
 import com.agriva.task.repository.TaskRepository;
-import com.agriva.dashboard.service.DistributedLockService;
 import com.agriva.file.service.FileStorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -31,6 +32,7 @@ public class PersonnelStatusScheduler {
     private final FileStorageService fileStorageService;
 
     @Scheduled(cron = "0 * * * * *")
+    @Transactional
     public void tick() {
         lock.runIfLocked("personnel-status-tick", Duration.ofSeconds(55), () -> {
             LocalDateTime now = LocalDateTime.now();
@@ -69,19 +71,12 @@ public class PersonnelStatusScheduler {
         log.info("Auto-reactivated {} personnel", expired.size());
     }
 
-    /**
-     * Hard-deletes personnel terminated >72h ago.
-     * Also deletes their profile picture files — otherwise the uploads volume
-     * leaks one PNG/JPG per terminated employee forever (audit C6).
-     */
     private void purgeTerminated(LocalDateTime now) {
         LocalDateTime cutoff = now.minusHours(72);
         personnelRepository
                 .findByStatusAndTerminationTimestampBefore(PersonnelStatus.TERMINATED, cutoff)
                 .forEach(p -> {
                     try {
-                        // File cleanup is best-effort — a missing file must not
-                        // abort the DB purge.
                         if (p.getProfilePicturePath() != null) {
                             try {
                                 fileStorageService.delete(p.getProfilePicturePath());

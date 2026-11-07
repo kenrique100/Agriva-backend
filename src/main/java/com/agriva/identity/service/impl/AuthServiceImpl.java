@@ -25,6 +25,7 @@ import com.agriva.farming.model.dto.response.FarmDetailsResponse;
 import com.agriva.farming.model.dto.response.FarmListResponse;
 import com.agriva.personnel.models.enums.Department;
 import com.agriva.personnel.models.enums.PersonnelStatus;
+import com.agriva.shared.models.ref.UserRef;
 import com.agriva.shared.security.AuthenticatedUser;
 import com.agriva.shared.security.JwtUtil;
 import com.agriva.shared.security.RoleConstants;
@@ -93,7 +94,16 @@ public class AuthServiceImpl implements AuthService {
     @Value("${agriva.rate-limit.login-per-hour-per-user:10}")
     private int maxFailedLoginAttempts;
 
-    // ---------------- Login ----------------
+    private static UserRef toRef(User u) {
+        return new UserRef(
+                u.getId(),
+                u.getEmail(),
+                u.getUsername(),
+                u.getRole(),
+                u.getFarmId(),
+                u.getCreatedAt(),
+                u.getUpdatedAt());
+    }
 
     @Override
     public AuthResponse login(LoginRequest request) {
@@ -128,7 +138,7 @@ public class AuthServiceImpl implements AuthService {
                 : null;
 
         String jti = UUID.randomUUID().toString();
-        String accessToken = jwtUtil.generateToken(user, jti);
+        String accessToken = jwtUtil.generateToken(toRef(user), jti);
         String refreshToken = refreshTokenService.issue(user.getId());
 
         log.info("Successful login for {} role={}", user.getEmail(), user.getRole());
@@ -170,7 +180,7 @@ public class AuthServiceImpl implements AuthService {
                 : null;
 
         String jti = UUID.randomUUID().toString();
-        String newAccess = jwtUtil.generateToken(user, jti);
+        String newAccess = jwtUtil.generateToken(toRef(user), jti);
         String newRefresh = refreshTokenService.issue(user.getId());
 
         return new AuthResponse(
@@ -205,8 +215,6 @@ public class AuthServiceImpl implements AuthService {
             refreshTokenService.revokeAllForUser(userId);
         }
     }
-
-    // ---------------- Registration ----------------
 
     @Override
     @Transactional
@@ -253,7 +261,7 @@ public class AuthServiceImpl implements AuthService {
         String jti = UUID.randomUUID().toString();
         return new AuthResponse(
                 master.getId(),
-                jwtUtil.generateToken(master, jti),
+                jwtUtil.generateToken(toRef(master), jti),
                 refreshTokenService.issue(master.getId()),
                 jwtUtil.getAccessTtlSeconds(),
                 master.getEmail(), master.getUsername(), master.getRole(),
@@ -332,8 +340,6 @@ public class AuthServiceImpl implements AuthService {
         return p;
     }
 
-    // ---------------- Reads ----------------
-
     @Override public UserResponse getUserById(UUID userId) { return userMapper.toResponse(loadUser(userId)); }
     @Override public List<UserListResponse> getUsersByFarmId(UUID farmId) {
         return userMapper.toListResponse(authRepository.findByFarmIdLive(farmId));
@@ -357,8 +363,6 @@ public class AuthServiceImpl implements AuthService {
         }
         return farmMapper.toList(details);
     }
-
-    // ---------------- Updates ----------------
 
     @Override
     @Transactional
@@ -413,8 +417,6 @@ public class AuthServiceImpl implements AuthService {
         return userMapper.toResponse(authRepository.save(user));
     }
 
-    // ---------------- Deletes ----------------
-
     @Override
     @Transactional
     public void deleteUserByAdmin(UUID userId) {
@@ -453,15 +455,13 @@ public class AuthServiceImpl implements AuthService {
         User user = loadUser(userId);
 
         if (RoleConstants.MASTER.equals(user.getRole()) && user.getFarmId() != null) {
-            // deleteFarmAndAllUsersInternal already revokes tokens for the
-            // master and every sub-user.
             deleteFarmAndAllUsersInternal(user.getFarmId());
         } else if (RoleConstants.ADMIN.equals(user.getRole())) {
             long adminCount = authRepository.countByRoleLive(RoleConstants.ADMIN);
             if (adminCount <= 1) throw new BusinessException("Cannot delete the only ADMIN user");
-            softDeleteUserAndRelated(user);      // also revokes tokens
+            softDeleteUserAndRelated(user);
         } else {
-            softDeleteUserAndRelated(user);      // also revokes tokens
+            softDeleteUserAndRelated(user);
         }
 
         log.info("Account {} deleted by self-service", userId);
@@ -491,8 +491,6 @@ public class AuthServiceImpl implements AuthService {
         return subUsers.size();
     }
 
-    // ---------------- Password reset ----------------
-
     @Override
     public ForgotPasswordResponse forgotPassword(ForgotPasswordRequest request) {
         String token = passwordResetService.initiateReset(request.getEmail());
@@ -509,8 +507,6 @@ public class AuthServiceImpl implements AuthService {
         passwordResetService.resetPassword(request.getToken(), request.getNewPassword());
     }
 
-    // ---------------- Internal: soft-delete single user ----------------
-
     private void softDeleteUserAndRelated(User user) {
         personnelRepository.findByUserId(user.getId()).ifPresent(p -> {
             p.setDeletedAt(LocalDateTime.now());
@@ -523,20 +519,6 @@ public class AuthServiceImpl implements AuthService {
         log.info("Soft-deleted user {}", user.getId());
     }
 
-    // ---------------- Internal: full farm deletion ----------------
-
-    /**
-     * Deletes the farm, every user in it, and all data related to the farm.
-     *
-     * Strategy:
-     *   1. Uploaded files      → deleted from disk (best-effort)
-     *   2. Operational data    → hard-deleted (crops, fields, personnel;
-     *                            tasks/salaries/history via DB cascade)
-     *   3. Staged records      → hard-deleted (transient)
-     *   4. Financial records   → soft-deleted (audit trail retained)
-     *   5. Users               → soft-deleted + tokens revoked
-     *   6. Farm                → soft-deleted (auth audit trail)
-     */
     private void deleteFarmAndAllUsersInternal(UUID farmId) {
         Farm farm = farmRepository.findByIdLive(farmId)
                 .orElseThrow(() -> new BusinessException("Farm not found with ID: " + farmId));
@@ -544,32 +526,23 @@ public class AuthServiceImpl implements AuthService {
         LocalDateTime now = LocalDateTime.now();
         List<User> farmUsers = authRepository.findByFarmIdLive(farmId);
 
-        // 1. Uploaded files
         int filesDeleted = deleteFarmFiles(farmId);
 
-        // 2. Hard-delete operational data.
-        //    DB cascade handles children:
-        //      field     → crop_cycles → crop_activities, harvests
-        //      crop      → crop_cycles → crop_activities, harvests
-        //      personnel → tasks, salary_payments, personnel_status_history
         fieldRepository.deleteByFarmId(farmId);
         cropRepository.deleteByFarmId(farmId);
         personnelRepository.deleteByFarmId(farmId);
 
-        // 3. Hard-delete staged (transient) records
         stagedIncomeRepository.deleteByFarmId(farmId);
         stagedExpenseRepository.deleteByFarmId(farmId);
         stagedTaskRepository.deleteByFarmId(farmId);
         stagedSalaryRepository.deleteByFarmId(farmId);
         stagedCropCycleRepository.deleteByFarmId(farmId);
 
-        // 4. Soft-delete financial records (preserve audit trail)
         int incomesDeleted      = incomeRepository.softDeleteByFarmId(farmId, now);
         int expensesDeleted     = expenseRepository.softDeleteByFarmId(farmId, now);
         int investmentsDeleted  = investmentRepository.softDeleteByFarmId(farmId, now);
         int transactionsDeleted = transactionRepository.softDeleteByFarmId(farmId, now);
 
-        // 5. Soft-delete users + revoke sessions
         for (User u : farmUsers) {
             u.setDeletedAt(now);
             authRepository.save(u);
@@ -577,7 +550,6 @@ public class AuthServiceImpl implements AuthService {
             refreshTokenService.revokeAllForUser(u.getId());
         }
 
-        // 6. Soft-delete farm
         farm.setDeletedAt(now);
         farmRepository.save(farm);
 
@@ -616,8 +588,6 @@ public class AuthServiceImpl implements AuthService {
         }
         return deleted;
     }
-
-    // ---------------- Internal helpers ----------------
 
     private void applyProfileUpdates(User user, UpdateUserRequest request, UUID userId) {
         if (request.getEmail() != null && !request.getEmail().equals(user.getEmail())) {
@@ -695,6 +665,7 @@ public class AuthServiceImpl implements AuthService {
     private FarmDetailsResponse buildFarmDetails(Farm farm) {
         UUID farmId = farm.getId();
         List<User> users = authRepository.findByFarmIdLive(farmId);
+        List<UserRef> refs = users.stream().map(AuthServiceImpl::toRef).toList();
 
         FarmMapper.FarmTotals totals = new FarmMapper.FarmTotals(
                 incomeRepository.countByFarmId(farmId),
@@ -726,7 +697,7 @@ public class AuthServiceImpl implements AuthService {
             ));
         }
 
-        return farmMapper.toDetails(farm, users, totals, activityByUser);
+        return farmMapper.toDetails(farm, refs, totals, activityByUser);
     }
 
     private static Map<UUID, long[]> toUuidLongMap(List<Object[]> rows) {

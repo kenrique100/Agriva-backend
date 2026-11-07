@@ -28,9 +28,8 @@ public class SalaryPayment {
     @Column(name = "farm_id", nullable = false)
     private UUID farmId;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "personnel_id", nullable = false)
-    private Personnel personnel;
+    @Column(name = "personnel_id", nullable = false)
+    private UUID personnelId;
 
     @Column(nullable = false, precision = 19, scale = 4)
     private BigDecimal amount;

@@ -1,7 +1,7 @@
 package com.agriva.shared.runner;
 
-import com.agriva.shared.security.RoleConstants;
 import com.agriva.identity.service.impl.AdminBootstrapService;
+import com.agriva.shared.security.RoleConstants;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,7 +27,6 @@ public class DatabaseInitializer implements CommandLineRunner {
     @Override
     public void run(String... args) {
         log.info("Initializing database with default admin user...");
-        // Proxy is applied because we call another bean — REQUIRES_NEW works now.
         adminBootstrapService.createAdminIfAbsent(adminEmail, adminUsername, adminPassword);
 
         log.info("Stats - Masters: {}, SubUsers: {}, Admins: {}",

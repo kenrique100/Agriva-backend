@@ -8,7 +8,7 @@ import org.springframework.test.context.ActiveProfiles;
 @SpringBootTest
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
-class AgrivaApplicationTests {
+class AgrivaApplicationIT {
 
     @Test
     void contextLoads() {

@@ -6,7 +6,7 @@ import com.agriva.finance.model.entity.StagedIncome;
 import com.agriva.finance.model.enums.StagedIncomeStatus;
 import com.agriva.finance.repository.IncomeRepository;
 import com.agriva.finance.repository.StagedIncomeRepository;
-import com.agriva.dashboard.service.DistributedLockService;
+import com.agriva.shared.lock.DistributedLockService;
 import com.agriva.finance.utils.IncomeValidator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;

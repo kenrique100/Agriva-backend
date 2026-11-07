@@ -2,9 +2,11 @@ package com.agriva.finance;
 
 import com.agriva.TestcontainersConfiguration;
 import com.agriva.finance.model.dto.request.ExpenseRequest;
+import com.agriva.finance.model.dto.request.InvestmentRequest;
 import com.agriva.finance.model.dto.response.ExpenseSubmissionAck;
 import com.agriva.identity.models.dto.response.AuthResponse;
 import com.agriva.identity.models.dto.request.MasterRegisterRequest;
+import com.agriva.personnel.models.enums.Gender;
 import com.agriva.shared.models.enums.Currency;
 import com.agriva.finance.model.entity.Expense;
 import com.agriva.finance.model.enums.ExpenseCategory;
@@ -13,10 +15,12 @@ import com.agriva.finance.model.enums.StagedExpenseStatus;
 import com.agriva.identity.repository.AuthRepository;
 import com.agriva.finance.repository.ExpenseRepository;
 import com.agriva.farming.repository.FarmRepository;
+import com.agriva.finance.repository.InvestmentRepository;
 import com.agriva.finance.repository.StagedExpenseRepository;
 import com.agriva.finance.scheduler.StagedExpenseValidator;
 import com.agriva.identity.service.AuthService;
 import com.agriva.finance.service.ExpenseService;
+import com.agriva.finance.service.InvestmentService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,10 +42,12 @@ import static org.awaitility.Awaitility.await;
 class ExpenseServiceIT {
 
     @Autowired ExpenseService expenseService;
+    @Autowired InvestmentService investmentService;
     @Autowired StagedExpenseValidator validator;
     @Autowired AuthService authService;
     @Autowired ExpenseRepository expenseRepo;
     @Autowired StagedExpenseRepository stagedRepo;
+    @Autowired InvestmentRepository investmentRepo;
     @Autowired AuthRepository authRepository;
     @Autowired FarmRepository farmRepository;
 
@@ -51,6 +57,7 @@ class ExpenseServiceIT {
     void setUp() {
         stagedRepo.deleteAll();
         expenseRepo.deleteAll();
+        investmentRepo.deleteAll();       // ← isolate state between tests
         authRepository.deleteAll();
         farmRepository.deleteAll();
 
@@ -58,8 +65,31 @@ class ExpenseServiceIT {
         reg.setEmail("expense@test.local");
         reg.setPassword("MasterPass1!");
         reg.setFarmName("Expense Test Farm " + UUID.randomUUID());
+        reg.setName("Expense Master");
+        reg.setGender(Gender.MALE);
+        reg.setDateOfBirth(LocalDate.now().minusYears(35));
+        reg.setPhoneNumber("+237600000000");
+        reg.setCountry("Cameroon");
+        reg.setState("Centre");
+        reg.setCity("Yaoundé");
+        reg.setAddress("Rue 1");
+        reg.setPostalCode("00000");
+        reg.setCurrency("XAF");
+        reg.setUserAgreement(true);
         AuthResponse master = authService.registerMaster(reg);
         farmId = master.getFarmId();
+
+        // ── REQUIRED ─────────────────────────────────────────────────────
+        // ExpenseServiceImpl.createDirect() and StagedExpenseValidator both
+        // require an ACTIVE investment before they will move an expense into
+        // the `expense` table. Create one here for every test.
+        InvestmentRequest inv = new InvestmentRequest();
+        inv.setAmount(new BigDecimal("1000000.00"));   // 1,000,000 XAF
+        inv.setCurrency(Currency.XAF);
+        inv.setInvestorName("Test Investor");
+        inv.setInvestmentDate(LocalDate.now());
+        inv.setActivate(true);
+        investmentService.createInvestment(inv, farmId, null);
     }
 
     @Test
@@ -111,11 +141,11 @@ class ExpenseServiceIT {
         var created = expenseService.createDirect(req, farmId, userId);
         assertThat(created.getId()).isNotNull();
 
-        var page = expenseService.listExpenses(farmId, org.springframework.data.domain.Pageable.unpaged());
+        var page = expenseService.listExpenses(
+                farmId, org.springframework.data.domain.Pageable.unpaged());
         assertThat(page.getTotalElements()).isEqualTo(1);
 
         expenseService.deleteExpense(created.getId(), farmId);
-        // deleteExpense soft-deletes → findAll() still sees the row
         assertThat(expenseRepo.findAll())
                 .allMatch(e -> e.getDeletedAt() != null);
     }

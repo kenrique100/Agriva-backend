@@ -3,6 +3,7 @@ package com.agriva.finance;
 import com.agriva.TestcontainersConfiguration;
 import com.agriva.identity.models.dto.response.AuthResponse;
 import com.agriva.identity.models.dto.request.MasterRegisterRequest;
+import com.agriva.personnel.models.enums.Gender;
 import com.agriva.finance.model.dto.request.InvestmentRequest;
 import com.agriva.finance.model.dto.response.InvestmentResponse;
 import com.agriva.shared.models.enums.Currency;
@@ -48,6 +49,17 @@ class InvestmentServiceIT {
         reg.setEmail("invest@test.local");
         reg.setPassword("MasterPass1!");
         reg.setFarmName("Investment Test Farm " + UUID.randomUUID());
+        reg.setName("Invest Master");
+        reg.setGender(Gender.MALE);
+        reg.setDateOfBirth(LocalDate.now().minusYears(35));
+        reg.setPhoneNumber("+237600000000");
+        reg.setCountry("Cameroon");
+        reg.setState("Centre");
+        reg.setCity("Yaoundé");
+        reg.setAddress("Rue 1");
+        reg.setPostalCode("00000");
+        reg.setCurrency("XAF");
+        reg.setUserAgreement(true);
         AuthResponse master = authService.registerMaster(reg);
         farmId = master.getFarmId();
         userId = authRepository.findByEmail("invest@test.local").orElseThrow().getId();
@@ -86,7 +98,6 @@ class InvestmentServiceIT {
         assertThat(updated.getAmount()).isEqualByComparingTo("2000");
 
         investmentService.deleteInvestment(created.getId(), farmId);
-        // InvestmentServiceImpl.deleteInvestment soft-deletes (setDeletedAt)
         assertThat(investmentRepo.findById(created.getId()))
                 .hasValueSatisfying(i -> assertThat(i.getDeletedAt()).isNotNull());
     }

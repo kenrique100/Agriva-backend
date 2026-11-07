@@ -1,18 +1,28 @@
 package com.agriva.task.mapper;
 
+import com.agriva.shared.port.PersonnelLookupPort;
 import com.agriva.task.model.dto.response.TaskResponse;
 import com.agriva.task.model.entity.Task;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 @Component
+@RequiredArgsConstructor
 public class TaskMapper {
 
+    private final PersonnelLookupPort personnelLookupPort;
+
     public TaskResponse toResponse(Task t) {
+        String personnelName = t.getPersonnelId() == null ? null
+                : personnelLookupPort.findById(t.getPersonnelId())
+                  .map(PersonnelLookupPort.PersonnelInfo::name)
+                  .orElse("Unknown");
+
         return new TaskResponse(
                 t.getId(),
                 t.getFarmId(),
-                t.getPersonnel() != null ? t.getPersonnel().getId() : null,
-                t.getPersonnel() != null ? t.getPersonnel().getName() : null,
+                t.getPersonnelId(),
+                personnelName,
                 t.getTitle(),
                 t.getDescription(),
                 t.getDeadline(),

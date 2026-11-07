@@ -1,12 +1,12 @@
 package com.agriva.task.scheduler;
 
-import com.agriva.task.model.dto.requests.TaskCreateRequest;
-import com.agriva.task.model.enums.StagedTaskStatus;
-import com.agriva.task.model.enums.TaskStatus;
 import com.agriva.personnel.models.entity.Personnel;
 import com.agriva.personnel.repository.PersonnelRepository;
+import com.agriva.task.model.dto.requests.TaskCreateRequest;
 import com.agriva.task.model.entity.StagedTask;
 import com.agriva.task.model.entity.Task;
+import com.agriva.task.model.enums.StagedTaskStatus;
+import com.agriva.task.model.enums.TaskStatus;
 import com.agriva.task.repository.StagedTaskRepository;
 import com.agriva.task.repository.TaskRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -74,14 +74,13 @@ public class StagedTaskValidator {
             String error = validate(request, staged.getFarmId());
             if (error != null) { onFailure(staged, List.of(error)); return; }
 
-            // Use the Live finder — soft-deleted personnel not resolvable.
             Personnel p = personnelRepo
                     .findByIdAndFarmIdLive(request.getPersonnelId(), staged.getFarmId())
                     .orElseThrow(() -> new IllegalStateException("Personnel missing"));
 
             Task t = Task.builder()
                     .farmId(staged.getFarmId())
-                    .personnel(p)
+                    .personnelId(p.getId())
                     .title(request.getTitle())
                     .description(request.getDescription())
                     .deadline(request.getDeadline())
@@ -112,7 +111,6 @@ public class StagedTaskValidator {
         if (req.getDeadline().isBefore(LocalDate.now())) return "Deadline cannot be in the past";
         if (req.getExpectedHours() == null || req.getExpectedHours() <= 0)
             return "Expected hours must be positive";
-        // Use the Live finder — soft-deleted personnel not resolvable.
         if (personnelRepo.findByIdAndFarmIdLive(req.getPersonnelId(), farmId).isEmpty())
             return "Personnel not found in farm";
         return null;

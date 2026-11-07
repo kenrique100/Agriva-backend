@@ -1,8 +1,13 @@
 package com.agriva.task.service.impl;
 
+import com.agriva.personnel.models.entity.Personnel;
+import com.agriva.personnel.models.enums.PersonnelStatus;
+import com.agriva.personnel.repository.PersonnelRepository;
+import com.agriva.shared.exception.PersonnelAccessDeniedException;
+import com.agriva.shared.exception.PersonnelNotFoundException;
+import com.agriva.shared.exception.TaskNotFoundException;
 import com.agriva.task.kafka.producer.TaskProducer;
 import com.agriva.task.mapper.TaskMapper;
-import com.agriva.personnel.models.enums.PersonnelStatus;
 import com.agriva.task.model.dto.requests.TaskCreateRequest;
 import com.agriva.task.model.dto.requests.TaskSubmissionEvent;
 import com.agriva.task.model.dto.requests.TaskUpdateRequest;
@@ -10,18 +15,13 @@ import com.agriva.task.model.dto.response.ProductivityStatsResponse;
 import com.agriva.task.model.dto.response.StagedTaskResponse;
 import com.agriva.task.model.dto.response.TaskBulkUploadResponse;
 import com.agriva.task.model.dto.response.TaskResponse;
-import com.agriva.task.model.enums.StagedTaskStatus;
-import com.agriva.task.model.enums.TaskStatus;
-import com.agriva.personnel.models.entity.Personnel;
-import com.agriva.personnel.repository.PersonnelRepository;
-import com.agriva.task.service.TaskService;
-import com.agriva.shared.exception.PersonnelAccessDeniedException;
-import com.agriva.shared.exception.PersonnelNotFoundException;
-import com.agriva.shared.exception.TaskNotFoundException;
 import com.agriva.task.model.entity.StagedTask;
 import com.agriva.task.model.entity.Task;
+import com.agriva.task.model.enums.StagedTaskStatus;
+import com.agriva.task.model.enums.TaskStatus;
 import com.agriva.task.repository.StagedTaskRepository;
 import com.agriva.task.repository.TaskRepository;
+import com.agriva.task.service.TaskService;
 import com.agriva.task.utils.TaskExcelParser;
 import com.agriva.task.utils.TaskValidator;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -64,7 +64,7 @@ public class TaskServiceImpl implements TaskService {
 
         Task t = Task.builder()
                 .farmId(farmId)
-                .personnel(p)
+                .personnelId(p.getId())
                 .title(req.getTitle())
                 .description(req.getDescription())
                 .deadline(req.getDeadline())
@@ -98,11 +98,11 @@ public class TaskServiceImpl implements TaskService {
         if (req.getDescription() != null) t.setDescription(req.getDescription());
         if (req.getDeadline() != null) t.setDeadline(req.getDeadline());
         if (req.getExpectedHours() != null) t.setExpectedHours(req.getExpectedHours());
-        if (req.getPersonnelId() != null && !req.getPersonnelId().equals(t.getPersonnel().getId())) {
+        if (req.getPersonnelId() != null && !req.getPersonnelId().equals(t.getPersonnelId())) {
             Personnel p = personnelRepository.findByIdAndFarmIdLive(req.getPersonnelId(), farmId)
                     .orElseThrow(() -> new PersonnelNotFoundException(
                             "Personnel not found: " + req.getPersonnelId()));
-            t.setPersonnel(p);
+            t.setPersonnelId(p.getId());
         }
         return mapper.toResponse(taskRepository.save(t));
     }
@@ -113,7 +113,8 @@ public class TaskServiceImpl implements TaskService {
         Task t = load(id, farmId);
 
         if (!isMaster) {
-            Personnel own = t.getPersonnel();
+            Personnel own = personnelRepository.findById(t.getPersonnelId())
+                    .orElseThrow(() -> new PersonnelAccessDeniedException("Personnel not found"));
             if (own.getUserId() == null || !actorUserId.equals(own.getUserId())) {
                 throw new PersonnelAccessDeniedException("You can only act on your own tasks");
             }
@@ -185,7 +186,8 @@ public class TaskServiceImpl implements TaskService {
         if (approve) {
             t.setIsValidated(true);
             t.setStatus(TaskStatus.COMPLETED);
-            rollProductivity(t.getPersonnel(), t.getActualHours());
+            personnelRepository.findById(t.getPersonnelId())
+                    .ifPresent(p -> rollProductivity(p, t.getActualHours()));
         } else {
             t.setIsValidated(false);
             t.setStatus(TaskStatus.CANCELLED);
@@ -282,7 +284,6 @@ public class TaskServiceImpl implements TaskService {
         personnelRepository.findByStatusLive(PersonnelStatus.ACTIVE).forEach(p -> {
             if (yesterday.equals(p.getLastProductivityUpdate())) return;
 
-            // Use the Live finder (soft-deleted tasks excluded).
             List<Task> completed = taskRepository.findByPersonnelIdAndIsValidatedLive(
                             p.getId(), true)
                     .stream()

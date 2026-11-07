@@ -3,6 +3,7 @@ package com.agriva.finance;
 import com.agriva.TestcontainersConfiguration;
 import com.agriva.identity.models.dto.response.AuthResponse;
 import com.agriva.identity.models.dto.request.MasterRegisterRequest;
+import com.agriva.personnel.models.enums.Gender;
 import com.agriva.finance.model.dto.request.IncomeRequest;
 import com.agriva.finance.model.dto.response.IncomeSubmissionAck;
 import com.agriva.shared.models.enums.Currency;
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 
@@ -34,12 +36,6 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
-/**
- * The retry loop test expects the validator to be callable back-to-back
- * without waiting. Because the validator schedules the next retry at
- * now + retry-delay-minutes, the retry-delay MUST be 0 here — otherwise
- * each call after the first finds the row "not yet due" and no-ops.
- */
 @SpringBootTest
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
@@ -47,6 +43,8 @@ import static org.awaitility.Awaitility.await;
         "agriva.income.validator.retry-delay-minutes=0",
         "agriva.income.validator.max-attempts=4"
 })
+
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class IncomePipelineIT {
 
     @Autowired IncomeService incomeService;
@@ -70,6 +68,17 @@ class IncomePipelineIT {
         reg.setEmail("income@test.local");
         reg.setPassword("MasterPass1!");
         reg.setFarmName("Income Test Farm " + UUID.randomUUID());
+        reg.setName("Income Master");
+        reg.setGender(Gender.MALE);
+        reg.setDateOfBirth(LocalDate.now().minusYears(35));
+        reg.setPhoneNumber("+237600000000");
+        reg.setCountry("Cameroon");
+        reg.setState("Centre");
+        reg.setCity("Yaoundé");
+        reg.setAddress("Rue 1");
+        reg.setPostalCode("00000");
+        reg.setCurrency("XAF");
+        reg.setUserAgreement(true);
         AuthResponse master = authService.registerMaster(reg);
         farmId = master.getFarmId();
     }
@@ -115,7 +124,7 @@ class IncomePipelineIT {
     @Test
     void invalidIncome_getsRetriedThenFailed() {
         IncomeRequest req = new IncomeRequest();
-        req.setAmountReceived(new BigDecimal("-1")); // Invalid negative amount
+        req.setAmountReceived(new BigDecimal("-1"));
         req.setExpectedAmount(new BigDecimal("100.00"));
         req.setQuantity(1);
         req.setCurrency(Currency.USD);
@@ -125,12 +134,15 @@ class IncomePipelineIT {
 
         IncomeSubmissionAck ack = incomeService.submitIncome(
                 req, farmId, null, "income@test.local");
+        await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> {
+            validator.processStagedIncomes();
+            StagedIncome staged = stagedRepo.findById(ack.getSubmissionId()).orElse(null);
+            assertThat(staged).isNotNull();
+            assertThat(staged.getRetryCount()).isGreaterThanOrEqualTo(1);
+        });
 
-        await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
-                assertThat(stagedRepo.findById(ack.getSubmissionId())).isPresent());
-
-        // retry-delay-minutes=0 → every loop iteration processes the row
-        for (int i = 0; i < 4; i++) {
+        // Drive the retry budget to exhaustion.
+        for (int i = 0; i < 3; i++) {
             validator.processStagedIncomes();
         }
 

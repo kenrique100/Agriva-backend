@@ -1,5 +1,5 @@
 @org.springframework.modulith.ApplicationModule(
         displayName = "Farming",
-        allowedDependencies = {"shared", "personnel"}
+        allowedDependencies = {"shared"}
 )
 package com.agriva.farming;

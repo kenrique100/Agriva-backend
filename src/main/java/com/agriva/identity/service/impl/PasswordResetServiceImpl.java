@@ -3,7 +3,7 @@ package com.agriva.identity.service.impl;
 import com.agriva.shared.exception.InvalidTokenException;
 import com.agriva.identity.models.entity.User;
 import com.agriva.identity.repository.AuthRepository;
-import com.agriva.notification.service.EmailService;
+import com.agriva.notification.EmailService;
 import com.agriva.identity.service.PasswordResetService;
 import com.agriva.identity.utils.PasswordValidator;
 import lombok.RequiredArgsConstructor;

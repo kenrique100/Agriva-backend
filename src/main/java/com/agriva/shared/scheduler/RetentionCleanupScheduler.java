@@ -1,6 +1,6 @@
 package com.agriva.shared.scheduler;
 
-import com.agriva.dashboard.service.DistributedLockService;
+import com.agriva.shared.lock.DistributedLockService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;

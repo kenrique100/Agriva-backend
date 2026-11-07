@@ -10,6 +10,7 @@ import com.agriva.shared.models.enums.Currency;
 import com.agriva.identity.repository.AuthRepository;
 import com.agriva.finance.repository.InvestmentRepository;
 import com.agriva.finance.service.InvestmentService;
+import com.agriva.shared.models.ref.UserRef;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -43,7 +44,7 @@ public class InvestmentServiceImpl implements InvestmentService {
                 .farmId(farmId)
                 .transactionId(request.getTransactionId())
                 .amount(request.getAmount())
-                .currency(request.getCurrency() == null ? Currency.XAF : request.getCurrency())
+                .currency(request.getCurrency() == null ? Currency.USD : request.getCurrency())
                 .investorName(request.getInvestorName())
                 .type(request.getType())
                 .description(request.getDescription())
@@ -66,7 +67,7 @@ public class InvestmentServiceImpl implements InvestmentService {
     @Transactional(readOnly = true)
     public Page<InvestmentResponse> listInvestments(UUID farmId, Pageable pageable) {
         Page<Investment> page = investmentRepo.findByFarmIdLive(farmId, pageable);
-        Map<UUID, User> userById = lookupUsers(page.getContent());
+        Map<UUID, UserRef> userById = lookupUsers(page.getContent());
 
         List<UUID> ids = page.getContent().stream().map(Investment::getId).toList();
         Map<UUID, BigDecimal> spentById = new HashMap<>();
@@ -112,7 +113,7 @@ public class InvestmentServiceImpl implements InvestmentService {
         investment.setAmount(request.getAmount());
         investment.setTransactionId(request.getTransactionId());
         investment.setCurrency(request.getCurrency() == null
-                ? Currency.XAF : request.getCurrency());
+                ? Currency.USD : request.getCurrency());
         investment.setInvestorName(request.getInvestorName());
         investment.setType(request.getType());
         investment.setDescription(request.getDescription());
@@ -168,10 +169,6 @@ public class InvestmentServiceImpl implements InvestmentService {
         return toResponseWithSpend(investment);
     }
 
-    /**
-     * Pessimistic lock prevents two concurrent activations from both reading
-     * "no active investment" and violating the partial unique index.
-     */
     private Investment doActivate(Investment target) {
         if (target.isActive()) return target;
 
@@ -193,13 +190,19 @@ public class InvestmentServiceImpl implements InvestmentService {
         return mapper.toResponse(inv, lookupUsers(List.of(inv)), spent);
     }
 
-    private Map<UUID, User> lookupUsers(List<Investment> investments) {
+    private Map<UUID, UserRef> lookupUsers(List<Investment> investments) {
         Set<UUID> userIds = investments.stream()
                 .map(Investment::getCreatedByUserId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
         if (userIds.isEmpty()) return Map.of();
         return authRepository.findAllById(userIds).stream()
-                .collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+                .collect(Collectors.toMap(
+                        User::getId,
+                        u -> new UserRef(
+                                u.getId(), u.getEmail(), u.getUsername(),
+                                u.getRole(), u.getFarmId(),
+                                u.getCreatedAt(), u.getUpdatedAt()),
+                        (a, b) -> a));
     }
 }

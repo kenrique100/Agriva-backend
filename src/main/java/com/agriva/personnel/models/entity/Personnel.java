@@ -27,6 +27,7 @@ import java.util.UUID;
 )
 @Data
 @EqualsAndHashCode(callSuper = true, exclude = "statusHistory")
+@ToString(exclude = "statusHistory")
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor

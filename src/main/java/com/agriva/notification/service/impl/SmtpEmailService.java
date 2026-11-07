@@ -1,6 +1,6 @@
 package com.agriva.notification.service.impl;
 
-import com.agriva.notification.service.EmailService;
+import com.agriva.notification.EmailService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;

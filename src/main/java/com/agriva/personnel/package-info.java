@@ -1,5 +1,5 @@
 @org.springframework.modulith.ApplicationModule(
         displayName = "Personnel",
-        allowedDependencies = {"shared"}
+        type = org.springframework.modulith.ApplicationModule.Type.OPEN
 )
 package com.agriva.personnel;

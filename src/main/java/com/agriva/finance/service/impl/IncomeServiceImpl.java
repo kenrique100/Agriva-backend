@@ -19,6 +19,7 @@ import com.agriva.identity.repository.AuthRepository;
 import com.agriva.finance.repository.IncomeRepository;
 import com.agriva.finance.repository.StagedIncomeRepository;
 import com.agriva.finance.service.IncomeService;
+import com.agriva.shared.models.ref.UserRef;
 import com.agriva.shared.utils.CursorCodec;
 import com.agriva.finance.utils.IncomeExcelParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -105,7 +106,7 @@ public class IncomeServiceImpl implements IncomeService {
     @Override
     public Page<IncomeResponse> listIncome(UUID farmId, Pageable pageable) {
         Page<Income> page = incomeRepo.findByFarmIdLive(farmId, pageable);
-        Map<UUID, User> userById = lookupUsers(page.getContent());
+        Map<UUID, UserRef> userById = lookupUsers(page.getContent());
         return page.map(i -> mapper.toResponse(i, userById));
     }
 
@@ -184,22 +185,27 @@ public class IncomeServiceImpl implements IncomeService {
         }
     }
 
-    private Map<UUID, User> lookupUsers(List<Income> incomes) {
+    private Map<UUID, UserRef> lookupUsers(List<Income> incomes) {
         Set<UUID> userIds = incomes.stream()
                 .map(Income::getCreatedByUserId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
         if (userIds.isEmpty()) return Map.of();
         return authRepository.findAllById(userIds).stream()
-                .collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+                .collect(Collectors.toMap(
+                        User::getId,
+                        u -> new UserRef(
+                                u.getId(), u.getEmail(), u.getUsername(),
+                                u.getRole(), u.getFarmId(),
+                                u.getCreatedAt(), u.getUpdatedAt()),
+                        (a, b) -> a));
     }
 
     @Override
     @Transactional(readOnly = true)
     public CursorPageResponse<IncomeResponse> listIncomeByCursor(UUID farmId, String cursor, int size) {
-        int cappedSize = Math.clamp(size, 1, 100);   // enforce ceiling
+        int cappedSize = Math.clamp(size, 1, 100);
 
-        // Fetch limit+1 rows to detect "hasNext" without a second COUNT query.
         org.springframework.data.domain.Pageable limit =
                 PageRequest.of(0, cappedSize + 1);
 
@@ -216,7 +222,7 @@ public class IncomeServiceImpl implements IncomeService {
         boolean hasNext = rows.size() > cappedSize;
         List<Income> page = hasNext ? rows.subList(0, cappedSize) : rows;
 
-        Map<UUID, User> userById = lookupUsers(page);
+        Map<UUID, UserRef> userById = lookupUsers(page);
         List<IncomeResponse> dtos = page.stream()
                 .map(i -> mapper.toResponse(i, userById))
                 .toList();

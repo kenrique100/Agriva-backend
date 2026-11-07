@@ -1,14 +1,14 @@
 package com.agriva.payroll.scheduler;
 
-import com.agriva.payroll.model.entity.StagedSalary;
-import com.agriva.payroll.repository.StagedSalaryRepository;
-import com.agriva.personnel.repository.PersonnelRepository;
-import com.agriva.shared.exception.InvestmentLimitExceededException;
-import com.agriva.shared.exception.NoActiveInvestmentException;
 import com.agriva.payroll.model.dto.requests.SalaryPaymentRequest;
 import com.agriva.payroll.model.dto.response.SalaryPaymentResponse;
+import com.agriva.payroll.model.entity.StagedSalary;
 import com.agriva.payroll.model.enums.StagedSalaryStatus;
+import com.agriva.payroll.repository.StagedSalaryRepository;
 import com.agriva.payroll.service.SalaryService;
+import com.agriva.shared.exception.InvestmentLimitExceededException;
+import com.agriva.shared.exception.NoActiveInvestmentException;
+import com.agriva.shared.port.PersonnelLookupPort;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,7 +32,7 @@ public class StagedSalaryValidator {
     private static final int ERROR_FIELD_LIMIT = 1990;
 
     private final StagedSalaryRepository stagedRepo;
-    private final PersonnelRepository personnelRepo;
+    private final PersonnelLookupPort personnelLookupPort;
     private final SalaryService salaryService;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
@@ -97,8 +97,7 @@ public class StagedSalaryValidator {
         if (req.getPaymentDate() == null) return "Payment date is required";
         if (req.getPaymentDate().isAfter(LocalDate.now()))
             return "Payment date cannot be in the future";
-        // Use the Live finder — soft-deleted personnel are treated as "not found".
-        if (personnelRepo.findByIdAndFarmIdLive(req.getPersonnelId(), farmId).isEmpty())
+        if (personnelLookupPort.findByIdAndFarmId(req.getPersonnelId(), farmId).isEmpty())
             return "Personnel not found in farm";
         return null;
     }

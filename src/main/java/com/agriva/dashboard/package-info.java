@@ -1,5 +1,20 @@
 @org.springframework.modulith.ApplicationModule(
         displayName = "Dashboard",
-        allowedDependencies = {"shared", "finance", "farming", "personnel", "task", "payroll"}
+        allowedDependencies = {
+                "shared",
+                "identity",
+                "personnel",
+                "payroll",
+                "finance",
+                "finance :: repository",
+                "finance :: entity",
+                "finance :: enums",
+                "farming",
+                "farming :: repository",
+                "farming :: entity",
+                "task",
+                "task :: repository",
+                "task :: entity"
+        }
 )
 package com.agriva.dashboard;

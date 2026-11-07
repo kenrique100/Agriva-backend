@@ -1,7 +1,6 @@
 package com.agriva.task.model.entity;
 
 import com.agriva.task.model.enums.TaskStatus;
-import com.agriva.personnel.models.entity.Personnel;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -26,9 +25,8 @@ public class Task {
     @Column(name = "farm_id", nullable = false)
     private UUID farmId;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "personnel_id", nullable = false)
-    private Personnel personnel;
+    @Column(name = "personnel_id", nullable = false)
+    private UUID personnelId;
 
     @Column(nullable = false, length = 100)
     private String title;

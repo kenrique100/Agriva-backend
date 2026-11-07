@@ -4,7 +4,7 @@ import com.agriva.finance.model.dto.response.IncomeResponse;
 import com.agriva.finance.model.dto.response.IncomeStagingResponse;
 import com.agriva.finance.model.entity.Income;
 import com.agriva.finance.model.entity.StagedIncome;
-import com.agriva.identity.models.entity.User;
+import com.agriva.shared.models.ref.UserRef;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -13,13 +13,13 @@ import java.util.UUID;
 @Component
 public class IncomeMapper {
 
-    public IncomeResponse toResponse(Income income, Map<UUID, User> userById) {
-        User creator = income.getCreatedByUserId() == null
+    public IncomeResponse toResponse(Income income, Map<UUID, UserRef> userById) {
+        UserRef creator = income.getCreatedByUserId() == null
                 ? null
                 : userById.get(income.getCreatedByUserId());
 
-        String username = creator != null ? creator.getUsername() : null;
-        String email = creator != null ? creator.getEmail() : null;
+        String username = creator != null ? creator.username() : null;
+        String email = creator != null ? creator.email() : null;
 
         if (username == null && email == null && income.getCreatedByUserId() != null) {
             username = "deleted-user";

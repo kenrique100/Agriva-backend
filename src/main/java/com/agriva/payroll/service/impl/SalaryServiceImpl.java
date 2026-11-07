@@ -77,7 +77,7 @@ public class SalaryServiceImpl implements SalaryService {
         Personnel p = personnelRepository.findByIdAndFarmIdLive(req.getPersonnelId(), farmId)
                 .orElseThrow(() -> new PersonnelNotFoundException(
                         "Personnel not found with ID: " + req.getPersonnelId()));
-        validator.validate(p);
+        validator.validate(p.getStatus() != null ? p.getStatus().name() : null);
 
         Investment active = investmentRepository.findFirstByFarmIdAndActiveTrue(farmId)
                 .orElseThrow(() -> new NoActiveInvestmentException(
@@ -97,7 +97,7 @@ public class SalaryServiceImpl implements SalaryService {
 
         SalaryPayment sp = SalaryPayment.builder()
                 .farmId(farmId)
-                .personnel(p)
+                .personnelId(p.getId())
                 .amount(req.getAmount())
                 .paymentDate(req.getPaymentDate())
                 .status(SalaryPaymentStatus.PROCESSED)
@@ -157,7 +157,9 @@ public class SalaryServiceImpl implements SalaryService {
     @Transactional(readOnly = true)
     public SalaryReceiptResponse getReceipt(UUID id, UUID farmId) {
         SalaryPayment sp = load(id, farmId);
-        Personnel p = sp.getPersonnel();
+        Personnel p = personnelRepository.findById(sp.getPersonnelId())
+                .orElseThrow(() -> new PersonnelNotFoundException(
+                        "Personnel not found with ID: " + sp.getPersonnelId()));
 
         Farm farm = farmRepository.findById(farmId).orElse(null);
         String farmName = farm != null ? farm.getName() : "Agriva Farm";
