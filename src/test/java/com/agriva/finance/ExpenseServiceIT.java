@@ -1,0 +1,152 @@
+package com.agriva.finance;
+
+import com.agriva.TestcontainersConfiguration;
+import com.agriva.finance.model.dto.request.ExpenseRequest;
+import com.agriva.finance.model.dto.request.InvestmentRequest;
+import com.agriva.finance.model.dto.response.ExpenseSubmissionAck;
+import com.agriva.identity.models.dto.response.AuthResponse;
+import com.agriva.identity.models.dto.request.MasterRegisterRequest;
+import com.agriva.personnel.models.enums.Gender;
+import com.agriva.shared.models.enums.Currency;
+import com.agriva.finance.model.entity.Expense;
+import com.agriva.finance.model.enums.ExpenseCategory;
+import com.agriva.finance.model.entity.StagedExpense;
+import com.agriva.finance.model.enums.StagedExpenseStatus;
+import com.agriva.identity.repository.AuthRepository;
+import com.agriva.finance.repository.ExpenseRepository;
+import com.agriva.farming.repository.FarmRepository;
+import com.agriva.finance.repository.InvestmentRepository;
+import com.agriva.finance.repository.StagedExpenseRepository;
+import com.agriva.finance.scheduler.StagedExpenseValidator;
+import com.agriva.identity.service.AuthService;
+import com.agriva.finance.service.ExpenseService;
+import com.agriva.finance.service.InvestmentService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.test.context.ActiveProfiles;
+
+import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
+
+@SpringBootTest
+@ActiveProfiles("test")
+@Import(TestcontainersConfiguration.class)
+class ExpenseServiceIT {
+
+    @Autowired ExpenseService expenseService;
+    @Autowired InvestmentService investmentService;
+    @Autowired StagedExpenseValidator validator;
+    @Autowired AuthService authService;
+    @Autowired ExpenseRepository expenseRepo;
+    @Autowired StagedExpenseRepository stagedRepo;
+    @Autowired InvestmentRepository investmentRepo;
+    @Autowired AuthRepository authRepository;
+    @Autowired FarmRepository farmRepository;
+
+    UUID farmId;
+
+    @BeforeEach
+    void setUp() {
+        stagedRepo.deleteAll();
+        expenseRepo.deleteAll();
+        investmentRepo.deleteAll();       // ← isolate state between tests
+        authRepository.deleteAll();
+        farmRepository.deleteAll();
+
+        MasterRegisterRequest reg = new MasterRegisterRequest();
+        reg.setEmail("expense@test.local");
+        reg.setPassword("MasterPass1!");
+        reg.setFarmName("Expense Test Farm " + UUID.randomUUID());
+        reg.setName("Expense Master");
+        reg.setGender(Gender.MALE);
+        reg.setDateOfBirth(LocalDate.now().minusYears(35));
+        reg.setPhoneNumber("+237600000000");
+        reg.setCountry("Cameroon");
+        reg.setState("Centre");
+        reg.setCity("Yaoundé");
+        reg.setAddress("Rue 1");
+        reg.setPostalCode("00000");
+        reg.setCurrency("XAF");
+        reg.setUserAgreement(true);
+        AuthResponse master = authService.registerMaster(reg);
+        farmId = master.getFarmId();
+
+        // ── REQUIRED ─────────────────────────────────────────────────────
+        // ExpenseServiceImpl.createDirect() and StagedExpenseValidator both
+        // require an ACTIVE investment before they will move an expense into
+        // the `expense` table. Create one here for every test.
+        InvestmentRequest inv = new InvestmentRequest();
+        inv.setAmount(new BigDecimal("1000000.00"));   // 1,000,000 XAF
+        inv.setCurrency(Currency.XAF);
+        inv.setInvestorName("Test Investor");
+        inv.setInvestmentDate(LocalDate.now());
+        inv.setActivate(true);
+        investmentService.createInvestment(inv, farmId, null);
+    }
+
+    @Test
+    void submitExpense_movesToExpenseTable() {
+        ExpenseRequest req = new ExpenseRequest();
+        req.setAmountPaid(new BigDecimal("250.00"));
+        req.setExpectedAmount(new BigDecimal("250.00"));
+        req.setQtyPurchased(1);
+        req.setCurrency(Currency.USD);
+        req.setCategory(ExpenseCategory.ANIMAL_FEED);
+        req.setReason("Agro Supply");
+        req.setExpenseDate(LocalDate.now().minusDays(2));
+        req.setReceipt("REC-001");
+
+        ExpenseSubmissionAck ack = expenseService.submitExpense(
+                req, farmId, null, "expense@test.local");
+
+        assertThat(ack.getStatus()).isEqualTo("QUEUED");
+
+        await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
+            StagedExpense staged = stagedRepo.findById(ack.getSubmissionId()).orElse(null);
+            assertThat(staged).isNotNull();
+        });
+
+        validator.processStagedExpenses();
+
+        StagedExpense staged = stagedRepo.findById(ack.getSubmissionId()).orElseThrow();
+        assertThat(staged.getStatus()).isEqualTo(StagedExpenseStatus.MOVED);
+
+        Expense saved = expenseRepo.findAll().get(0);
+        assertThat(saved.getAmountPaid()).isEqualByComparingTo("250.00");
+        assertThat(saved.getReason()).isEqualTo("Agro Supply");
+        assertThat(saved.getQtyPurchased()).isEqualTo(1);
+    }
+
+    @Test
+    void createThenList_updateDelete() {
+        UUID userId = authRepository.findByEmail("expense@test.local").orElseThrow().getId();
+
+        ExpenseRequest req = new ExpenseRequest();
+        req.setAmountPaid(new BigDecimal("100"));
+        req.setExpectedAmount(new BigDecimal("100"));
+        req.setQtyPurchased(1);
+        req.setCurrency(Currency.USD);
+        req.setCategory(ExpenseCategory.MISCELLANEOUS);
+        req.setReason("Vendor A");
+        req.setExpenseDate(LocalDate.now().minusDays(1));
+
+        var created = expenseService.createDirect(req, farmId, userId);
+        assertThat(created.getId()).isNotNull();
+
+        var page = expenseService.listExpenses(
+                farmId, org.springframework.data.domain.Pageable.unpaged());
+        assertThat(page.getTotalElements()).isEqualTo(1);
+
+        expenseService.deleteExpense(created.getId(), farmId);
+        assertThat(expenseRepo.findAll())
+                .allMatch(e -> e.getDeletedAt() != null);
+    }
+}

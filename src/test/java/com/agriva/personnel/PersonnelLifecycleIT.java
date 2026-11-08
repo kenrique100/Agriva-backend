@@ -1,19 +1,29 @@
 package com.agriva.personnel;
 
 import com.agriva.TestcontainersConfiguration;
-import com.agriva.exception.BusinessException;
-import com.agriva.model.dto.auth.AuthResponse;
-import com.agriva.model.dto.auth.MasterRegisterRequest;
-import com.agriva.model.dto.auth.SubUserRegisterRequest;
-import com.agriva.model.dto.personnel.PersonnelResponse;
-import com.agriva.model.dto.personnel.PersonnelUpdateRequest;
-import com.agriva.model.entity.*;
-import com.agriva.model.entity.enums.Department;
-import com.agriva.model.entity.enums.Gender;
-import com.agriva.model.entity.enums.PersonnelStatus;
-import com.agriva.repository.*;
-import com.agriva.service.AuthService;
-import com.agriva.service.PersonnelService;
+import com.agriva.farming.repository.FarmRepository;
+import com.agriva.finance.repository.ExpenseRepository;
+import com.agriva.finance.repository.IncomeRepository;
+import com.agriva.finance.repository.InvestmentRepository;
+import com.agriva.finance.repository.TransactionRepository;
+import com.agriva.identity.models.entity.User;
+import com.agriva.identity.repository.AuthRepository;
+import com.agriva.payroll.repository.SalaryPaymentRepository;
+import com.agriva.personnel.models.entity.Personnel;
+import com.agriva.personnel.repository.PersonnelRepository;
+import com.agriva.personnel.repository.PersonnelStatusHistoryRepository;
+import com.agriva.shared.exception.BusinessException;
+import com.agriva.identity.models.dto.response.AuthResponse;
+import com.agriva.identity.models.dto.request.MasterRegisterRequest;
+import com.agriva.identity.models.dto.request.SubUserRegisterRequest;
+import com.agriva.personnel.models.dto.response.PersonnelResponse;
+import com.agriva.personnel.models.dto.request.PersonnelUpdateRequest;
+import com.agriva.personnel.models.enums.Department;
+import com.agriva.personnel.models.enums.Gender;
+import com.agriva.personnel.models.enums.PersonnelStatus;
+import com.agriva.identity.service.AuthService;
+import com.agriva.personnel.service.PersonnelService;
+import com.agriva.task.repository.TaskRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,16 +44,26 @@ class PersonnelLifecycleIT {
 
     @Autowired PersonnelService personnelService;
     @Autowired AuthService authService;
-    @Autowired PersonnelRepository personnelRepository;
-    @Autowired PersonnelStatusHistoryRepository historyRepository;
-    @Autowired TaskRepository taskRepository;
-    @Autowired SalaryPaymentRepository salaryRepository;
-    @Autowired ExpenseRepository expenseRepository;
-    @Autowired InvestmentRepository investmentRepository;
-    @Autowired IncomeRepository incomeRepository;
-    @Autowired TransactionRepository transactionRepository;
-    @Autowired AuthRepository authRepository;
-    @Autowired FarmRepository farmRepository;
+    @Autowired
+    PersonnelRepository personnelRepository;
+    @Autowired
+    PersonnelStatusHistoryRepository historyRepository;
+    @Autowired
+    TaskRepository taskRepository;
+    @Autowired
+    SalaryPaymentRepository salaryRepository;
+    @Autowired
+    ExpenseRepository expenseRepository;
+    @Autowired
+    InvestmentRepository investmentRepository;
+    @Autowired
+    IncomeRepository incomeRepository;
+    @Autowired
+    TransactionRepository transactionRepository;
+    @Autowired
+    AuthRepository authRepository;
+    @Autowired
+    FarmRepository farmRepository;
 
     UUID farmId;
     UUID masterUserId;
@@ -65,21 +85,24 @@ class PersonnelLifecycleIT {
         MasterRegisterRequest reg = new MasterRegisterRequest();
         reg.setEmail("master@test.local");
         reg.setUsername("master_test");
-        reg.setPassword("MasterPass1");
+        reg.setPassword("MasterPass1!");
         reg.setFarmName("Lifecycle Farm " + UUID.randomUUID());
         reg.setName("Master Owner");
         reg.setGender(Gender.MALE);
         reg.setDateOfBirth(LocalDate.now().minusYears(35));
         reg.setPhoneNumber("+237600000000");
-        reg.setCountry("Cameroon"); reg.setState("Centre"); reg.setCity("Yaoundé");
-        reg.setAddress("Rue 1"); reg.setPostalCode("00000");
-        reg.setCurrency("XAF"); reg.setUserAgreement(true);
+        reg.setCountry("Cameroon");
+        reg.setState("Centre");
+        reg.setCity("Yaoundé");
+        reg.setAddress("Rue 1");
+        reg.setPostalCode("00000");
+        reg.setCurrency("XAF");
+        reg.setUserAgreement(true);
 
         AuthResponse master = authService.registerMaster(reg);
         farmId = master.getFarmId();
         masterUserId = authRepository.findByEmail("master@test.local").orElseThrow().getId();
 
-        // The registration should have auto-created a Personnel row.
         Personnel masterPersonnel = personnelRepository.findByUserId(masterUserId)
                 .orElseThrow(() -> new AssertionError("Personnel not auto-created for MASTER"));
         masterPersonnelId = masterPersonnel.getId();
@@ -104,7 +127,7 @@ class PersonnelLifecycleIT {
         assertThat(p.getFarmId()).isEqualTo(farmId);
         assertThat(p.getName()).isEqualTo("John Doe");
         assertThat(p.getStatus()).isEqualTo(PersonnelStatus.ACTIVE);
-        assertThat(personnelRepository.count()).isEqualTo(2); // master + sub
+        assertThat(personnelRepository.count()).isEqualTo(2);
     }
 
     @Test
@@ -114,7 +137,7 @@ class PersonnelLifecycleIT {
 
         var page = personnelService.list(farmId, null,
                 org.springframework.data.domain.PageRequest.of(0, 20));
-        assertThat(page.getTotalElements()).isEqualTo(3); // master + 2 subs
+        assertThat(page.getTotalElements()).isEqualTo(3);
     }
 
     @Test
@@ -125,7 +148,6 @@ class PersonnelLifecycleIT {
                 .filter(p -> p.getUserId().equals(subUserId))
                 .count()).isEqualTo(1);
     }
-
 
     @Test
     void updatePersonnel_fillsHrFieldsThatWereNullOnRegistration() {
@@ -163,7 +185,6 @@ class PersonnelLifecycleIT {
                 .hasMessageContaining("National ID");
     }
 
-
     @Test
     void subUser_canReadOwnProfile() {
         UUID subUserId = registerSubUser("own@test.local", "Self Service");
@@ -173,14 +194,20 @@ class PersonnelLifecycleIT {
     }
 
     @Test
-    void deletePersonnel_deletesUserViaCascade() {
+    void deletePersonnel_softDeletesPersonnelAndUser() {
         UUID subUserId = registerSubUser("gone@test.local", "Gone Soon");
         Personnel p = personnelRepository.findByUserId(subUserId).orElseThrow();
 
         personnelService.delete(p.getId(), farmId);
 
-        assertThat(personnelRepository.findById(p.getId())).isEmpty();
-        assertThat(authRepository.findById(subUserId)).isEmpty();
+        assertThat(personnelRepository.findByIdAndFarmIdLive(p.getId(), farmId)).isEmpty();
+        assertThat(personnelRepository.findByUserIdLive(subUserId)).isEmpty();
+
+        Personnel softDeleted = personnelRepository.findById(p.getId()).orElseThrow();
+        assertThat(softDeleted.getDeletedAt()).isNotNull();
+
+        User softDeletedUser = authRepository.findById(subUserId).orElseThrow();
+        assertThat(softDeletedUser.getDeletedAt()).isNotNull();
     }
 
     @Test
@@ -190,19 +217,17 @@ class PersonnelLifecycleIT {
                 .hasMessageContaining("MASTER");
     }
 
-
     private UUID registerSubUser(String email, String name) {
         SubUserRegisterRequest req = new SubUserRegisterRequest();
         req.setEmail(email);
         req.setName(name);
         req.setUsername(email.split("@")[0]);
-        req.setPassword("SubPass123");
-        req.setFarmId(farmId);
+        req.setPassword("SubPass1234!");
         req.setGender(Gender.FEMALE);
         req.setDateOfBirth(LocalDate.now().minusYears(25));
         req.setPhoneNumber("+237600000001");
         req.setAddress("Rue 2");
-        authService.registerSubUser(req);
+        authService.registerSubUser(req, farmId, "MASTER");
         return authRepository.findByEmail(email).orElseThrow().getId();
     }
 }

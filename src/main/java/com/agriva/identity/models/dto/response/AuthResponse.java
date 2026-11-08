@@ -1,0 +1,23 @@
+package com.agriva.identity.models.dto.response;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.UUID;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class AuthResponse {
+    private UUID   userId;
+    private String token;
+    private String refreshToken;
+    private Long expiresInSeconds;
+    private String email;
+    private String username;
+    private String role;
+    private UUID farmId;
+    private String farmName;
+    private String preferredCurrency;
+}

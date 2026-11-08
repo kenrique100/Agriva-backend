@@ -1,10 +1,15 @@
 package com.agriva.security;
 
 import com.agriva.TestcontainersConfiguration;
-import com.agriva.model.dto.auth.LoginRequest;
-import com.agriva.model.dto.auth.MasterRegisterRequest;
-import com.agriva.model.entity.Gender;
-import com.agriva.service.AuthService;
+import com.agriva.farming.repository.FarmRepository;
+import com.agriva.identity.models.dto.response.AuthResponse;
+import com.agriva.identity.models.dto.request.LoginRequest;
+import com.agriva.identity.models.dto.request.MasterRegisterRequest;
+import com.agriva.identity.repository.AuthRepository;
+import com.agriva.personnel.models.enums.Gender;
+import com.agriva.identity.service.AuthService;
+import com.agriva.personnel.repository.PersonnelRepository;
+import com.agriva.personnel.repository.PersonnelStatusHistoryRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,10 +25,6 @@ import java.util.Base64;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Verifies the session-TTL fix. Uses an explicit 86400s override so it
- * exercises the production value, not the test-default 900s.
- */
 @SpringBootTest
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
@@ -34,10 +35,14 @@ class JwtSessionIT {
 
     @Autowired AuthService authService;
     @Autowired ObjectMapper objectMapper;
-    @Autowired com.agriva.repository.AuthRepository authRepository;
-    @Autowired com.agriva.repository.FarmRepository farmRepository;
-    @Autowired com.agriva.repository.PersonnelRepository personnelRepository;
-    @Autowired com.agriva.repository.PersonnelStatusHistoryRepository historyRepository;
+    @Autowired
+    AuthRepository authRepository;
+    @Autowired
+    FarmRepository farmRepository;
+    @Autowired
+    PersonnelRepository personnelRepository;
+    @Autowired
+    PersonnelStatusHistoryRepository historyRepository;
 
     @BeforeEach
     void setUp() {
@@ -48,15 +53,19 @@ class JwtSessionIT {
 
         MasterRegisterRequest reg = new MasterRegisterRequest();
         reg.setEmail("ttl@test.local");
-        reg.setPassword("MasterPass1");
+        reg.setPassword("MasterPass1!");
         reg.setFarmName("TTL Farm");
         reg.setName("TTL Master");
         reg.setGender(Gender.MALE);
         reg.setDateOfBirth(LocalDate.now().minusYears(35));
         reg.setPhoneNumber("+237600000000");
-        reg.setCountry("Cameroon"); reg.setState("Centre"); reg.setCity("Yaoundé");
-        reg.setAddress("Rue 1"); reg.setPostalCode("00000");
-        reg.setCurrency("XAF"); reg.setUserAgreement(true);
+        reg.setCountry("Cameroon");
+        reg.setState("Centre");
+        reg.setCity("Yaoundé");
+        reg.setAddress("Rue 1");
+        reg.setPostalCode("00000");
+        reg.setCurrency("XAF");
+        reg.setUserAgreement(true);
         authService.registerMaster(reg);
     }
 
@@ -64,8 +73,10 @@ class JwtSessionIT {
     void accessToken_ttlIs24Hours() throws Exception {
         LoginRequest login = new LoginRequest();
         login.setEmailOrUsername("ttl@test.local");
-        login.setPassword("MasterPass1");
-        String token = authService.login(login);
+        login.setPassword("MasterPass1!");
+
+        AuthResponse session = authService.login(login);
+        String token = session.getToken();
 
         String[] parts = token.split("\\.");
         assertThat(parts).hasSize(3);
@@ -76,6 +87,13 @@ class JwtSessionIT {
         long iat = claims.get("iat").asLong();
         long exp = claims.get("exp").asLong();
 
-        assertThat(exp - iat).isEqualTo(86400L);   // 24 hours
+        assertThat(exp - iat).isEqualTo(86400L);
+
+        // jti must be present (blacklist key)
+        assertThat(claims.get("jti").asText()).isNotBlank();
+        // iat should be very close to "now" — sanity check the claim we now
+        // read in JwtAuthFilter (audit A10)
+        long nowSec = System.currentTimeMillis() / 1000L;
+        assertThat(Math.abs(nowSec - iat)).isLessThan(10);
     }
 }

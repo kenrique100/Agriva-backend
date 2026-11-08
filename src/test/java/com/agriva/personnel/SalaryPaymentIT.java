@@ -1,24 +1,34 @@
 package com.agriva.personnel;
 
 import com.agriva.TestcontainersConfiguration;
-import com.agriva.exception.NoActiveInvestmentException;
-import com.agriva.model.dto.auth.AuthResponse;
-import com.agriva.model.dto.auth.MasterRegisterRequest;
-import com.agriva.model.dto.auth.SubUserRegisterRequest;
-import com.agriva.model.dto.investment.InvestmentRequest;
-import com.agriva.model.dto.investment.InvestmentResponse;
-import com.agriva.model.dto.salary.SalaryPaymentRequest;
-import com.agriva.model.dto.salary.SalaryPaymentResponse;
-import com.agriva.model.dto.salary.SalaryReceiptResponse;
-import com.agriva.model.entity.*;
-import com.agriva.model.entity.enums.Currency;
-import com.agriva.model.entity.enums.ExpenseCategory;
-import com.agriva.model.entity.enums.Gender;
-import com.agriva.model.entity.enums.SalaryPaymentStatus;
-import com.agriva.repository.*;
-import com.agriva.service.AuthService;
-import com.agriva.service.InvestmentService;
-import com.agriva.service.SalaryService;
+import com.agriva.farming.repository.FarmRepository;
+import com.agriva.finance.model.entity.Expense;
+import com.agriva.finance.repository.ExpenseRepository;
+import com.agriva.finance.repository.IncomeRepository;
+import com.agriva.finance.repository.InvestmentRepository;
+import com.agriva.finance.repository.TransactionRepository;
+import com.agriva.identity.repository.AuthRepository;
+import com.agriva.payroll.repository.SalaryPaymentRepository;
+import com.agriva.personnel.repository.PersonnelRepository;
+import com.agriva.personnel.repository.PersonnelStatusHistoryRepository;
+import com.agriva.shared.exception.InvestmentLimitExceededException;
+import com.agriva.shared.exception.NoActiveInvestmentException;
+import com.agriva.identity.models.dto.response.AuthResponse;
+import com.agriva.identity.models.dto.request.MasterRegisterRequest;
+import com.agriva.identity.models.dto.request.SubUserRegisterRequest;
+import com.agriva.finance.model.dto.request.InvestmentRequest;
+import com.agriva.finance.model.dto.response.InvestmentResponse;
+import com.agriva.payroll.model.dto.requests.SalaryPaymentRequest;
+import com.agriva.payroll.model.dto.response.SalaryPaymentResponse;
+import com.agriva.payroll.model.dto.response.SalaryReceiptResponse;
+import com.agriva.shared.models.enums.Currency;
+import com.agriva.finance.model.enums.ExpenseCategory;
+import com.agriva.personnel.models.enums.Gender;
+import com.agriva.payroll.model.enums.SalaryPaymentStatus;
+import com.agriva.identity.service.AuthService;
+import com.agriva.finance.service.InvestmentService;
+import com.agriva.payroll.service.SalaryService;
+import com.agriva.task.repository.TaskRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,16 +51,26 @@ class SalaryPaymentIT {
     @Autowired SalaryService salaryService;
     @Autowired InvestmentService investmentService;
     @Autowired AuthService authService;
-    @Autowired PersonnelRepository personnelRepository;
-    @Autowired PersonnelStatusHistoryRepository historyRepository;
-    @Autowired TaskRepository taskRepository;
-    @Autowired SalaryPaymentRepository salaryRepository;
-    @Autowired ExpenseRepository expenseRepository;
-    @Autowired InvestmentRepository investmentRepository;
-    @Autowired IncomeRepository incomeRepository;
-    @Autowired TransactionRepository transactionRepository;
-    @Autowired AuthRepository authRepository;
-    @Autowired FarmRepository farmRepository;
+    @Autowired
+    PersonnelRepository personnelRepository;
+    @Autowired
+    PersonnelStatusHistoryRepository historyRepository;
+    @Autowired
+    TaskRepository taskRepository;
+    @Autowired
+    SalaryPaymentRepository salaryRepository;
+    @Autowired
+    ExpenseRepository expenseRepository;
+    @Autowired
+    InvestmentRepository investmentRepository;
+    @Autowired
+    IncomeRepository incomeRepository;
+    @Autowired
+    TransactionRepository transactionRepository;
+    @Autowired
+    AuthRepository authRepository;
+    @Autowired
+    FarmRepository farmRepository;
 
     UUID farmId;
     UUID masterUserId;
@@ -71,15 +91,19 @@ class SalaryPaymentIT {
 
         MasterRegisterRequest reg = new MasterRegisterRequest();
         reg.setEmail("paymaster@test.local");
-        reg.setPassword("MasterPass1");
+        reg.setPassword("MasterPass1!");
         reg.setFarmName("Payroll Farm " + UUID.randomUUID());
         reg.setName("Payroll Master");
         reg.setGender(Gender.MALE);
         reg.setDateOfBirth(LocalDate.now().minusYears(35));
         reg.setPhoneNumber("+237600000000");
-        reg.setCountry("Cameroon"); reg.setState("Centre"); reg.setCity("Yaoundé");
-        reg.setAddress("Rue 1"); reg.setPostalCode("00000");
-        reg.setCurrency("XAF"); reg.setUserAgreement(true);
+        reg.setCountry("Cameroon");
+        reg.setState("Centre");
+        reg.setCity("Yaoundé");
+        reg.setAddress("Rue 1");
+        reg.setPostalCode("00000");
+        reg.setCurrency("XAF");
+        reg.setUserAgreement(true);
         AuthResponse master = authService.registerMaster(reg);
         farmId = master.getFarmId();
         masterUserId = authRepository.findByEmail("paymaster@test.local").orElseThrow().getId();
@@ -88,15 +112,15 @@ class SalaryPaymentIT {
         sub.setEmail("payee@test.local");
         sub.setName("Payee Person");
         sub.setUsername("payee");
-        sub.setPassword("PayeePass1");
-        sub.setFarmId(farmId);
+        sub.setPassword("PayeePass12!");
         sub.setGender(Gender.FEMALE);
         sub.setDateOfBirth(LocalDate.now().minusYears(25));
         sub.setPhoneNumber("+237600000002");
         sub.setAddress("Rue 3");
-        authService.registerSubUser(sub);
+        authService.registerSubUser(sub, farmId, "MASTER");
 
-        UUID workerUserId = authRepository.findByEmail("payee@test.local").orElseThrow().getId();
+        UUID workerUserId = authRepository.findByEmail("payee@test.local")
+                .orElseThrow().getId();
         personnelId = personnelRepository.findByUserId(workerUserId).orElseThrow().getId();
     }
 
@@ -132,17 +156,16 @@ class SalaryPaymentIT {
 
     @Test
     void salaryExceedingRemainingBudget_isRejected() {
-        InvestmentResponse active = activateInvestment(new BigDecimal("30000"), Currency.XAF);
+        activateInvestment(new BigDecimal("30000"), Currency.XAF);
 
         SalaryPaymentRequest req = new SalaryPaymentRequest();
         req.setPersonnelId(personnelId);
-        req.setAmount(new BigDecimal("50000")); // > 30k remaining
+        req.setAmount(new BigDecimal("50000"));
         req.setPaymentDate(LocalDate.now());
 
         assertThatThrownBy(() -> salaryService.create(req, farmId, masterUserId))
-                .isInstanceOf(com.agriva.exception.InvestmentLimitExceededException.class);
+                .isInstanceOf(InvestmentLimitExceededException.class);
 
-        // Confirm nothing persisted
         assertThat(salaryRepository.count()).isZero();
         assertThat(expenseRepository.count()).isZero();
     }
@@ -157,14 +180,13 @@ class SalaryPaymentIT {
         assertThat(salaryRepository.count()).isEqualTo(2);
         assertThat(expenseRepository.count()).isEqualTo(2);
 
-        // Third payment should fail (only 20k remaining)
         SalaryPaymentRequest third = new SalaryPaymentRequest();
         third.setPersonnelId(personnelId);
         third.setAmount(new BigDecimal("25000"));
         third.setPaymentDate(LocalDate.now());
 
         assertThatThrownBy(() -> salaryService.create(third, farmId, masterUserId))
-                .isInstanceOf(com.agriva.exception.InvestmentLimitExceededException.class);
+                .isInstanceOf(InvestmentLimitExceededException.class);
     }
 
     @Test
@@ -188,7 +210,6 @@ class SalaryPaymentIT {
         assertThat(pdf).isNotEmpty();
         assertThat(new String(pdf, 0, 5)).isEqualTo("%PDF-");
     }
-
 
     private InvestmentResponse activateInvestment(BigDecimal amount, Currency currency) {
         InvestmentRequest req = new InvestmentRequest();

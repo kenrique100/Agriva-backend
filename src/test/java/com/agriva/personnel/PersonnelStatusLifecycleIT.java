@@ -1,19 +1,30 @@
 package com.agriva.personnel;
 
 import com.agriva.TestcontainersConfiguration;
-import com.agriva.exception.BusinessException;
-import com.agriva.exception.InvalidPersonnelStatusException;
-import com.agriva.model.dto.auth.AuthResponse;
-import com.agriva.model.dto.auth.MasterRegisterRequest;
-import com.agriva.model.dto.auth.SubUserRegisterRequest;
-import com.agriva.model.dto.personnel.*;
-import com.agriva.model.entity.*;
-import com.agriva.model.entity.enums.Department;
-import com.agriva.model.entity.enums.Gender;
-import com.agriva.model.entity.enums.PersonnelStatus;
-import com.agriva.repository.*;
-import com.agriva.service.AuthService;
-import com.agriva.service.PersonnelService;
+import com.agriva.farming.repository.FarmRepository;
+import com.agriva.finance.repository.ExpenseRepository;
+import com.agriva.finance.repository.IncomeRepository;
+import com.agriva.finance.repository.InvestmentRepository;
+import com.agriva.finance.repository.TransactionRepository;
+import com.agriva.identity.repository.AuthRepository;
+import com.agriva.payroll.repository.SalaryPaymentRepository;
+import com.agriva.personnel.models.dto.request.PersonnelStatusUpdateRequest;
+import com.agriva.personnel.models.dto.response.PersonnelResponse;
+import com.agriva.personnel.models.dto.response.PersonnelStatusHistoryResponse;
+import com.agriva.personnel.models.entity.Personnel;
+import com.agriva.personnel.repository.PersonnelRepository;
+import com.agriva.personnel.repository.PersonnelStatusHistoryRepository;
+import com.agriva.shared.exception.BusinessException;
+import com.agriva.shared.exception.InvalidPersonnelStatusException;
+import com.agriva.identity.models.dto.response.AuthResponse;
+import com.agriva.identity.models.dto.request.MasterRegisterRequest;
+import com.agriva.identity.models.dto.request.SubUserRegisterRequest;
+import com.agriva.personnel.models.enums.Department;
+import com.agriva.personnel.models.enums.Gender;
+import com.agriva.personnel.models.enums.PersonnelStatus;
+import com.agriva.identity.service.AuthService;
+import com.agriva.personnel.service.PersonnelService;
+import com.agriva.task.repository.TaskRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,16 +47,26 @@ class PersonnelStatusLifecycleIT {
 
     @Autowired PersonnelService personnelService;
     @Autowired AuthService authService;
-    @Autowired PersonnelRepository personnelRepository;
-    @Autowired PersonnelStatusHistoryRepository historyRepository;
-    @Autowired TaskRepository taskRepository;
-    @Autowired SalaryPaymentRepository salaryRepository;
-    @Autowired ExpenseRepository expenseRepository;
-    @Autowired InvestmentRepository investmentRepository;
-    @Autowired IncomeRepository incomeRepository;
-    @Autowired TransactionRepository transactionRepository;
-    @Autowired AuthRepository authRepository;
-    @Autowired FarmRepository farmRepository;
+    @Autowired
+    PersonnelRepository personnelRepository;
+    @Autowired
+    PersonnelStatusHistoryRepository historyRepository;
+    @Autowired
+    TaskRepository taskRepository;
+    @Autowired
+    SalaryPaymentRepository salaryRepository;
+    @Autowired
+    ExpenseRepository expenseRepository;
+    @Autowired
+    InvestmentRepository investmentRepository;
+    @Autowired
+    IncomeRepository incomeRepository;
+    @Autowired
+    TransactionRepository transactionRepository;
+    @Autowired
+    AuthRepository authRepository;
+    @Autowired
+    FarmRepository farmRepository;
 
     UUID farmId;
     UUID personnelId;
@@ -65,15 +86,19 @@ class PersonnelStatusLifecycleIT {
 
         MasterRegisterRequest reg = new MasterRegisterRequest();
         reg.setEmail("status@test.local");
-        reg.setPassword("MasterPass1");
+        reg.setPassword("MasterPass1!");
         reg.setFarmName("Status Farm " + UUID.randomUUID());
         reg.setName("Status Master");
         reg.setGender(Gender.MALE);
         reg.setDateOfBirth(LocalDate.now().minusYears(35));
         reg.setPhoneNumber("+237600000000");
-        reg.setCountry("Cameroon"); reg.setState("Centre"); reg.setCity("Yaoundé");
-        reg.setAddress("Rue 1"); reg.setPostalCode("00000");
-        reg.setCurrency("XAF"); reg.setUserAgreement(true);
+        reg.setCountry("Cameroon");
+        reg.setState("Centre");
+        reg.setCity("Yaoundé");
+        reg.setAddress("Rue 1");
+        reg.setPostalCode("00000");
+        reg.setCurrency("XAF");
+        reg.setUserAgreement(true);
         AuthResponse master = authService.registerMaster(reg);
         farmId = master.getFarmId();
 
@@ -81,13 +106,12 @@ class PersonnelStatusLifecycleIT {
         sub.setEmail("worker@test.local");
         sub.setName("Worker");
         sub.setUsername("worker");
-        sub.setPassword("WorkerPass1");
-        sub.setFarmId(farmId);
+        sub.setPassword("WorkerPass1!");
         sub.setGender(Gender.FEMALE);
         sub.setDateOfBirth(LocalDate.now().minusYears(25));
         sub.setPhoneNumber("+237600000002");
         sub.setAddress("Rue 3");
-        authService.registerSubUser(sub);
+        authService.registerSubUser(sub, farmId, "MASTER");
 
         UUID userId = authRepository.findByEmail("worker@test.local").orElseThrow().getId();
         personnelId = personnelRepository.findByUserId(userId).orElseThrow().getId();
@@ -110,10 +134,8 @@ class PersonnelStatusLifecycleIT {
         List<PersonnelStatusHistoryResponse> history =
                 personnelService.getStatusHistory(personnelId, farmId);
         assertThat(history).hasSize(2);
-        // newest first
         assertThat(history.get(0).getStatus()).isEqualTo(PersonnelStatus.ON_LEAVE);
         assertThat(history.get(0).getEndTimestamp()).isNull();
-        // old one was closed
         assertThat(history.get(1).getStatus()).isEqualTo(PersonnelStatus.ACTIVE);
         assertThat(history.get(1).getEndTimestamp()).isNotNull();
         assertThat(history.get(1).getActualDuration()).isNotNull();
@@ -167,7 +189,6 @@ class PersonnelStatusLifecycleIT {
 
     @Test
     void farmManagerCannotTakeLeave() {
-        // promote by setting department directly
         Personnel p = personnelRepository.findById(personnelId).orElseThrow();
         p.setDepartment(Department.FARM_MANAGEMENT);
         personnelRepository.save(p);
@@ -186,7 +207,6 @@ class PersonnelStatusLifecycleIT {
     void onLeaveWithoutDates_rejected() {
         PersonnelStatusUpdateRequest req = new PersonnelStatusUpdateRequest();
         req.setStatus(PersonnelStatus.ON_LEAVE);
-        // both dates missing
 
         assertThatThrownBy(() -> personnelService.changeStatus(personnelId, req, farmId))
                 .isInstanceOf(BusinessException.class)

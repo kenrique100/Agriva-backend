@@ -1,18 +1,29 @@
 package com.agriva.personnel;
 
 import com.agriva.TestcontainersConfiguration;
-import com.agriva.exception.InvalidTaskStateException;
-import com.agriva.exception.PersonnelAccessDeniedException;
-import com.agriva.model.dto.auth.AuthResponse;
-import com.agriva.model.dto.auth.MasterRegisterRequest;
-import com.agriva.model.dto.auth.SubUserRegisterRequest;
-import com.agriva.model.dto.task.*;
-import com.agriva.model.entity.*;
-import com.agriva.model.entity.enums.Gender;
-import com.agriva.model.entity.enums.TaskStatus;
-import com.agriva.repository.*;
-import com.agriva.service.AuthService;
-import com.agriva.service.TaskService;
+import com.agriva.farming.repository.FarmRepository;
+import com.agriva.finance.repository.ExpenseRepository;
+import com.agriva.finance.repository.IncomeRepository;
+import com.agriva.finance.repository.InvestmentRepository;
+import com.agriva.finance.repository.TransactionRepository;
+import com.agriva.identity.repository.AuthRepository;
+import com.agriva.payroll.repository.SalaryPaymentRepository;
+import com.agriva.personnel.models.entity.Personnel;
+import com.agriva.personnel.repository.PersonnelRepository;
+import com.agriva.personnel.repository.PersonnelStatusHistoryRepository;
+import com.agriva.shared.exception.InvalidTaskStateException;
+import com.agriva.shared.exception.PersonnelAccessDeniedException;
+import com.agriva.identity.models.dto.response.AuthResponse;
+import com.agriva.identity.models.dto.request.MasterRegisterRequest;
+import com.agriva.identity.models.dto.request.SubUserRegisterRequest;
+import com.agriva.personnel.models.enums.Gender;
+import com.agriva.task.model.dto.requests.TaskCreateRequest;
+import com.agriva.task.model.dto.response.TaskResponse;
+import com.agriva.task.model.enums.TaskStatus;
+import com.agriva.identity.service.AuthService;
+import com.agriva.task.service.TaskService;
+import com.agriva.task.model.entity.Task;
+import com.agriva.task.repository.TaskRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,16 +45,26 @@ class TaskLifecycleIT {
 
     @Autowired TaskService taskService;
     @Autowired AuthService authService;
-    @Autowired PersonnelRepository personnelRepository;
-    @Autowired PersonnelStatusHistoryRepository historyRepository;
-    @Autowired TaskRepository taskRepository;
-    @Autowired SalaryPaymentRepository salaryRepository;
-    @Autowired ExpenseRepository expenseRepository;
-    @Autowired InvestmentRepository investmentRepository;
-    @Autowired IncomeRepository incomeRepository;
-    @Autowired TransactionRepository transactionRepository;
-    @Autowired AuthRepository authRepository;
-    @Autowired FarmRepository farmRepository;
+    @Autowired
+    PersonnelRepository personnelRepository;
+    @Autowired
+    PersonnelStatusHistoryRepository historyRepository;
+    @Autowired
+    TaskRepository taskRepository;
+    @Autowired
+    SalaryPaymentRepository salaryRepository;
+    @Autowired
+    ExpenseRepository expenseRepository;
+    @Autowired
+    InvestmentRepository investmentRepository;
+    @Autowired
+    IncomeRepository incomeRepository;
+    @Autowired
+    TransactionRepository transactionRepository;
+    @Autowired
+    AuthRepository authRepository;
+    @Autowired
+    FarmRepository farmRepository;
 
     UUID farmId;
     UUID masterUserId;
@@ -65,15 +86,19 @@ class TaskLifecycleIT {
 
         MasterRegisterRequest reg = new MasterRegisterRequest();
         reg.setEmail("taskmaster@test.local");
-        reg.setPassword("MasterPass1");
+        reg.setPassword("MasterPass1!");
         reg.setFarmName("Task Farm " + UUID.randomUUID());
         reg.setName("Task Master");
         reg.setGender(Gender.MALE);
         reg.setDateOfBirth(LocalDate.now().minusYears(35));
         reg.setPhoneNumber("+237600000000");
-        reg.setCountry("Cameroon"); reg.setState("Centre"); reg.setCity("Yaoundé");
-        reg.setAddress("Rue 1"); reg.setPostalCode("00000");
-        reg.setCurrency("XAF"); reg.setUserAgreement(true);
+        reg.setCountry("Cameroon");
+        reg.setState("Centre");
+        reg.setCity("Yaoundé");
+        reg.setAddress("Rue 1");
+        reg.setPostalCode("00000");
+        reg.setCurrency("XAF");
+        reg.setUserAgreement(true);
         AuthResponse master = authService.registerMaster(reg);
         farmId = master.getFarmId();
         masterUserId = authRepository.findByEmail("taskmaster@test.local").orElseThrow().getId();
@@ -82,15 +107,15 @@ class TaskLifecycleIT {
         sub.setEmail("worker@test.local");
         sub.setName("Task Worker");
         sub.setUsername("taskworker");
-        sub.setPassword("WorkerPass1");
-        sub.setFarmId(farmId);
+        sub.setPassword("WorkerPass1!");
         sub.setGender(Gender.FEMALE);
         sub.setDateOfBirth(LocalDate.now().minusYears(25));
         sub.setPhoneNumber("+237600000002");
         sub.setAddress("Rue 3");
-        authService.registerSubUser(sub);
+        authService.registerSubUser(sub, farmId, "MASTER");
 
-        workerUserId = authRepository.findByEmail("worker@test.local").orElseThrow().getId();
+        workerUserId = authRepository.findByEmail("worker@test.local")
+                .orElseThrow().getId();
         personnelId = personnelRepository.findByUserId(workerUserId).orElseThrow().getId();
     }
 
@@ -106,7 +131,6 @@ class TaskLifecycleIT {
         assertThat(started.getStartTime()).isNotNull();
         assertThat(started.getLastResumeTime()).isNotNull();
 
-        // Simulate 2 elapsed hours by moving lastResumeTime backwards.
         Task raw = taskRepository.findById(t.getId()).orElseThrow();
         raw.setLastResumeTime(LocalDateTime.now().minusHours(2));
         taskRepository.save(raw);
@@ -119,13 +143,12 @@ class TaskLifecycleIT {
         TaskResponse continued = taskService.action(t.getId(), farmId, workerUserId, false, "CONTINUE");
         assertThat(continued.getStatus()).isEqualTo(TaskStatus.IN_PROGRESS);
 
-        // Simulate 1 more hour of work
         Task raw2 = taskRepository.findById(t.getId()).orElseThrow();
         raw2.setLastResumeTime(LocalDateTime.now().minusHours(1));
         taskRepository.save(raw2);
 
         TaskResponse submitted = taskService.action(t.getId(), farmId, workerUserId, false, "SUBMIT");
-        assertThat(submitted.getStatus()).isEqualTo(TaskStatus.IN_PROGRESS);
+        assertThat(submitted.getStatus()).isEqualTo(TaskStatus.SUBMITTED);
         assertThat(submitted.getIsSubmitted()).isTrue();
         assertThat(submitted.getActualHours()).isBetween(2.9, 3.1);
 
@@ -135,7 +158,6 @@ class TaskLifecycleIT {
         assertThat(validated.getIsSubmitted()).isFalse();
         assertThat(validated.getValidatedByUserId()).isEqualTo(masterUserId);
 
-        // Productivity rolled on Personnel
         Personnel p = personnelRepository.findById(personnelId).orElseThrow();
         assertThat(p.getTotalHoursWorkedLast30Days()).isGreaterThan(2.5);
         assertThat(p.getWorkingDaysCount()).isGreaterThanOrEqualTo(1);
@@ -173,19 +195,20 @@ class TaskLifecycleIT {
     @Test
     void subUser_cannotActOnOthersTask() {
         TaskResponse t = createTask();
-        // A different SUB_USER tries to start it
+
         SubUserRegisterRequest other = new SubUserRegisterRequest();
         other.setEmail("other@test.local");
         other.setName("Other");
         other.setUsername("other");
-        other.setPassword("OtherPass1");
-        other.setFarmId(farmId);
+        other.setPassword("OtherPass12!");
         other.setGender(Gender.MALE);
         other.setDateOfBirth(LocalDate.now().minusYears(28));
         other.setPhoneNumber("+237600000005");
         other.setAddress("Rue 5");
-        authService.registerSubUser(other);
-        UUID otherUserId = authRepository.findByEmail("other@test.local").orElseThrow().getId();
+        authService.registerSubUser(other, farmId, "MASTER");
+
+        UUID otherUserId = authRepository.findByEmail("other@test.local")
+                .orElseThrow().getId();
 
         assertThatThrownBy(() ->
                 taskService.action(t.getId(), farmId, otherUserId, false, "START"))
