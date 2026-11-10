@@ -6,7 +6,11 @@ import com.agriva.finance.model.dto.request.IncomeSubmissionEvent;
 import com.agriva.payroll.model.dto.requests.SalarySubmissionEvent;
 import com.agriva.task.model.dto.requests.TaskSubmissionEvent;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.errors.SerializationException;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.kafka.KafkaConnectionDetails;
 import org.springframework.context.annotation.Bean;
@@ -14,91 +18,119 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.kafka.support.serializer.DeserializationException;
 import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
+import org.springframework.kafka.support.serializer.JsonSerializer;
 import org.springframework.util.backoff.FixedBackOff;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Configuration
 public class KafkaConsumerConfig {
 
     private final KafkaConnectionDetails kafkaConnectionDetails;
-    private final KafkaTemplate<String, Object> kafkaTemplate;
 
     @Value("${agriva.kafka.concurrency:3}")
     private int concurrency;
-
     @Value("${agriva.kafka.listener.error-handler.max-retries:3}")
     private long maxRetries;
-
     @Value("${agriva.kafka.listener.error-handler.backoff-ms:1000}")
     private long backoffMs;
 
-    public KafkaConsumerConfig(KafkaConnectionDetails kafkaConnectionDetails,
-                               KafkaTemplate<String, Object> kafkaTemplate) {
+    public KafkaConsumerConfig(KafkaConnectionDetails kafkaConnectionDetails) {
         this.kafkaConnectionDetails = kafkaConnectionDetails;
-        this.kafkaTemplate = kafkaTemplate;
+    }
+
+    @Bean("dlqProducerFactory")
+    public ProducerFactory<String, Object> dlqProducerFactory() {
+        Map<String, Object> props = new HashMap<>();
+        List<String> bootstrap = kafkaConnectionDetails.getBootstrapServers();
+        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class);
+        props.put(ProducerConfig.ACKS_CONFIG, "all");
+        props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+        return new DefaultKafkaProducerFactory<>(props);
+    }
+
+    @Bean("dlqKafkaTemplate")
+    public KafkaTemplate<String, Object> dlqKafkaTemplate(
+            @org.springframework.beans.factory.annotation.Qualifier("dlqProducerFactory")
+            ProducerFactory<String, Object> dlqProducerFactory) {
+        return new KafkaTemplate<>(dlqProducerFactory);
     }
 
     @Bean
-    public DefaultErrorHandler kafkaErrorHandler() {
-        DeadLetterPublishingRecoverer recoverer =
-                new DeadLetterPublishingRecoverer(kafkaTemplate);
-        return new DefaultErrorHandler(recoverer, new FixedBackOff(backoffMs, maxRetries));
+    public DefaultErrorHandler kafkaErrorHandler(
+            @org.springframework.beans.factory.annotation.Qualifier("dlqKafkaTemplate")
+            KafkaTemplate<String, Object> dlqKafkaTemplate) {
+        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(
+                dlqKafkaTemplate,
+                (consumerRecord, ex) -> new TopicPartition(consumerRecord.topic() + ".dlq", -1));
+
+        DefaultErrorHandler handler =
+                new DefaultErrorHandler(recoverer, new FixedBackOff(backoffMs, maxRetries));
+        handler.addNotRetryableExceptions(
+                DeserializationException.class,
+                SerializationException.class);
+        return handler;
     }
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, IncomeSubmissionEvent>
-    incomeKafkaListenerContainerFactory() {
+    incomeKafkaListenerContainerFactory(DefaultErrorHandler handler) {
         var f = new ConcurrentKafkaListenerContainerFactory<String, IncomeSubmissionEvent>();
         f.setConsumerFactory(incomeConsumerFactory());
         f.setConcurrency(concurrency);
-        f.setCommonErrorHandler(kafkaErrorHandler());
+        f.setCommonErrorHandler(handler);
         return f;
     }
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, ExpenseSubmissionEvent>
-    expenseKafkaListenerContainerFactory() {
+    expenseKafkaListenerContainerFactory(DefaultErrorHandler handler) {
         var f = new ConcurrentKafkaListenerContainerFactory<String, ExpenseSubmissionEvent>();
         f.setConsumerFactory(expenseConsumerFactory());
         f.setConcurrency(concurrency);
-        f.setCommonErrorHandler(kafkaErrorHandler());
+        f.setCommonErrorHandler(handler);
         return f;
     }
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, TaskSubmissionEvent>
-    taskKafkaListenerContainerFactory() {
+    taskKafkaListenerContainerFactory(DefaultErrorHandler handler) {
         var f = new ConcurrentKafkaListenerContainerFactory<String, TaskSubmissionEvent>();
         f.setConsumerFactory(taskConsumerFactory());
         f.setConcurrency(concurrency);
-        f.setCommonErrorHandler(kafkaErrorHandler());
+        f.setCommonErrorHandler(handler);
         return f;
     }
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, SalarySubmissionEvent>
-    salaryKafkaListenerContainerFactory() {
+    salaryKafkaListenerContainerFactory(DefaultErrorHandler handler) {
         var f = new ConcurrentKafkaListenerContainerFactory<String, SalarySubmissionEvent>();
         f.setConsumerFactory(salaryConsumerFactory());
         f.setConcurrency(concurrency);
-        f.setCommonErrorHandler(kafkaErrorHandler());
+        f.setCommonErrorHandler(handler);
         return f;
     }
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, CropCycleSubmissionEvent>
-    cropKafkaListenerContainerFactory() {
+    cropKafkaListenerContainerFactory(DefaultErrorHandler handler) {
         var f = new ConcurrentKafkaListenerContainerFactory<String, CropCycleSubmissionEvent>();
         f.setConsumerFactory(cropConsumerFactory());
         f.setConcurrency(concurrency);
-        f.setCommonErrorHandler(kafkaErrorHandler());
+        f.setCommonErrorHandler(handler);
         return f;
     }
 

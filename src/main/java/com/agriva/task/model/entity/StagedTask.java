@@ -9,6 +9,7 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "staged_task")
+@IdClass(StagedTaskId.class)
 @Data
 @Builder
 @NoArgsConstructor
@@ -18,6 +19,10 @@ public class StagedTask {
     @Id
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
+
+    @Id
+    @Column(name = "submitted_at", nullable = false, updatable = false)
+    private LocalDateTime submittedAt;
 
     @Column(name = "farm_id", nullable = false)
     private UUID farmId;
@@ -38,9 +43,6 @@ public class StagedTask {
     @Column(name = "submitted_by_email", length = 100)
     private String submittedByEmail;
 
-    @Column(name = "submitted_at", nullable = false)
-    private LocalDateTime submittedAt;
-
     @Column(name = "last_attempt_at")
     private LocalDateTime lastAttemptAt;
 
@@ -56,4 +58,8 @@ public class StagedTask {
     @Column(name = "retry_count", nullable = false)
     @Builder.Default
     private Integer retryCount = 0;
+
+    @Version
+    @Column(nullable = false)
+    private Long version;
 }

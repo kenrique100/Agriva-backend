@@ -102,7 +102,7 @@ class IncomePipelineIT {
         assertThat(ack.getSubmissionId()).isNotNull();
 
         await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
-            StagedIncome staged = stagedRepo.findById(ack.getSubmissionId()).orElse(null);
+            StagedIncome staged = stagedRepo.findByIdOnly(ack.getSubmissionId()).orElse(null);
             assertThat(staged).isNotNull();
             assertThat(staged.getStatus()).isEqualTo(StagedIncomeStatus.PENDING);
         });
@@ -110,7 +110,7 @@ class IncomePipelineIT {
         validator.processStagedIncomes();
 
         await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
-            StagedIncome staged = stagedRepo.findById(ack.getSubmissionId()).orElseThrow();
+            StagedIncome staged = stagedRepo.findByIdOnly(ack.getSubmissionId()).orElseThrow();
             assertThat(staged.getStatus()).isEqualTo(StagedIncomeStatus.MOVED);
             assertThat(staged.getMovedIncomeId()).isNotNull();
 
@@ -136,7 +136,7 @@ class IncomePipelineIT {
                 req, farmId, null, "income@test.local");
         await().atMost(Duration.ofSeconds(15)).untilAsserted(() -> {
             validator.processStagedIncomes();
-            StagedIncome staged = stagedRepo.findById(ack.getSubmissionId()).orElse(null);
+            StagedIncome staged = stagedRepo.findByIdOnly(ack.getSubmissionId()).orElse(null);
             assertThat(staged).isNotNull();
             assertThat(staged.getRetryCount()).isGreaterThanOrEqualTo(1);
         });
@@ -146,7 +146,7 @@ class IncomePipelineIT {
             validator.processStagedIncomes();
         }
 
-        StagedIncome staged = stagedRepo.findById(ack.getSubmissionId()).orElseThrow();
+        StagedIncome staged = stagedRepo.findByIdOnly(ack.getSubmissionId()).orElseThrow();
         assertThat(staged.getStatus()).isEqualTo(StagedIncomeStatus.FAILED);
         assertThat(staged.getRetryCount()).isEqualTo(4);
         assertThat(incomeRepo.countByFarmId(farmId)).isZero();

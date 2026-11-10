@@ -1,7 +1,7 @@
 package com.agriva.finance.service.impl;
 
-import com.agriva.shared.kafka.topics.IncomeKafkaConfig;
 import com.agriva.shared.kafka.IdempotencyGuard;
+import com.agriva.shared.kafka.topics.IncomeKafkaConfig;
 import com.agriva.finance.model.dto.request.IncomeSubmissionEvent;
 import com.agriva.finance.model.entity.StagedIncome;
 import com.agriva.finance.model.enums.StagedIncomeStatus;
@@ -9,8 +9,8 @@ import com.agriva.finance.repository.StagedIncomeRepository;
 import com.agriva.finance.service.IncomeStagingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 
@@ -23,7 +23,6 @@ public class IncomeStagingServiceImpl implements IncomeStagingService {
     private final IdempotencyGuard idempotencyGuard;
 
     @Override
-    @Transactional
     public void persistStaged(IncomeSubmissionEvent event) {
         if (event == null || event.getSubmissionId() == null || event.getPayloadJson() == null) {
             log.warn("Skipping malformed income event: {}", event);
@@ -47,7 +46,13 @@ public class IncomeStagingServiceImpl implements IncomeStagingService {
                         ? event.getSubmittedAt() : LocalDateTime.now())
                 .retryCount(0)
                 .build();
-        stagedRepo.save(staged);
-        log.info("Staged income {} persisted with status PENDING", staged.getId());
+        try {
+            stagedRepo.save(staged);
+            log.info("Staged income {} persisted with status PENDING", staged.getId());
+        } catch (DataIntegrityViolationException e) {
+            log.error("Staged income {} FK violation, routing to DLQ: {}",
+                    staged.getId(), e.getMessage());
+            throw e;
+        }
     }
 }

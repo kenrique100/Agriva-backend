@@ -110,13 +110,13 @@ class ExpenseServiceIT {
         assertThat(ack.getStatus()).isEqualTo("QUEUED");
 
         await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
-            StagedExpense staged = stagedRepo.findById(ack.getSubmissionId()).orElse(null);
+            StagedExpense staged = stagedRepo.findByIdOnly(ack.getSubmissionId()).orElse(null);
             assertThat(staged).isNotNull();
         });
 
         validator.processStagedExpenses();
 
-        StagedExpense staged = stagedRepo.findById(ack.getSubmissionId()).orElseThrow();
+        StagedExpense staged = stagedRepo.findByIdOnly(ack.getSubmissionId()).orElseThrow();
         assertThat(staged.getStatus()).isEqualTo(StagedExpenseStatus.MOVED);
 
         Expense saved = expenseRepo.findAll().get(0);

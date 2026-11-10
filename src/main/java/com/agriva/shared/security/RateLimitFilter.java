@@ -24,7 +24,7 @@ import java.time.Duration;
 /**
  * Per-JVM rate limiter using a bounded Caffeine cache (evicts idle buckets,
  * hard memory cap) — see audit A5.
- *
+ * <p>
  * For horizontal scaling, swap the cache for bucket4j-redis. The identity
  * resolution and Rule shape stay the same.
  */
