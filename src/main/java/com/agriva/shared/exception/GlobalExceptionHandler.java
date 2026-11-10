@@ -22,8 +22,19 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * Global HTTP error mapping.
+ * <p>
+ * The public {@code handleXxx} methods are all invoked reflectively by
+ * Spring's {@code ExceptionHandlerExceptionResolver} via the
+ * {@code @ExceptionHandler} annotation — they have no direct call site
+ * anywhere in the codebase. The class-level {@code @SuppressWarnings("unused")}
+ * keeps IDE / static-analysis noise out of the build; it does not affect
+ * behavior.
+ */
 @RestControllerAdvice
 @Slf4j
+@SuppressWarnings("unused")
 public class GlobalExceptionHandler {
 
     private static final String MDC_KEY = "requestId";
@@ -32,6 +43,15 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleBusiness(BusinessException ex, WebRequest r) {
         log.warn("Business exception: {}", ex.getMessage());
         return build(HttpStatus.BAD_REQUEST, ex.getMessage(), r);
+    }
+
+    @ExceptionHandler(KafkaUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleKafkaUnavailable(
+            KafkaUnavailableException ex, WebRequest r) {
+        log.warn("Kafka unavailable: {}", ex.getMessage());
+        HttpHeaders h = new HttpHeaders();
+        h.set("Retry-After", "30");
+        return buildWithHeaders(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage(), r, h);
     }
 
     @ExceptionHandler(InvalidCredentialsException.class)

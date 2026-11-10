@@ -13,6 +13,9 @@ import com.agriva.farming.utils.CropCycleExcelParser;
 import com.agriva.farming.utils.CropExcelParser;
 import com.agriva.farming.utils.FieldExcelParser;
 import com.agriva.shared.exception.BusinessException;
+import com.agriva.shared.exception.CropCycleNotFoundException;
+import com.agriva.shared.exception.CropNotFoundException;
+import com.agriva.shared.exception.FieldNotFoundException;
 import com.agriva.shared.exception.ResourceNotFoundException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -75,7 +78,7 @@ public class CropManagementServiceImpl implements CropManagementService {
     @Transactional
     public FieldResponse updateField(UUID id, FieldRequest req, UUID farmId) {
         Field field = fieldRepo.findByIdAndFarmId(id, farmId)
-                .orElseThrow(() -> new ResourceNotFoundException("Field not found"));
+                .orElseThrow(() -> new FieldNotFoundException("Field not found"));
 
         if (!field.getName().equals(req.getName()) && fieldRepo.existsByFarmIdAndName(farmId, req.getName())) {
             throw new BusinessException("Field with this name already exists");
@@ -91,7 +94,7 @@ public class CropManagementServiceImpl implements CropManagementService {
     @Transactional
     public void deleteField(UUID id, UUID farmId) {
         Field field = fieldRepo.findByIdAndFarmId(id, farmId)
-                .orElseThrow(() -> new ResourceNotFoundException("Field not found"));
+                .orElseThrow(() -> new FieldNotFoundException("Field not found"));
         fieldRepo.delete(field);
         log.info("Deleted field {} from farm {}", id, farmId);
     }
@@ -153,7 +156,7 @@ public class CropManagementServiceImpl implements CropManagementService {
     @Transactional
     public CropResponse updateCrop(UUID id, CropRequest req, UUID farmId) {
         Crop crop = cropRepo.findByIdAndFarmId(id, farmId)
-                .orElseThrow(() -> new ResourceNotFoundException("Crop not found"));
+                .orElseThrow(() -> new CropNotFoundException("Crop not found"));
 
         crop.setName(req.getName());
         crop.setVariety(req.getVariety());
@@ -165,7 +168,7 @@ public class CropManagementServiceImpl implements CropManagementService {
     @Transactional
     public void deleteCrop(UUID id, UUID farmId) {
         Crop crop = cropRepo.findByIdAndFarmId(id, farmId)
-                .orElseThrow(() -> new ResourceNotFoundException("Crop not found"));
+                .orElseThrow(() -> new CropNotFoundException("Crop not found"));
         cropRepo.delete(crop);
         log.info("Deleted crop {} from farm {}", id, farmId);
     }
@@ -222,9 +225,9 @@ public class CropManagementServiceImpl implements CropManagementService {
     @Transactional
     public CropCycleResponse createCycle(CropCycleRequest req, UUID farmId) {
         Field field = fieldRepo.findByIdAndFarmId(req.getFieldId(), farmId)
-                .orElseThrow(() -> new ResourceNotFoundException("Field not found"));
+                .orElseThrow(() -> new FieldNotFoundException("Field not found"));
         Crop crop = cropRepo.findByIdAndFarmId(req.getCropId(), farmId)
-                .orElseThrow(() -> new ResourceNotFoundException("Crop not found"));
+                .orElseThrow(() -> new CropNotFoundException("Crop not found"));
 
         LocalDate expectedHarvest = req.getPlantingDate();
         if (crop.getExpectedDaysToHarvest() != null) {
@@ -460,6 +463,6 @@ public class CropManagementServiceImpl implements CropManagementService {
 
     private CropCycle loadCycle(UUID id, UUID farmId) {
         return cycleRepo.findByIdAndFarmIdLive(id, farmId)
-                .orElseThrow(() -> new ResourceNotFoundException("Crop cycle not found"));
+                .orElseThrow(() -> new CropCycleNotFoundException("Crop cycle not found"));
     }
 }

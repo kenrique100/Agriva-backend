@@ -1,35 +1,37 @@
 package com.agriva.shared.kafka;
 
+import com.agriva.shared.exception.KafkaUnavailableException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.kafka.core.KafkaTemplate;
 
+/**
+ * Base class for domain producers. Payloads are serialized to JSON bytes
+ * here (the template is wired with ByteArraySerializer) and handed to
+ * {@link KafkaPublishService}, which owns the circuit breaker.
+ */
 public abstract class BaseKafkaProducer<T> {
 
-    protected final KafkaTemplate<String, Object> kafkaTemplate;
+    protected final KafkaPublishService publishService;
     protected final String topic;
     protected final ObjectMapper objectMapper;
 
-    protected BaseKafkaProducer(KafkaTemplate<String, Object> kafkaTemplate,
+    protected BaseKafkaProducer(KafkaPublishService publishService,
                                 String topic,
                                 ObjectMapper objectMapper) {
-        this.kafkaTemplate = kafkaTemplate;
+        this.publishService = publishService;
         this.topic = topic;
         this.objectMapper = objectMapper;
     }
 
-    /**
-     * The template is wired with ByteArraySerializer, so serialize to JSON
-     * bytes here. Consumers use {@code JsonDeserializer} with the concrete
-     * event type (see {@code *.kafka.consumer.*StagingConsumer}), so bytes
-     * on the wire + a typed listener is the correct pairing.
-     */
     public void publish(String key, T value) {
         try {
             byte[] payload = objectMapper.writeValueAsBytes(value);
-            kafkaTemplate.send(topic, key, payload);
+            publishService.publish(topic, key, payload);
+        } catch (KafkaUnavailableException e) {
+            // Propagate unchanged so GlobalExceptionHandler maps it to 503.
+            throw e;
         } catch (Exception e) {
             throw new RuntimeException(
-                    "Failed to serialize Kafka payload for topic " + topic, e);
+                    "Failed to serialize/publish Kafka payload for topic " + topic, e);
         }
     }
 }
