@@ -1,5 +1,8 @@
 package com.agriva.shared.exception;
 
+import lombok.Getter;
+
+@Getter
 public class UnregisteredConsumerTypeException extends RuntimeException {
     private final String consumerType;
 
@@ -8,5 +11,4 @@ public class UnregisteredConsumerTypeException extends RuntimeException {
         this.consumerType = consumerType;
     }
 
-    public String getConsumerType() { return consumerType; }
 }

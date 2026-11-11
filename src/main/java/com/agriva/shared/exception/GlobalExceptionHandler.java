@@ -175,6 +175,17 @@ public class GlobalExceptionHandler {
                 "An internal error occurred. Reference: " + correlationId, r);
     }
 
+    @ExceptionHandler(InsufficientPoultryStockException.class)
+    public ResponseEntity<ErrorResponse> handleInsufficientPoultryStock(
+            InsufficientPoultryStockException ex, WebRequest r) {
+        Map<String, String> errors = new HashMap<>();
+        errors.put("batch",     ex.getBatchCode());
+        errors.put("requested", String.valueOf(ex.getRequested()));
+        errors.put("available", String.valueOf(ex.getAvailable()));
+        log.warn("Insufficient poultry stock: {}", ex.getMessage());
+        return buildWithErrors(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), r, errors);
+    }
+
     private ResponseEntity<ErrorResponse> build(HttpStatus status, String message, WebRequest r) {
         return buildWithHeaders(status, message, r, null);
     }

@@ -32,7 +32,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
-@SpringBootTest
+@SpringBootTest(properties = "agriva.poultry.enabled=false")
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
 class FeedBulkValidationFailureIT {
