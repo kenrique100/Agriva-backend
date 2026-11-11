@@ -79,6 +79,17 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.NOT_FOUND, ex.getMessage(), r);
     }
 
+    @ExceptionHandler(InsufficientPondStockException.class)
+    public ResponseEntity<ErrorResponse> handleInsufficientPondStock(
+            InsufficientPondStockException ex, WebRequest r) {
+        Map<String, String> errors = new HashMap<>();
+        errors.put("species",   ex.getSpecies());
+        errors.put("requested", String.valueOf(ex.getRequested()));
+        errors.put("available", String.valueOf(ex.getAvailable()));
+        log.warn("Insufficient pond stock: {}", ex.getMessage());
+        return buildWithErrors(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), r, errors);
+    }
+
     @ExceptionHandler({DuplicateIncomeException.class, DuplicateExpenseException.class,
             DuplicatePersonnelException.class, InvestmentLimitExceededException.class,
             NoActiveInvestmentException.class, InvalidTaskStateException.class})
@@ -185,5 +196,57 @@ public class GlobalExceptionHandler {
                 LocalDateTime.now(), HttpStatus.BAD_REQUEST.value(), "Validation failed",
                 r.getDescription(false).replace("uri=", ""), requestId, errors);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+    }
+
+    @ExceptionHandler(InsufficientIngredientQuantityException.class)
+    public ResponseEntity<ErrorResponse> handleInsufficientIngredient(
+            InsufficientIngredientQuantityException ex, WebRequest r) {
+        Map<String, String> errors = new HashMap<>();
+        errors.put("ingredient", ex.getIngredientName());
+        errors.put("required", ex.getRequired() != null ? ex.getRequired().toPlainString() : "0");
+        errors.put("available", ex.getAvailable() != null ? ex.getAvailable().toPlainString() : "0");
+        errors.put("unit", ex.getUnit());
+        log.warn("Insufficient ingredient: {}", ex.getMessage());
+        return buildWithErrors(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), r, errors);
+    }
+
+    @ExceptionHandler(InsufficientFeedStoreException.class)
+    public ResponseEntity<ErrorResponse> handleInsufficientFeedStore(
+            InsufficientFeedStoreException ex, WebRequest r) {
+        Map<String, String> errors = new HashMap<>();
+        errors.put("requested", ex.getRequested() != null ? ex.getRequested().toPlainString() : "0");
+        errors.put("available", ex.getAvailable() != null ? ex.getAvailable().toPlainString() : "0");
+        errors.put("unit", ex.getUnit());
+        log.warn("Insufficient feed store: {}", ex.getMessage());
+        return buildWithErrors(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), r, errors);
+    }
+
+    @ExceptionHandler(UnregisteredConsumerTypeException.class)
+    public ResponseEntity<ErrorResponse> handleUnregisteredConsumerType(
+            UnregisteredConsumerTypeException ex, WebRequest r) {
+        log.warn("Unregistered consumer type: {}", ex.getConsumerType());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), r);
+    }
+
+    @ExceptionHandler(ConsumerNotFoundInDomainException.class)
+    public ResponseEntity<ErrorResponse> handleConsumerNotFound(
+            ConsumerNotFoundInDomainException ex, WebRequest r) {
+        log.warn("Consumer not found: {}", ex.getMessage());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), r);
+    }
+
+    @ExceptionHandler(UnsupportedOperationException.class)
+    public ResponseEntity<ErrorResponse> handleUnsupported(UnsupportedOperationException ex, WebRequest r) {
+        log.info("Unsupported operation: {}", ex.getMessage());
+        return build(HttpStatus.NOT_IMPLEMENTED, ex.getMessage(), r);
+    }
+
+    private ResponseEntity<ErrorResponse> buildWithErrors(HttpStatus status, String message,
+                                                          WebRequest r, Map<String, String> errors) {
+        String requestId = MDC.get(MDC_KEY);
+        ErrorResponse body = new ErrorResponse(
+                LocalDateTime.now(), status.value(), message,
+                r.getDescription(false).replace("uri=", ""), requestId, errors);
+        return ResponseEntity.status(status).body(body);
     }
 }

@@ -1,6 +1,10 @@
 package com.agriva.shared.config;
 
 import com.agriva.farming.model.dto.requests.CropCycleSubmissionEvent;
+import com.agriva.feeding.model.dto.request.FeedFeedingSubmissionEvent;
+import com.agriva.feeding.model.dto.request.FeedFormulationSubmissionEvent;
+import com.agriva.feeding.model.dto.request.FeedIngredientSubmissionEvent;
+import com.agriva.feeding.model.dto.request.FeedProductionSubmissionEvent;
 import com.agriva.finance.model.dto.request.ExpenseSubmissionEvent;
 import com.agriva.finance.model.dto.request.IncomeSubmissionEvent;
 import com.agriva.payroll.model.dto.requests.SalarySubmissionEvent;
@@ -16,11 +20,7 @@ import org.springframework.boot.autoconfigure.kafka.KafkaConnectionDetails;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
-import org.springframework.kafka.core.ConsumerFactory;
-import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
-import org.springframework.kafka.core.DefaultKafkaProducerFactory;
-import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.kafka.core.ProducerFactory;
+import org.springframework.kafka.core.*;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.support.serializer.DeserializationException;
@@ -38,12 +38,9 @@ public class KafkaConsumerConfig {
 
     private final KafkaConnectionDetails kafkaConnectionDetails;
 
-    @Value("${agriva.kafka.concurrency:3}")
-    private int concurrency;
-    @Value("${agriva.kafka.listener.error-handler.max-retries:3}")
-    private long maxRetries;
-    @Value("${agriva.kafka.listener.error-handler.backoff-ms:1000}")
-    private long backoffMs;
+    @Value("${agriva.kafka.concurrency:3}") private int concurrency;
+    @Value("${agriva.kafka.listener.error-handler.max-retries:3}") private long maxRetries;
+    @Value("${agriva.kafka.listener.error-handler.backoff-ms:1000}") private long backoffMs;
 
     public KafkaConsumerConfig(KafkaConnectionDetails kafkaConnectionDetails) {
         this.kafkaConnectionDetails = kafkaConnectionDetails;
@@ -75,7 +72,6 @@ public class KafkaConsumerConfig {
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(
                 dlqKafkaTemplate,
                 (consumerRecord, ex) -> new TopicPartition(consumerRecord.topic() + ".dlq", -1));
-
         DefaultErrorHandler handler =
                 new DefaultErrorHandler(recoverer, new FixedBackOff(backoffMs, maxRetries));
         handler.addNotRetryableExceptions(
@@ -84,56 +80,65 @@ public class KafkaConsumerConfig {
         return handler;
     }
 
-    @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, IncomeSubmissionEvent>
+    // ---------------- existing factories ----------------
+    @Bean public ConcurrentKafkaListenerContainerFactory<String, IncomeSubmissionEvent>
     incomeKafkaListenerContainerFactory(DefaultErrorHandler handler) {
         var f = new ConcurrentKafkaListenerContainerFactory<String, IncomeSubmissionEvent>();
-        f.setConsumerFactory(incomeConsumerFactory());
-        f.setConcurrency(concurrency);
-        f.setCommonErrorHandler(handler);
-        return f;
+        f.setConsumerFactory(incomeConsumerFactory()); f.setConcurrency(concurrency);
+        f.setCommonErrorHandler(handler); return f;
     }
-
-    @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, ExpenseSubmissionEvent>
+    @Bean public ConcurrentKafkaListenerContainerFactory<String, ExpenseSubmissionEvent>
     expenseKafkaListenerContainerFactory(DefaultErrorHandler handler) {
         var f = new ConcurrentKafkaListenerContainerFactory<String, ExpenseSubmissionEvent>();
-        f.setConsumerFactory(expenseConsumerFactory());
-        f.setConcurrency(concurrency);
-        f.setCommonErrorHandler(handler);
-        return f;
+        f.setConsumerFactory(expenseConsumerFactory()); f.setConcurrency(concurrency);
+        f.setCommonErrorHandler(handler); return f;
     }
-
-    @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, TaskSubmissionEvent>
+    @Bean public ConcurrentKafkaListenerContainerFactory<String, TaskSubmissionEvent>
     taskKafkaListenerContainerFactory(DefaultErrorHandler handler) {
         var f = new ConcurrentKafkaListenerContainerFactory<String, TaskSubmissionEvent>();
-        f.setConsumerFactory(taskConsumerFactory());
-        f.setConcurrency(concurrency);
-        f.setCommonErrorHandler(handler);
-        return f;
+        f.setConsumerFactory(taskConsumerFactory()); f.setConcurrency(concurrency);
+        f.setCommonErrorHandler(handler); return f;
     }
-
-    @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, SalarySubmissionEvent>
+    @Bean public ConcurrentKafkaListenerContainerFactory<String, SalarySubmissionEvent>
     salaryKafkaListenerContainerFactory(DefaultErrorHandler handler) {
         var f = new ConcurrentKafkaListenerContainerFactory<String, SalarySubmissionEvent>();
-        f.setConsumerFactory(salaryConsumerFactory());
-        f.setConcurrency(concurrency);
-        f.setCommonErrorHandler(handler);
-        return f;
+        f.setConsumerFactory(salaryConsumerFactory()); f.setConcurrency(concurrency);
+        f.setCommonErrorHandler(handler); return f;
     }
-
-    @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, CropCycleSubmissionEvent>
+    @Bean public ConcurrentKafkaListenerContainerFactory<String, CropCycleSubmissionEvent>
     cropKafkaListenerContainerFactory(DefaultErrorHandler handler) {
         var f = new ConcurrentKafkaListenerContainerFactory<String, CropCycleSubmissionEvent>();
-        f.setConsumerFactory(cropConsumerFactory());
-        f.setConcurrency(concurrency);
-        f.setCommonErrorHandler(handler);
-        return f;
+        f.setConsumerFactory(cropConsumerFactory()); f.setConcurrency(concurrency);
+        f.setCommonErrorHandler(handler); return f;
     }
 
+    // ---------------- DR-6 feeding factories ----------------
+    @Bean public ConcurrentKafkaListenerContainerFactory<String, FeedIngredientSubmissionEvent>
+    feedIngredientKafkaListenerContainerFactory(DefaultErrorHandler handler) {
+        var f = new ConcurrentKafkaListenerContainerFactory<String, FeedIngredientSubmissionEvent>();
+        f.setConsumerFactory(feedIngredientConsumerFactory()); f.setConcurrency(concurrency);
+        f.setCommonErrorHandler(handler); return f;
+    }
+    @Bean public ConcurrentKafkaListenerContainerFactory<String, FeedFormulationSubmissionEvent>
+    feedFormulationKafkaListenerContainerFactory(DefaultErrorHandler handler) {
+        var f = new ConcurrentKafkaListenerContainerFactory<String, FeedFormulationSubmissionEvent>();
+        f.setConsumerFactory(feedFormulationConsumerFactory()); f.setConcurrency(concurrency);
+        f.setCommonErrorHandler(handler); return f;
+    }
+    @Bean public ConcurrentKafkaListenerContainerFactory<String, FeedProductionSubmissionEvent>
+    feedProductionKafkaListenerContainerFactory(DefaultErrorHandler handler) {
+        var f = new ConcurrentKafkaListenerContainerFactory<String, FeedProductionSubmissionEvent>();
+        f.setConsumerFactory(feedProductionConsumerFactory()); f.setConcurrency(concurrency);
+        f.setCommonErrorHandler(handler); return f;
+    }
+    @Bean public ConcurrentKafkaListenerContainerFactory<String, FeedFeedingSubmissionEvent>
+    feedFeedingKafkaListenerContainerFactory(DefaultErrorHandler handler) {
+        var f = new ConcurrentKafkaListenerContainerFactory<String, FeedFeedingSubmissionEvent>();
+        f.setConsumerFactory(feedFeedingConsumerFactory()); f.setConcurrency(concurrency);
+        f.setCommonErrorHandler(handler); return f;
+    }
+
+    // ---------------- consumer factories ----------------
     @Bean public ConsumerFactory<String, IncomeSubmissionEvent> incomeConsumerFactory() {
         Map<String, Object> props = baseProps("agriva-income-staging-consumer");
         props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, IncomeSubmissionEvent.class.getName());
@@ -157,6 +162,27 @@ public class KafkaConsumerConfig {
     @Bean public ConsumerFactory<String, CropCycleSubmissionEvent> cropConsumerFactory() {
         Map<String, Object> props = baseProps("agriva-crop-staging-consumer");
         props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, CropCycleSubmissionEvent.class.getName());
+        return new DefaultKafkaConsumerFactory<>(props);
+    }
+
+    @Bean public ConsumerFactory<String, FeedIngredientSubmissionEvent> feedIngredientConsumerFactory() {
+        Map<String, Object> props = baseProps("agriva-feeding-ingredient-staging-consumer");
+        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, FeedIngredientSubmissionEvent.class.getName());
+        return new DefaultKafkaConsumerFactory<>(props);
+    }
+    @Bean public ConsumerFactory<String, FeedFormulationSubmissionEvent> feedFormulationConsumerFactory() {
+        Map<String, Object> props = baseProps("agriva-feeding-formulation-staging-consumer");
+        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, FeedFormulationSubmissionEvent.class.getName());
+        return new DefaultKafkaConsumerFactory<>(props);
+    }
+    @Bean public ConsumerFactory<String, FeedProductionSubmissionEvent> feedProductionConsumerFactory() {
+        Map<String, Object> props = baseProps("agriva-feeding-production-staging-consumer");
+        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, FeedProductionSubmissionEvent.class.getName());
+        return new DefaultKafkaConsumerFactory<>(props);
+    }
+    @Bean public ConsumerFactory<String, FeedFeedingSubmissionEvent> feedFeedingConsumerFactory() {
+        Map<String, Object> props = baseProps("agriva-feeding-event-staging-consumer");
+        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, FeedFeedingSubmissionEvent.class.getName());
         return new DefaultKafkaConsumerFactory<>(props);
     }
 
