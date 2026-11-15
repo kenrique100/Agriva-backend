@@ -37,7 +37,6 @@ public class FarmDetailsResponse {
     private BigDecimal netLoss;
     private BigDecimal netPosition;
     private List<FarmUser> users;
-    private List<TransactionEntry> transactions;
 
     @Data
     @Builder
@@ -67,28 +66,5 @@ public class FarmDetailsResponse {
         private BigDecimal totalExpense;
         private BigDecimal totalInvestment;
         private BigDecimal netPosition;
-    }
-
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    public static class TransactionEntry {
-        private UUID id;
-        private String transactionRef;
-        private LocalDateTime occurredAt;
-        private String status;
-        private String notes;
-        private UUID recordedByUserId;
-        private String recordedByUsername;
-        private String recordedByRole;
-        private BigDecimal income;
-        private BigDecimal expense;
-        private BigDecimal investment;
-        private BigDecimal netPosition;
-        private Integer incomeCount;
-        private Integer expenseCount;
-        private Integer investmentCount;
     }
 }

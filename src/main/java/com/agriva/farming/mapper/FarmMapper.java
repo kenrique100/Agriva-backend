@@ -16,6 +16,8 @@ import java.util.UUID;
 @Component
 public class FarmMapper {
 
+    private static BigDecimal nz(BigDecimal v) { return v == null ? BigDecimal.ZERO : v; }
+
     public FarmDetailsResponse toDetails(Farm farm,
                                          List<UserRef> users,
                                          FarmTotals totals,
@@ -40,9 +42,9 @@ public class FarmMapper {
                       .totalIncome(activity.income())
                       .totalExpense(activity.expense())
                       .totalInvestment(activity.investment())
-                      .netPosition(activity.income()
-                                   .subtract(activity.expense())
-                                   .subtract(activity.investment()))
+                      .netPosition(nz(activity.income())
+                                   .subtract(nz(activity.expense()))
+                                   .subtract(nz(activity.investment())))
                       .build();
 
             userViews.add(FarmDetailsResponse.FarmUser.builder()
@@ -56,9 +58,10 @@ public class FarmMapper {
                     .build());
         }
 
-        BigDecimal netPosition = totals.income()
-                .subtract(totals.expense())
-                .subtract(totals.investment());
+        BigDecimal income = nz(totals.income());
+        BigDecimal expense = nz(totals.expense());
+        BigDecimal investment = nz(totals.investment());
+        BigDecimal netPosition = income.subtract(expense).subtract(investment);
         BigDecimal netGain = netPosition.signum() > 0 ? netPosition : BigDecimal.ZERO;
         BigDecimal netLoss = netPosition.signum() < 0 ? netPosition.abs() : BigDecimal.ZERO;
 
@@ -93,13 +96,13 @@ public class FarmMapper {
         BigDecimal investment = BigDecimal.ZERO;
 
         for (FarmDetailsResponse d : details) {
-            totalUsers += d.getTotalUsers();
-            totalMasters += d.getTotalMasters();
-            totalSubUsers += d.getTotalSubUsers();
-            totalTransactions += d.getTotalTransactions();
-            income = income.add(d.getTotalIncomeAmount());
-            expense = expense.add(d.getTotalExpenseAmount());
-            investment = investment.add(d.getTotalInvestmentAmount());
+            totalUsers += d.getTotalUsers() == null ? 0 : d.getTotalUsers();
+            totalMasters += d.getTotalMasters() == null ? 0 : d.getTotalMasters();
+            totalSubUsers += d.getTotalSubUsers() == null ? 0 : d.getTotalSubUsers();
+            totalTransactions += d.getTotalTransactions() == null ? 0 : d.getTotalTransactions();
+            income = income.add(nz(d.getTotalIncomeAmount()));
+            expense = expense.add(nz(d.getTotalExpenseAmount()));
+            investment = investment.add(nz(d.getTotalInvestmentAmount()));
         }
 
         return FarmListResponse.builder()

@@ -23,6 +23,7 @@ public class DashboardController {
     @GetMapping("/me")
     public ResponseEntity<DashboardResponse> myDashboard(
             @AuthenticationPrincipal AuthenticatedUser u) {
+        if (u == null) return ResponseEntity.status(401).build();
         return ResponseEntity.ok(dashboardService.personalDashboard(
                 u.userId(), u.farmId(), u.role()));
     }
@@ -30,9 +31,8 @@ public class DashboardController {
     @GetMapping("/farm")
     public ResponseEntity<DashboardResponse> farmDashboard(
             @AuthenticationPrincipal AuthenticatedUser u) {
-        if (!u.isMasterOrAdmin()) {
-            return ResponseEntity.status(403).build();
-        }
+        if (u == null) return ResponseEntity.status(401).build();
+        if (!u.isMasterOrAdmin()) return ResponseEntity.status(403).build();
         return ResponseEntity.ok(dashboardService.farmDashboard(
                 u.farmId(), u.userId()));
     }
@@ -40,6 +40,7 @@ public class DashboardController {
     @GetMapping("/productivity")
     public ResponseEntity<DashboardProductivityResponse> productivity(
             @AuthenticationPrincipal AuthenticatedUser u) {
+        if (u == null) return ResponseEntity.status(401).build();
         return ResponseEntity.ok(dashboardService.productivity(
                 u.userId(), u.farmId(), u.role()));
     }

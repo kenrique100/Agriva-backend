@@ -9,14 +9,11 @@ import com.agriva.farming.model.enums.CropCycleStatus;
 import com.agriva.farming.model.enums.StagedCropCycleStatus;
 import com.agriva.farming.repository.*;
 import com.agriva.farming.services.CropManagementService;
+import com.agriva.farming.utils.CropCycleRules;
 import com.agriva.farming.utils.CropCycleExcelParser;
 import com.agriva.farming.utils.CropExcelParser;
 import com.agriva.farming.utils.FieldExcelParser;
-import com.agriva.shared.exception.BusinessException;
-import com.agriva.shared.exception.CropCycleNotFoundException;
-import com.agriva.shared.exception.CropNotFoundException;
-import com.agriva.shared.exception.FieldNotFoundException;
-import com.agriva.shared.exception.ResourceNotFoundException;
+import com.agriva.shared.exception.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -79,11 +76,10 @@ public class CropManagementServiceImpl implements CropManagementService {
     public FieldResponse updateField(UUID id, FieldRequest req, UUID farmId) {
         Field field = fieldRepo.findByIdAndFarmId(id, farmId)
                 .orElseThrow(() -> new FieldNotFoundException("Field not found"));
-
-        if (!field.getName().equals(req.getName()) && fieldRepo.existsByFarmIdAndName(farmId, req.getName())) {
+        if (!field.getName().equals(req.getName())
+                && fieldRepo.existsByFarmIdAndName(farmId, req.getName())) {
             throw new BusinessException("Field with this name already exists");
         }
-
         field.setName(req.getName());
         field.setSizeHectares(req.getSizeHectares());
         field.setSoilType(req.getSoilType());
@@ -110,7 +106,6 @@ public class CropManagementServiceImpl implements CropManagementService {
         catch (Exception e) {
             throw new IllegalArgumentException("Failed to read Excel file: " + e.getMessage(), e);
         }
-
         CropBulkUploadResponse response = new CropBulkUploadResponse();
         response.setTotalRows(rows.size());
         for (FieldExcelParser.ParsedRow row : rows) {
@@ -157,7 +152,6 @@ public class CropManagementServiceImpl implements CropManagementService {
     public CropResponse updateCrop(UUID id, CropRequest req, UUID farmId) {
         Crop crop = cropRepo.findByIdAndFarmId(id, farmId)
                 .orElseThrow(() -> new CropNotFoundException("Crop not found"));
-
         crop.setName(req.getName());
         crop.setVariety(req.getVariety());
         crop.setExpectedDaysToHarvest(req.getExpectedDaysToHarvest());
@@ -170,7 +164,6 @@ public class CropManagementServiceImpl implements CropManagementService {
         Crop crop = cropRepo.findByIdAndFarmId(id, farmId)
                 .orElseThrow(() -> new CropNotFoundException("Crop not found"));
         cropRepo.delete(crop);
-        log.info("Deleted crop {} from farm {}", id, farmId);
     }
 
     @Override
@@ -184,7 +177,6 @@ public class CropManagementServiceImpl implements CropManagementService {
         catch (Exception e) {
             throw new IllegalArgumentException("Failed to read Excel file: " + e.getMessage(), e);
         }
-
         CropBulkUploadResponse response = new CropBulkUploadResponse();
         response.setTotalRows(rows.size());
         for (CropExcelParser.ParsedRow row : rows) {
@@ -229,15 +221,10 @@ public class CropManagementServiceImpl implements CropManagementService {
         Crop crop = cropRepo.findByIdAndFarmId(req.getCropId(), farmId)
                 .orElseThrow(() -> new CropNotFoundException("Crop not found"));
 
-        LocalDate expectedHarvest = req.getPlantingDate();
-        if (crop.getExpectedDaysToHarvest() != null) {
-            expectedHarvest = expectedHarvest.plusDays(crop.getExpectedDaysToHarvest());
-        }
-
         CropCycle cycle = CropCycle.builder()
                 .farmId(farmId).field(field).crop(crop)
                 .plantingDate(req.getPlantingDate())
-                .expectedHarvestDate(expectedHarvest)
+                .expectedHarvestDate(CropCycleRules.expectedHarvestFor(crop, req.getPlantingDate()))
                 .status(CropCycleStatus.PLANTED)
                 .notes(req.getNotes())
                 .build();
@@ -248,11 +235,17 @@ public class CropManagementServiceImpl implements CropManagementService {
     @Transactional
     public CropCycleResponse updateCycleStatus(UUID id, String status, UUID farmId) {
         CropCycle cycle = loadCycle(id, farmId);
-        try { cycle.setStatus(CropCycleStatus.valueOf(status.toUpperCase())); }
+
+        CropCycleStatus target;
+        try { target = CropCycleStatus.valueOf(status.toUpperCase()); }
         catch (IllegalArgumentException e) {
             throw new BusinessException("Invalid cycle status: " + status);
         }
-        if (cycle.getStatus() == CropCycleStatus.HARVESTED) {
+
+        CropCycleRules.requireAllowed(cycle.getStatus(), target);
+
+        cycle.setStatus(target);
+        if (target == CropCycleStatus.HARVESTED && cycle.getActualHarvestDate() == null) {
             cycle.setActualHarvestDate(LocalDate.now());
         }
         return mapper.toResponse(cycleRepo.save(cycle));
@@ -267,13 +260,14 @@ public class CropManagementServiceImpl implements CropManagementService {
         log.info("Soft-deleted crop cycle {} from farm {}", id, farmId);
     }
 
+    // ---------- Bulk / Staging ----------
+
     @Override
     public CropBulkUploadResponse bulkUploadCycles(MultipartFile file, UUID farmId,
                                                    UUID userId, String email) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("Excel file is required");
         }
-
         List<CropCycleExcelParser.ParsedRow> rows;
         try { rows = cropCycleExcelParser.parse(file.getInputStream(), farmId); }
         catch (Exception e) {
@@ -295,7 +289,7 @@ public class CropManagementServiceImpl implements CropManagementService {
                 String payload = objectMapper.writeValueAsString(row.request());
                 cropCycleProducer.publish(new CropCycleSubmissionEvent(
                         submissionId, farmId, userId, email, payload, LocalDateTime.now()));
-                response.setCreated(response.getCreated() + 1);
+                response.setQueued(response.getQueued() + 1);
                 response.getResults().add(new CropBulkUploadResponse.RowResult(
                         row.rowNumber(), submissionId.toString(), "QUEUED", null));
             } catch (Exception e) {
@@ -304,9 +298,8 @@ public class CropManagementServiceImpl implements CropManagementService {
                         row.rowNumber(), null, "FAILED", e.getMessage()));
             }
         }
-
         log.info("Bulk crop cycle upload for farm {}: total={}, queued={}, failed={}",
-                farmId, response.getTotalRows(), response.getCreated(), response.getFailed());
+                farmId, response.getTotalRows(), response.getQueued(), response.getFailed());
         return response;
     }
 
@@ -362,22 +355,20 @@ public class CropManagementServiceImpl implements CropManagementService {
 
     @Override
     @Transactional
-    public CropActivityResponse updateActivity(UUID cycleId, UUID activityId, CropActivityRequest req, UUID farmId) {
+    public CropActivityResponse updateActivity(UUID cycleId, UUID activityId,
+                                               CropActivityRequest req, UUID farmId) {
         loadCycle(cycleId, farmId);
-
         CropActivity activity = activityRepo.findById(activityId)
                 .orElseThrow(() -> new ResourceNotFoundException("Activity not found"));
-
-        if (!activity.getFarmId().equals(farmId) || !activity.getCropCycle().getId().equals(cycleId)) {
+        if (!activity.getFarmId().equals(farmId)
+                || !activity.getCropCycle().getId().equals(cycleId)) {
             throw new ResourceNotFoundException("Activity not found for this cycle");
         }
-
         activity.setActivityType(req.getActivityType());
         activity.setActivityDate(req.getActivityDate());
         activity.setNotes(req.getNotes());
         activity.setLinkedExpenseId(req.getLinkedExpenseId());
         activity.setLinkedTaskId(req.getLinkedTaskId());
-
         return mapper.toResponse(activityRepo.save(activity));
     }
 
@@ -385,63 +376,61 @@ public class CropManagementServiceImpl implements CropManagementService {
     @Transactional
     public void deleteActivity(UUID cycleId, UUID activityId, UUID farmId) {
         loadCycle(cycleId, farmId);
-
         CropActivity activity = activityRepo.findById(activityId)
                 .orElseThrow(() -> new ResourceNotFoundException("Activity not found"));
-
-        if (!activity.getFarmId().equals(farmId) || !activity.getCropCycle().getId().equals(cycleId)) {
+        if (!activity.getFarmId().equals(farmId)
+                || !activity.getCropCycle().getId().equals(cycleId)) {
             throw new ResourceNotFoundException("Activity not found for this cycle");
         }
-
         activityRepo.delete(activity);
-        log.info("Deleted activity {} from cycle {}", activityId, cycleId);
     }
+
+    // ---------- Harvests ----------
 
     @Override
     @Transactional(readOnly = true)
     public List<HarvestResponse> getHarvests(UUID cycleId, UUID farmId) {
         loadCycle(cycleId, farmId);
         return harvestRepo.findByCropCycleId(cycleId).stream()
-                .map(mapper::toResponse)
-                .collect(Collectors.toList());
+                .map(mapper::toResponse).collect(Collectors.toList());
     }
 
     @Override
     @Transactional
     public HarvestResponse logHarvest(UUID cycleId, HarvestRequest req, UUID farmId) {
         CropCycle cycle = loadCycle(cycleId, farmId);
+        if (cycle.getStatus() == CropCycleStatus.HARVESTED) {
+            throw new BusinessException(
+                    "Cycle already harvested — reopen the cycle before logging another harvest");
+        }
         Harvest harvest = Harvest.builder()
                 .farmId(farmId).cropCycle(cycle)
                 .harvestDate(req.getHarvestDate()).quantity(req.getQuantity())
                 .unit(req.getUnit()).qualityGrade(req.getQualityGrade())
                 .linkedIncomeId(req.getLinkedIncomeId())
                 .build();
-
         cycle.setStatus(CropCycleStatus.HARVESTED);
         cycle.setActualHarvestDate(req.getHarvestDate());
         cycleRepo.save(cycle);
-
         return mapper.toResponse(harvestRepo.save(harvest));
     }
 
     @Override
     @Transactional
-    public HarvestResponse updateHarvest(UUID cycleId, UUID harvestId, HarvestRequest req, UUID farmId) {
+    public HarvestResponse updateHarvest(UUID cycleId, UUID harvestId,
+                                         HarvestRequest req, UUID farmId) {
         loadCycle(cycleId, farmId);
-
         Harvest harvest = harvestRepo.findById(harvestId)
                 .orElseThrow(() -> new ResourceNotFoundException("Harvest not found"));
-
-        if (!harvest.getFarmId().equals(farmId) || !harvest.getCropCycle().getId().equals(cycleId)) {
+        if (!harvest.getFarmId().equals(farmId)
+                || !harvest.getCropCycle().getId().equals(cycleId)) {
             throw new ResourceNotFoundException("Harvest not found for this cycle");
         }
-
         harvest.setHarvestDate(req.getHarvestDate());
         harvest.setQuantity(req.getQuantity());
         harvest.setUnit(req.getUnit());
         harvest.setQualityGrade(req.getQualityGrade());
         harvest.setLinkedIncomeId(req.getLinkedIncomeId());
-
         return mapper.toResponse(harvestRepo.save(harvest));
     }
 
@@ -449,16 +438,13 @@ public class CropManagementServiceImpl implements CropManagementService {
     @Transactional
     public void deleteHarvest(UUID cycleId, UUID harvestId, UUID farmId) {
         loadCycle(cycleId, farmId);
-
         Harvest harvest = harvestRepo.findById(harvestId)
                 .orElseThrow(() -> new ResourceNotFoundException("Harvest not found"));
-
-        if (!harvest.getFarmId().equals(farmId) || !harvest.getCropCycle().getId().equals(cycleId)) {
+        if (!harvest.getFarmId().equals(farmId)
+                || !harvest.getCropCycle().getId().equals(cycleId)) {
             throw new ResourceNotFoundException("Harvest not found for this cycle");
         }
-
         harvestRepo.delete(harvest);
-        log.info("Deleted harvest {} from cycle {}", harvestId, cycleId);
     }
 
     private CropCycle loadCycle(UUID id, UUID farmId) {

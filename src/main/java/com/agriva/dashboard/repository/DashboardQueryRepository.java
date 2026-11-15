@@ -20,5 +20,16 @@ public interface DashboardQueryRepository {
         public static Totals empty() {
             return new Totals(0, 0, 0, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
         }
+
+        /**
+         * True when at least one aggregate could not be computed because the
+         * underlying data spans multiple currencies. The UI must NOT render a
+         * numeric zero in this case — it must say "mixed currencies".
+         */
+        public boolean hasMixedCurrency() {
+            return totalIncome == null
+                    || totalExpense == null
+                    || totalInvestment == null;
+        }
     }
 }

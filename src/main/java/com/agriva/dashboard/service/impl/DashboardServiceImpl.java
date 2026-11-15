@@ -52,9 +52,11 @@ public class DashboardServiceImpl implements DashboardService {
 
     @Override
     public DashboardResponse personalDashboard(UUID userId, UUID farmId, String role) {
-        boolean canSeeInvestments = isMasterOrAdmin(role);
-
         User user = userId != null ? authRepository.findByIdLive(userId).orElse(null) : null;
+        String effectiveRole = user != null ? user.getRole() : role;
+
+        boolean canSeeInvestments = isMasterOrAdmin(effectiveRole);
+
         String farmName = farmId != null
                 ? farmRepository.findByIdLive(farmId).map(Farm::getName).orElse(null)
                 : null;
@@ -75,7 +77,7 @@ public class DashboardServiceImpl implements DashboardService {
                 .farmName(farmName)
                 .userId(userId)
                 .username(user != null ? user.getUsername() : null)
-                .role(role)
+                .role(effectiveRole)
                 .personal(toTotals(personal, canSeeInvestments))
                 .farm(toTotals(farm, canSeeInvestments))
                 .transactions(txSummaries)
@@ -321,11 +323,9 @@ public class DashboardServiceImpl implements DashboardService {
                                               boolean canSeeInvestments) {
         if (src == null) return null;
 
-        boolean hasMixedCurrencyTotals = src.totalIncome() == null
-                || src.totalExpense() == null
-                || src.totalInvestment() == null;
+        boolean mixed = src.hasMixedCurrency();
 
-        BigDecimal netPosition = canSeeInvestments && !hasMixedCurrencyTotals
+        BigDecimal netPosition = canSeeInvestments && !mixed
                 ? src.totalIncome().subtract(src.totalExpense()).subtract(src.totalInvestment())
                 : null;
 
@@ -349,6 +349,10 @@ public class DashboardServiceImpl implements DashboardService {
                 .netGain(netGain)
                 .netLoss(netLoss)
                 .netPosition(netPosition)
+                .mixedCurrency(mixed ? Boolean.TRUE : null)
+                .mixedCurrencyReason(mixed
+                        ? "Totals span multiple currencies and cannot be summed"
+                        : null)
                 .build();
     }
 

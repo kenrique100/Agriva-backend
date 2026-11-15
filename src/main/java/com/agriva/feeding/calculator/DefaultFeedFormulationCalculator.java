@@ -2,7 +2,6 @@ package com.agriva.feeding.calculator;
 
 import com.agriva.feeding.model.entity.FormulationTemplate;
 import com.agriva.feeding.model.entity.FormulationTemplateLine;
-import com.agriva.feeding.model.enums.IngredientUnit;
 import com.agriva.feeding.repository.FormulationTemplateLineRepository;
 import com.agriva.feeding.repository.FormulationTemplateRepository;
 import com.agriva.shared.exception.BusinessException;
@@ -30,9 +29,8 @@ import java.util.stream.Collectors;
  * </ul>
  * <p>
  * Volumetric ingredients (unit = L) are converted from weight-percentage to
- * volume using {@code Ingredient.densityKgPerL} if set. If it is unset, the
- * calculator defaults to <b>0.90 kg/L</b> — which matches Palm Oil, the only
- * liquid in the seed recipe.
+ * volume using a default liquid density of <b>0.90 kg/L</b> — which matches
+ * Palm Oil, the only liquid in the seed recipe.
  * <p>
  * The user's own calculator can override this bean by annotating theirs with
  * {@code @Primary}.
@@ -83,7 +81,6 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
                     "Template '" + template.getName() + "' has no ingredient lines");
         }
 
-        // Farm ingredients indexed by lowercase name (calculator matches by name)
         Map<String, AvailableIngredient> byLowerName = input.availableIngredients().stream()
                 .collect(Collectors.toMap(
                         ai -> ai.name().toLowerCase(Locale.ROOT),
@@ -108,7 +105,6 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
                     .multiply(percentage)
                     .divide(HUNDRED, SCALE, RoundingMode.HALF_UP);
 
-            // Volumetric conversion when the farm registered the ingredient in L
             BigDecimal requiredInStockUnit = toStockUnit(weightEquivalentKg, ai.unit());
 
             if (ai.quantityOnHand().compareTo(requiredInStockUnit) < 0) {
@@ -119,9 +115,11 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
                         ai.unit());
             }
 
-            BigDecimal unitCost = ai.costPerUnit() == null ? BigDecimal.ZERO : ai.costPerUnit();
-            // Cost is always computed against the stock unit (kg or L) — the
-            // business books every ingredient in its own unit.
+            if (ai.costPerUnit() == null) {
+                throw new BusinessException(
+                        "Ingredient '" + ai.name() + "' has no cost per unit configured on this farm");
+            }
+            BigDecimal unitCost = ai.costPerUnit();
             BigDecimal lineCost = unitCost.multiply(requiredInStockUnit);
 
             BigDecimal cpPct = tl.getCrudeProteinPct() == null
@@ -134,7 +132,6 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
                     percentage,
                     unitCost));
 
-            // totalKg is a *weight* total — used for the recipe header.
             totalKg = totalKg.add(weightEquivalentKg);
             totalCost = totalCost.add(lineCost);
         }
@@ -168,44 +165,62 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
         }
 
         Map<UUID, AvailableIngredient> byId = input.availableIngredients().stream()
-                .collect(Collectors.toMap(AvailableIngredient::ingredientId, ai -> ai));
+                .collect(Collectors.toMap(
+                        AvailableIngredient::ingredientId,
+                        ai -> ai,
+                        (a, b) -> a));
 
-        List<RawLine> raw = new ArrayList<>(input.manualLines().size());
         BigDecimal totalKg = BigDecimal.ZERO;
-        BigDecimal totalCost = BigDecimal.ZERO;
+        List<ResolvedCustomLine> resolved = new ArrayList<>(input.manualLines().size());
 
-        for (ManualLine ml : input.manualLines()) {
-            if (ml.quantityKg() == null || ml.quantityKg().compareTo(BigDecimal.ZERO) <= 0) {
-                throw new BusinessException("Line quantity must be positive for ingredient " + ml.ingredientId());
+        for (var ml : input.manualLines()) {                                       // ⚠️ verify ManualLine type
+            UUID ingId = ml.ingredientId();                                        // ⚠️ verify accessor name
+            BigDecimal weightKg = ml.quantityKg();                                 // ⚠️ verify accessor name
+            if (weightKg == null || weightKg.signum() <= 0) {
+                throw new BusinessException("quantityKg must be > 0 for ingredient " + ingId);
             }
-            AvailableIngredient ai = byId.get(ml.ingredientId());
+
+            AvailableIngredient ai = byId.get(ingId);
             if (ai == null) {
-                throw new ResourceNotFoundException(
-                        "Ingredient not found on this farm: " + ml.ingredientId());
+                throw new BusinessException("Ingredient not found on this farm: " + ingId);
             }
-            BigDecimal requestedInStockUnit = toStockUnit(ml.quantityKg(), ai.unit());
-            if (ai.quantityOnHand().compareTo(requestedInStockUnit) < 0) {
+
+            BigDecimal requiredInStockUnit = toStockUnit(weightKg, ai.unit());
+
+            if (ai.quantityOnHand().compareTo(requiredInStockUnit) < 0) {
                 throw new InsufficientIngredientQuantityException(
-                        ai.name(), requestedInStockUnit, ai.quantityOnHand(), ai.unit());
+                        ai.name(), requiredInStockUnit, ai.quantityOnHand(), ai.unit());
             }
-            BigDecimal unitCost = ai.costPerUnit() == null ? BigDecimal.ZERO : ai.costPerUnit();
-            BigDecimal lineCost = unitCost.multiply(requestedInStockUnit);
-            raw.add(new RawLine(ai.ingredientId(), requestedInStockUnit, unitCost, lineCost));
-            totalKg = totalKg.add(ml.quantityKg());
-            totalCost = totalCost.add(lineCost);
+            if (ai.costPerUnit() == null) {
+                throw new BusinessException(
+                        "Ingredient '" + ai.name() + "' has no cost per unit configured on this farm");
+            }
+
+            resolved.add(new ResolvedCustomLine(ai, weightKg, requiredInStockUnit));
+            totalKg = totalKg.add(weightKg);
         }
 
-        if (totalKg.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BusinessException("CUSTOM formulation total must be positive");
+        if (totalKg.signum() <= 0) {
+            throw new BusinessException("Total quantity must be greater than zero");
         }
 
-        List<FormulationLineResult> lines = new ArrayList<>(raw.size());
-        for (RawLine r : raw) {
-            BigDecimal pct = r.quantityKg()
+        // Second pass: compute percentages and line costs
+        List<FormulationLineResult> lines = new ArrayList<>(resolved.size());
+        BigDecimal totalCost = BigDecimal.ZERO;
+        for (ResolvedCustomLine r : resolved) {
+            BigDecimal percentage = r.weightKg
                     .multiply(HUNDRED)
                     .divide(totalKg, SCALE, RoundingMode.HALF_UP);
+
+            BigDecimal lineCost = r.ai.costPerUnit().multiply(r.requiredInStockUnit);
+
             lines.add(new FormulationLineResult(
-                    r.ingredientId(), r.quantityKg(), pct, r.unitCost()));
+                    r.ai.ingredientId(),
+                    r.requiredInStockUnit,
+                    percentage,
+                    r.ai.costPerUnit()));
+
+            totalCost = totalCost.add(lineCost);
         }
 
         log.info("CUSTOM formulation computed: lines={} totalKg={} totalCost={}",
@@ -214,19 +229,16 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
         return new FormulationResult(lines, totalKg, totalCost, Map.of(), ALGORITHM_VERSION);
     }
 
-    /**
-     * If the farm registered the ingredient with unit = L, we must convert the
-     * weight-equivalent into volume using the ingredient's density (default 0.90).
-     * All other units (KG, EACH) pass through unchanged.
-     */
-    private BigDecimal toStockUnit(BigDecimal weightEquivalentKg, String unit) {
-        IngredientUnit u = IngredientUnit.valueOf(unit);
-        if (u == IngredientUnit.L) {
-            return weightEquivalentKg.divide(DEFAULT_LIQUID_DENSITY, SCALE, RoundingMode.HALF_UP);
-        }
-        return weightEquivalentKg;
-    }
+    private record ResolvedCustomLine(
+            AvailableIngredient ai,
+            BigDecimal weightKg,
+            BigDecimal requiredInStockUnit
+    ) {}
 
-    private record RawLine(UUID ingredientId, BigDecimal quantityKg,
-                           BigDecimal unitCost, BigDecimal lineCost) {}
+    private BigDecimal toStockUnit(BigDecimal weightKg, String stockUnit) {
+        if (stockUnit != null && "L".equalsIgnoreCase(stockUnit)) {
+            return weightKg.divide(DEFAULT_LIQUID_DENSITY, SCALE, RoundingMode.HALF_UP);
+        }
+        return weightKg;
+    }
 }
