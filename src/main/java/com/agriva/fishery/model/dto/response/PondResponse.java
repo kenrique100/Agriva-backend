@@ -27,8 +27,6 @@ public class PondResponse {
     private boolean active;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
-
-    /** Present only on the detail endpoint ({@code GET /ponds/{id}}). */
     private StockSummary stock;
 
     @Data

@@ -20,11 +20,11 @@ import java.util.UUID;
 @Repository
 public interface IncomeRepository extends JpaRepository<Income, UUID> {
 
-    // ---- OFFSET pagination (kept for backward compatibility) ----
+    // OFFSET pagination (kept for backward compatibility)
     @Query("SELECT i FROM Income i WHERE i.farmId = :farmId AND i.deletedAt IS NULL")
     Page<Income> findByFarmIdLive(@Param("farmId") UUID farmId, Pageable pageable);
 
-    // ---- Keyset pagination ----
+    //Keyset pagination
     @Query("""
         SELECT i FROM Income i
         WHERE i.farmId = :farmId
@@ -40,7 +40,7 @@ public interface IncomeRepository extends JpaRepository<Income, UUID> {
             @Param("cursorId") UUID cursorId,
             Pageable limit);
 
-    // ---- Single-row reads ----
+    // Single-row reads
     @Query("SELECT i FROM Income i WHERE i.id = :id AND i.farmId = :farmId AND i.deletedAt IS NULL")
     Optional<Income> findByIdAndFarmIdLive(@Param("id") UUID id, @Param("farmId") UUID farmId);
 
@@ -54,7 +54,7 @@ public interface IncomeRepository extends JpaRepository<Income, UUID> {
             "AND i.transactionId IS NULL AND i.deletedAt IS NULL")
     List<Income> findByFarmIdAndTransactionIdIsNull(@Param("farmId") UUID farmId);
 
-    // ---- Duplicate / receipt-ownership checks ----
+    // Duplicate / receipt-ownership checks
     @Query("SELECT CASE WHEN COUNT(i) > 0 THEN TRUE ELSE FALSE END FROM Income i " +
             "WHERE i.farmId = :farmId AND i.amountReceived = :amountReceived " +
             "AND i.incomeDate = :incomeDate AND i.reason = :reason AND i.deletedAt IS NULL")
@@ -69,7 +69,7 @@ public interface IncomeRepository extends JpaRepository<Income, UUID> {
     boolean existsByFarmIdAndReceipt(@Param("farmId") UUID farmId,
                                      @Param("receipt") String receipt);
 
-    // ---- Counts / aggregates ----
+    // Counts / aggregates
     long countByFarmId(UUID farmId);
     long countByFarmIdAndCreatedByUserId(UUID farmId, UUID userId);
 

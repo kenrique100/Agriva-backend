@@ -23,8 +23,8 @@ import java.util.stream.Collectors;
 /**
  * Bridges Fishery into the Feeding hub's consumption flow.
  * <p>
- * DR-7 enrichment: when a growth sample exists for the pond, {@code stage}
- * is derived from the latest sample's average weight. Otherwise the stage
+ * enrichment: when a growth sample exists for the pond, {@code stage}
+ * is derived from the latest sample's average weight. Otherwise, the stage
  * comes from the {@code PondStock.stage} field set at stocking time.
  * The port signature is unchanged.
  */

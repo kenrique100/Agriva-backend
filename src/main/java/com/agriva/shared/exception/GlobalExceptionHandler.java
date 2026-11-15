@@ -16,22 +16,14 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Global HTTP error mapping.
- * <p>
- * The public {@code handleXxx} methods are all invoked reflectively by
- * Spring's {@code ExceptionHandlerExceptionResolver} via the
- * {@code @ExceptionHandler} annotation — they have no direct call site
- * anywhere in the codebase. The class-level {@code @SuppressWarnings("unused")}
- * keeps IDE / static-analysis noise out of the build; it does not affect
- * behavior.
- */
 @RestControllerAdvice
 @Slf4j
 @SuppressWarnings("unused")
@@ -166,15 +158,6 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, ex.getMessage(), r);
     }
 
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleGeneric(Exception ex, WebRequest r, HttpServletRequest request) {
-        String correlationId = MDC.get(MDC_KEY);
-        if (correlationId == null) correlationId = UUID.randomUUID().toString();
-        log.error("Unhandled exception [requestId={}] on {}", correlationId, request.getRequestURI(), ex);
-        return build(HttpStatus.INTERNAL_SERVER_ERROR,
-                "An internal error occurred. Reference: " + correlationId, r);
-    }
-
     @ExceptionHandler(InsufficientPoultryStockException.class)
     public ResponseEntity<ErrorResponse> handleInsufficientPoultryStock(
             InsufficientPoultryStockException ex, WebRequest r) {
@@ -184,29 +167,6 @@ public class GlobalExceptionHandler {
         errors.put("available", String.valueOf(ex.getAvailable()));
         log.warn("Insufficient poultry stock: {}", ex.getMessage());
         return buildWithErrors(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), r, errors);
-    }
-
-    private ResponseEntity<ErrorResponse> build(HttpStatus status, String message, WebRequest r) {
-        return buildWithHeaders(status, message, r, null);
-    }
-
-    private ResponseEntity<ErrorResponse> buildWithHeaders(HttpStatus status, String message,
-                                                           WebRequest r, HttpHeaders headers) {
-        String requestId = MDC.get(MDC_KEY);
-        ErrorResponse body = new ErrorResponse(
-                LocalDateTime.now(), status.value(), message,
-                r.getDescription(false).replace("uri=", ""), requestId, null);
-        ResponseEntity.BodyBuilder b = ResponseEntity.status(status);
-        if (headers != null) b.headers(headers);
-        return b.body(body);
-    }
-
-    private ResponseEntity<ErrorResponse> buildWithErrors(WebRequest r, Map<String, String> errors) {
-        String requestId = MDC.get(MDC_KEY);
-        ErrorResponse body = new ErrorResponse(
-                LocalDateTime.now(), HttpStatus.BAD_REQUEST.value(), "Validation failed",
-                r.getDescription(false).replace("uri=", ""), requestId, errors);
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
     }
 
     @ExceptionHandler(InsufficientIngredientQuantityException.class)
@@ -250,6 +210,52 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleUnsupported(UnsupportedOperationException ex, WebRequest r) {
         log.info("Unsupported operation: {}", ex.getMessage());
         return build(HttpStatus.NOT_IMPLEMENTED, ex.getMessage(), r);
+    }
+
+    /**
+     * Handles requests that reached Spring MVC but matched no controller.
+     * Without this, {@link NoResourceFoundException} falls into
+     * {@link #handleGeneric} and gets mis-reported as a 500.
+     */
+    @ExceptionHandler({NoResourceFoundException.class, NoHandlerFoundException.class})
+    public ResponseEntity<ErrorResponse> handleNoHandler(
+            Exception ex, WebRequest r, HttpServletRequest request) {
+        log.warn("No handler for {} {}: {}",
+                request.getMethod(), request.getRequestURI(), ex.getMessage());
+        return build(HttpStatus.NOT_FOUND,
+                "No endpoint " + request.getMethod() + " " + request.getRequestURI(), r);
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponse> handleGeneric(Exception ex, WebRequest r, HttpServletRequest request) {
+        String correlationId = MDC.get(MDC_KEY);
+        if (correlationId == null) correlationId = UUID.randomUUID().toString();
+        log.error("Unhandled exception [requestId={}] on {}", correlationId, request.getRequestURI(), ex);
+        return build(HttpStatus.INTERNAL_SERVER_ERROR,
+                "An internal error occurred. Reference: " + correlationId, r);
+    }
+
+    private ResponseEntity<ErrorResponse> build(HttpStatus status, String message, WebRequest r) {
+        return buildWithHeaders(status, message, r, null);
+    }
+
+    private ResponseEntity<ErrorResponse> buildWithHeaders(HttpStatus status, String message,
+                                                           WebRequest r, HttpHeaders headers) {
+        String requestId = MDC.get(MDC_KEY);
+        ErrorResponse body = new ErrorResponse(
+                LocalDateTime.now(), status.value(), message,
+                r.getDescription(false).replace("uri=", ""), requestId, null);
+        ResponseEntity.BodyBuilder b = ResponseEntity.status(status);
+        if (headers != null) b.headers(headers);
+        return b.body(body);
+    }
+
+    private ResponseEntity<ErrorResponse> buildWithErrors(WebRequest r, Map<String, String> errors) {
+        String requestId = MDC.get(MDC_KEY);
+        ErrorResponse body = new ErrorResponse(
+                LocalDateTime.now(), HttpStatus.BAD_REQUEST.value(), "Validation failed",
+                r.getDescription(false).replace("uri=", ""), requestId, errors);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
     }
 
     private ResponseEntity<ErrorResponse> buildWithErrors(HttpStatus status, String message,

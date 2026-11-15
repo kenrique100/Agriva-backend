@@ -51,7 +51,6 @@ class PoultryFeedConsumptionIT {
     @Autowired PoultryHouseService houseService;
     @Autowired PoultryBatchService batchService;
     @Autowired AuthService authService;
-
     @Autowired FeedingEventRepository feedingEventRepo;
     @Autowired FarmFeedStoreRepository farmStoreRepo;
     @Autowired FeedBatchRepository feedBatchRepo;

@@ -20,7 +20,6 @@ public interface GrowthSampleRepository extends JpaRepository<GrowthSample, UUID
     @Query("SELECT g FROM GrowthSample g WHERE g.farmId = :farmId")
     Page<GrowthSample> findByFarmId(@Param("farmId") UUID farmId, Pageable pageable);
 
-    /** Most recent sample across all species — used by the feed adapter's stage derivation. */
     @Query("SELECT g FROM GrowthSample g WHERE g.pondId = :pondId " +
             "ORDER BY g.sampledAt DESC, g.createdAt DESC")
     java.util.List<GrowthSample> findLatestByPondId(@Param("pondId") UUID pondId, Pageable pageable);

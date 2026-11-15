@@ -65,12 +65,10 @@ class PoultryFcrIT {
     @Autowired PoultryHouseService houseService;
     @Autowired PoultryWeightSampleService sampleService;
     @Autowired AuthService authService;
-
     @Autowired FeedConsumptionService consumptionService;
     @Autowired ProductionService productionService;
     @Autowired FormulationService formulationService;
     @Autowired IngredientService ingredientService;
-
     @Autowired PoultryBatchRepository batchRepo;
     @Autowired PoultryHouseRepository houseRepo;
     @Autowired PoultryWeightSampleRepository sampleRepo;

@@ -18,12 +18,10 @@ public class FarmListResponse {
     private int totalUsers;
     private int totalMasters;
     private int totalSubUsers;
-
     private long totalTransactions;
     private BigDecimal grandTotalIncome;
     private BigDecimal grandTotalExpense;
     private BigDecimal grandTotalInvestment;
     private BigDecimal grandNetPosition;
-
     private List<FarmDetailsResponse> farms;
 }

@@ -11,7 +11,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * FIX: extracted from DatabaseInitializer so @Transactional actually applies.
+ * extracted from DatabaseInitializer so @Transactional actually applies.
  * Previously, DatabaseInitializer called its own protected method, bypassing
  * Spring's CGLIB proxy → REQUIRES_NEW was silently ignored.
  */

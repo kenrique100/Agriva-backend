@@ -23,11 +23,9 @@ public class FarmDetailsResponse {
     private UUID masterId;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
-
     private Integer totalUsers;
     private Integer totalMasters;
     private Integer totalSubUsers;
-
     private Long totalIncomes;
     private BigDecimal totalIncomeAmount;
     private Long totalExpenses;
@@ -35,11 +33,9 @@ public class FarmDetailsResponse {
     private Long totalInvestments;
     private BigDecimal totalInvestmentAmount;
     private Long totalTransactions;
-
     private BigDecimal netGain;
     private BigDecimal netLoss;
     private BigDecimal netPosition;
-
     private List<FarmUser> users;
     private List<TransactionEntry> transactions;
 
