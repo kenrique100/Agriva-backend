@@ -24,7 +24,7 @@ public interface IncomeRepository extends JpaRepository<Income, UUID> {
     @Query("SELECT i FROM Income i WHERE i.farmId = :farmId AND i.deletedAt IS NULL")
     Page<Income> findByFarmIdLive(@Param("farmId") UUID farmId, Pageable pageable);
 
-    //Keyset pagination
+    // Keyset pagination
     @Query("""
         SELECT i FROM Income i
         WHERE i.farmId = :farmId
@@ -75,11 +75,6 @@ public interface IncomeRepository extends JpaRepository<Income, UUID> {
 
     @Query("SELECT SUM(i.amountReceived) FROM Income i WHERE i.farmId = :farmId AND i.deletedAt IS NULL")
     BigDecimal sumAmountByFarmId(@Param("farmId") UUID farmId);
-
-    @Query("SELECT SUM(i.amountReceived) FROM Income i " +
-            "WHERE i.farmId = :farmId AND i.createdByUserId = :userId AND i.deletedAt IS NULL")
-    BigDecimal sumAmountByFarmIdAndCreatedByUserId(@Param("farmId") UUID farmId,
-                                                   @Param("userId") UUID userId);
 
     @Query("SELECT i.currency, SUM(i.amountReceived) FROM Income i " +
             "WHERE i.farmId = :farmId AND i.deletedAt IS NULL GROUP BY i.currency")

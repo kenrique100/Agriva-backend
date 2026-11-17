@@ -11,8 +11,9 @@ import java.util.UUID;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class IncomeBulkUploadResponse {
+public class BatchUploadResponse {
 
+    private UUID batchId;
     private int totalRows;
     private int queued;
     private int failed;

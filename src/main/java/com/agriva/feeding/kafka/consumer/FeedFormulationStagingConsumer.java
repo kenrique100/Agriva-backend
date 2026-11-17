@@ -4,6 +4,7 @@ import com.agriva.feeding.model.dto.request.FeedFormulationSubmissionEvent;
 import com.agriva.feeding.model.entity.StagedFeedingFormulation;
 import com.agriva.feeding.model.enums.StagedFeedingStatus;
 import com.agriva.feeding.repository.StagedFeedingFormulationRepository;
+import com.agriva.feeding.scheduler.StagedFeedingFormulationValidator;
 import com.agriva.shared.kafka.IdempotencyGuard;
 import com.agriva.shared.kafka.topics.FeedFormulationKafkaConfig;
 import lombok.RequiredArgsConstructor;
@@ -21,11 +22,13 @@ public class FeedFormulationStagingConsumer {
 
     private final StagedFeedingFormulationRepository stagedRepo;
     private final IdempotencyGuard idempotencyGuard;
+    private final StagedFeedingFormulationValidator validator;
 
     @KafkaListener(
             topics = FeedFormulationKafkaConfig.STAGING_TOPIC,
             groupId = FeedFormulationKafkaConfig.STAGING_CONSUMER_GROUP,
             containerFactory = "feedFormulationKafkaListenerContainerFactory")
+    @SuppressWarnings("unused")
     public void onEvent(FeedFormulationSubmissionEvent event) {
         if (event == null || event.getSubmissionId() == null
                 || event.getPayloadJson() == null) {
@@ -34,9 +37,11 @@ public class FeedFormulationStagingConsumer {
         }
         if (!idempotencyGuard.tryMarkProcessed(
                 event.getSubmissionId(), FeedFormulationKafkaConfig.STAGING_CONSUMER_GROUP)) {
-            log.info("Duplicate feeding-formulation event {} — skipping", event.getSubmissionId());
+            log.info("Duplicate feeding-formulation event {} — skipping",
+                    event.getSubmissionId());
             return;
         }
+
         StagedFeedingFormulation staged = StagedFeedingFormulation.builder()
                 .id(event.getSubmissionId())
                 .farmId(event.getFarmId())
@@ -48,13 +53,21 @@ public class FeedFormulationStagingConsumer {
                         ? event.getSubmittedAt() : LocalDateTime.now())
                 .retryCount(0)
                 .build();
+
         try {
-            stagedRepo.save(staged);
+            stagedRepo.saveAndFlush(staged);
             log.info("Staged feeding-formulation {} persisted", staged.getId());
         } catch (DataIntegrityViolationException e) {
             log.error("Staged feeding-formulation {} FK violation, routing to DLQ: {}",
                     staged.getId(), e.getMessage());
             throw e;
+        }
+
+        try {
+            validator.processOneImmediately(staged.getId());
+        } catch (Exception e) {
+            log.warn("Immediate processing failed for {} — cron will retry: {}",
+                    staged.getId(), e.getMessage());
         }
     }
 }

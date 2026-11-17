@@ -20,7 +20,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -49,20 +52,30 @@ public class IngredientServiceImpl implements IngredientService {
                 .build();
 
         Ingredient saved = ingredientRepository.save(ingredient);
-        log.info("Ingredient {} created for farm {} (name='{}')",
-                saved.getId(), farmId, saved.getName());
+        log.info("Ingredient {} created for farm {} (name='{}', by={})",
+                saved.getId(), farmId, saved.getName(), userId);
         return mapper.toResponse(saved, null);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Page<IngredientResponse> listIngredients(UUID farmId, Pageable pageable) {
-        return ingredientRepository.findByFarmIdLive(farmId, pageable)
-                .map(i -> {
-                    IngredientStock stock = stockRepository
-                            .findByFarmIdAndIngredientId(farmId, i.getId()).orElse(null);
-                    return mapper.toResponse(i, stock);
-                });
+        Page<Ingredient> page = ingredientRepository.findByFarmIdLive(farmId, pageable);
+        if (page.isEmpty()) {
+            return page.map(i -> mapper.toResponse(i, null));
+        }
+
+        // Batch-fetch all stocks in ONE query rather than one-per-row.
+        List<UUID> ids = page.map(Ingredient::getId).getContent();
+        Map<UUID, IngredientStock> stockById = stockRepository.findAllByFarmId(farmId)
+                .stream()
+                .filter(s -> ids.contains(s.getIngredientId()))
+                .collect(Collectors.toMap(
+                        IngredientStock::getIngredientId,
+                        s -> s,
+                        (a, b) -> a));
+
+        return page.map(i -> mapper.toResponse(i, stockById.get(i.getId())));
     }
 
     @Override
@@ -80,6 +93,11 @@ public class IngredientServiceImpl implements IngredientService {
                                              UUID farmId, UUID userId) {
         Ingredient ingredient = loadIngredient(id, farmId);
 
+        if (request.getQuantity() == null
+                || request.getQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("Replenish quantity must be greater than zero");
+        }
+
         IngredientStock stock = stockRepository
                 .findByFarmIdAndIngredientIdForUpdate(farmId, id)
                 .orElseGet(() -> IngredientStock.builder()
@@ -94,9 +112,26 @@ public class IngredientServiceImpl implements IngredientService {
         stock.setLastReplenishedAt(LocalDateTime.now());
 
         IngredientStock saved = stockRepository.save(stock);
-        log.info("Replenished {} {} of ingredient {} for farm {} (new total {})",
-                request.getQuantity(), ingredient.getUnit(), id, farmId, newQty);
+        log.info("Replenished {} {} of ingredient {} for farm {} (new total {}, by={})",
+                request.getQuantity(), ingredient.getUnit(), id, farmId, newQty, userId);
         return mapper.toResponse(ingredient, saved);
+    }
+
+    @Override
+    @Transactional
+    public void softDelete(UUID id, UUID farmId) {
+        Ingredient ingredient = loadIngredient(id, farmId);
+        stockRepository.findByFarmIdAndIngredientId(farmId, id).ifPresent(stock -> {
+            if (stock.getQuantityOnHand() != null
+                    && stock.getQuantityOnHand().signum() != 0) {
+                stock.setQuantityOnHand(BigDecimal.ZERO);
+                stockRepository.save(stock);
+            }
+        });
+
+        ingredient.setDeletedAt(LocalDateTime.now());
+        ingredientRepository.save(ingredient);
+        log.info("Soft-deleted ingredient {} from farm {}", id, farmId);
     }
 
     private Ingredient loadIngredient(UUID id, UUID farmId) {

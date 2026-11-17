@@ -33,6 +33,7 @@ public class IngredientController {
     public ResponseEntity<IngredientResponse> create(
             @AuthenticationPrincipal AuthenticatedUser u,
             @Valid @RequestBody IngredientRequest request) {
+        if (u == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ingredientService.createIngredient(request, u.farmId(), u.userId()));
     }
@@ -42,6 +43,7 @@ public class IngredientController {
             @AuthenticationPrincipal AuthenticatedUser u,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
+        if (u == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         return ResponseEntity.ok(PageResponse.of(ingredientService.listIngredients(
                 u.farmId(),
                 PageRequest.of(page, Math.min(size, 100),
@@ -52,6 +54,7 @@ public class IngredientController {
     public ResponseEntity<IngredientResponse> get(
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id) {
+        if (u == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         return ResponseEntity.ok(ingredientService.getIngredient(id, u.farmId()));
     }
 
@@ -61,7 +64,18 @@ public class IngredientController {
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id,
             @Valid @RequestBody IngredientStockReplenishRequest request) {
+        if (u == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         return ResponseEntity.ok(ingredientService.replenishStock(
                 id, request, u.farmId(), u.userId()));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<Void> delete(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID id) {
+        if (u == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        ingredientService.softDelete(id, u.farmId());
+        return ResponseEntity.noContent().build();
     }
 }

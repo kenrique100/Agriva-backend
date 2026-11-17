@@ -18,4 +18,6 @@ public interface IngredientService {
 
     IngredientResponse replenishStock(UUID id, IngredientStockReplenishRequest request,
                                       UUID farmId, UUID userId);
+
+    void softDelete(UUID id, UUID farmId);
 }

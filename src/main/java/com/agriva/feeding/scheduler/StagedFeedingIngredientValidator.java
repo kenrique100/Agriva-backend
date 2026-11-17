@@ -57,6 +57,15 @@ public class StagedFeedingIngredientValidator {
         }
     }
 
+    /**
+     * Public entry point used by the Kafka consumer to bypass the 60 s cron
+     * window. Wraps processOne in its own transaction so it is safe to call
+     * from a non-transactional listener.
+     */
+    public void processOneImmediately(UUID id) {
+        txTemplate.execute(status -> { processOne(id); return null; });
+    }
+
     private void processOne(UUID id) {
         StagedFeedingIngredient staged = stagedRepo.findByIdForUpdate(id).orElse(null);
         if (staged == null || !isDue(staged, LocalDateTime.now())) return;

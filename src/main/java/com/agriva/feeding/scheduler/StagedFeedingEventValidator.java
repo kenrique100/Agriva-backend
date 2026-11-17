@@ -151,4 +151,7 @@ public class StagedFeedingEventValidator {
         if (s.getStatus() != StagedFeedingStatus.RETRYING) return false;
         return s.getNextRetryAt() == null || !s.getNextRetryAt().isAfter(now);
     }
+    public void processOneImmediately(UUID id) {
+        txTemplate.execute(status -> { processOne(id); return null; });
+    }
 }

@@ -1,7 +1,8 @@
 package com.agriva.finance.controller;
 
 import com.agriva.finance.model.dto.request.IncomeRequest;
-import com.agriva.finance.model.dto.response.IncomeBulkUploadResponse;
+import com.agriva.finance.model.dto.response.BatchStatusResponse;
+import com.agriva.finance.model.dto.response.BatchUploadResponse;
 import com.agriva.finance.model.dto.response.IncomeResponse;
 import com.agriva.finance.model.dto.response.IncomeStagingResponse;
 import com.agriva.finance.model.dto.response.IncomeSubmissionAck;
@@ -36,8 +37,6 @@ public class IncomeController {
     private final IncomeService incomeService;
     private final FileStorageService fileStorageService;
 
-    // ----- Write endpoints (unchanged) -----
-
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
     public ResponseEntity<IncomeSubmissionAck> submit(
@@ -53,14 +52,19 @@ public class IncomeController {
 
     @PostMapping(value = "/bulk", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public ResponseEntity<IncomeBulkUploadResponse> bulkUpload(
+    public ResponseEntity<BatchUploadResponse> bulkUpload(
             @AuthenticationPrincipal AuthenticatedUser u,
             @RequestPart("file") MultipartFile file) {
         return ResponseEntity.accepted().body(incomeService.bulkUpload(
                 file, u.farmId(), u.userId(), u.email()));
     }
 
-    // ----- Read endpoints: OFFSET (backward-compat) -----
+    @GetMapping("/bulk/{batchId}")
+    public ResponseEntity<BatchStatusResponse> bulkStatus(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID batchId) {
+        return ResponseEntity.ok(incomeService.bulkStatus(batchId, u.farmId()));
+    }
 
     @GetMapping
     public ResponseEntity<PageResponse<IncomeResponse>> list(
@@ -73,23 +77,6 @@ public class IncomeController {
                 PageRequest.of(page, Math.min(size, 100), parseSort(sort)))));
     }
 
-    // ----- Read endpoints: CURSOR (preferred for large lists) -----
-
-    /**
-     * Keyset (cursor) pagination.
-     * <p>
-     * First call: GET /incomes/cursor?size=20
-     *   → { content: [...20 rows], nextCursor: "…", hasNext: true, size: 20 }
-     * <p>
-     * Next call: GET /incomes/cursor?size=20&cursor=… (same cursor string)
-     * <p>
-     * When hasNext is false, nextCursor is null — stop.
-     * <p>
-     * Why this endpoint exists: OFFSET /incomes?page=500 gets progressively
-     * slower (Postgres scans and discards page*size rows). Cursor is O(1)
-     * per page because it seeks directly to the row position via the
-     * (farm_id, income_date DESC, id DESC) composite index.
-     */
     @GetMapping("/cursor")
     public ResponseEntity<CursorPageResponse<IncomeResponse>> listByCursor(
             @AuthenticationPrincipal AuthenticatedUser u,

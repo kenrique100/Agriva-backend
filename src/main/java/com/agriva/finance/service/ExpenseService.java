@@ -1,7 +1,8 @@
 package com.agriva.finance.service;
 
 import com.agriva.finance.model.dto.request.ExpenseRequest;
-import com.agriva.finance.model.dto.response.ExpenseBulkUploadResponse;
+import com.agriva.finance.model.dto.response.BatchStatusResponse;
+import com.agriva.finance.model.dto.response.BatchUploadResponse;
 import com.agriva.finance.model.dto.response.ExpenseResponse;
 import com.agriva.finance.model.dto.response.ExpenseStagingResponse;
 import com.agriva.finance.model.dto.response.ExpenseSubmissionAck;
@@ -17,7 +18,9 @@ public interface ExpenseService {
 
     ExpenseSubmissionAck submitExpense(ExpenseRequest request, UUID farmId, UUID userId, String email);
 
-    ExpenseBulkUploadResponse bulkUpload(MultipartFile file, UUID farmId, UUID userId, String email);
+    BatchUploadResponse bulkUpload(MultipartFile file, UUID farmId, UUID userId, String email);
+
+    BatchStatusResponse bulkStatus(UUID batchId, UUID farmId);
 
     Page<ExpenseResponse> listExpenses(UUID farmId, Pageable pageable);
 

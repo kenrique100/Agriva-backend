@@ -2,18 +2,22 @@ package com.agriva.finance.service.impl;
 
 import com.agriva.finance.model.dto.request.IncomeRequest;
 import com.agriva.finance.model.dto.request.IncomeSubmissionEvent;
-import com.agriva.finance.model.dto.response.IncomeBulkUploadResponse;
+import com.agriva.finance.model.dto.response.BatchStatusResponse;
+import com.agriva.finance.model.dto.response.BatchUploadResponse;
 import com.agriva.finance.model.dto.response.IncomeResponse;
 import com.agriva.finance.model.dto.response.IncomeStagingResponse;
 import com.agriva.finance.model.dto.response.IncomeSubmissionAck;
+import com.agriva.finance.model.enums.StagedStatus;
+import com.agriva.finance.utils.BatchParsedRow;
+import com.agriva.finance.utils.IncomeExcelParser;
 import com.agriva.shared.exception.DuplicateIncomeException;
 import com.agriva.shared.exception.IncomeNotFoundException;
+import com.agriva.shared.exception.ResourceNotFoundException;
 import com.agriva.finance.kafka.producer.IncomeProducer;
 import com.agriva.finance.mapper.IncomeMapper;
 import com.agriva.shared.models.dto.CursorPageResponse;
 import com.agriva.finance.model.entity.Income;
 import com.agriva.finance.model.entity.StagedIncome;
-import com.agriva.finance.model.enums.StagedIncomeStatus;
 import com.agriva.identity.models.entity.User;
 import com.agriva.identity.repository.AuthRepository;
 import com.agriva.finance.repository.IncomeRepository;
@@ -21,7 +25,6 @@ import com.agriva.finance.repository.StagedIncomeRepository;
 import com.agriva.finance.service.IncomeService;
 import com.agriva.shared.models.ref.UserRef;
 import com.agriva.shared.utils.CursorCodec;
-import com.agriva.finance.utils.IncomeExcelParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -57,33 +61,37 @@ public class IncomeServiceImpl implements IncomeService {
     @Override
     public IncomeSubmissionAck submitIncome(IncomeRequest request, UUID farmId, UUID userId, String email) {
         UUID submissionId = UUID.randomUUID();
+        // Single-submit: batchId and rowNumber stay null.
         IncomeSubmissionEvent event = new IncomeSubmissionEvent(
-                submissionId, farmId, userId, email, serialize(request), LocalDateTime.now());
+                submissionId, farmId, userId, email, serialize(request),
+                LocalDateTime.now(), null, null);
         incomeProducer.publish(event);
         log.info("Income submission {} queued for farm {}", submissionId, farmId);
         return new IncomeSubmissionAck(submissionId, farmId, "QUEUED", LocalDateTime.now());
     }
 
     @Override
-    public IncomeBulkUploadResponse bulkUpload(MultipartFile file, UUID farmId, UUID userId, String email) {
+    public BatchUploadResponse bulkUpload(MultipartFile file, UUID farmId, UUID userId, String email) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("Excel file is required");
         }
 
-        List<IncomeExcelParser.ParsedRow> rows;
+        List<BatchParsedRow<IncomeRequest>> rows;
         try {
             rows = excelParser.parse(file.getInputStream());
         } catch (Exception e) {
             throw new IllegalArgumentException("Failed to read Excel file: " + e.getMessage(), e);
         }
 
-        IncomeBulkUploadResponse response = new IncomeBulkUploadResponse();
+        UUID batchId = UUID.randomUUID();
+        BatchUploadResponse response = new BatchUploadResponse();
+        response.setBatchId(batchId);
         response.setTotalRows(rows.size());
 
-        for (IncomeExcelParser.ParsedRow row : rows) {
+        for (BatchParsedRow<IncomeRequest> row : rows) {
             if (row.isError()) {
                 response.setFailed(response.getFailed() + 1);
-                response.getResults().add(new IncomeBulkUploadResponse.RowResult(
+                response.getResults().add(new BatchUploadResponse.RowResult(
                         row.rowNumber(), null, "FAILED", row.error()));
                 continue;
             }
@@ -91,19 +99,57 @@ public class IncomeServiceImpl implements IncomeService {
             UUID submissionId = UUID.randomUUID();
             incomeProducer.publish(new IncomeSubmissionEvent(
                     submissionId, farmId, userId, email,
-                    serialize(row.request()), LocalDateTime.now()));
+                    serialize(row.request()), LocalDateTime.now(),
+                    batchId, row.rowNumber()));
 
             response.setQueued(response.getQueued() + 1);
-            response.getResults().add(new IncomeBulkUploadResponse.RowResult(
+            response.getResults().add(new BatchUploadResponse.RowResult(
                     row.rowNumber(), submissionId, "QUEUED", null));
         }
 
-        log.info("Bulk income upload for farm {}: total={}, queued={}, failed={}",
-                farmId, response.getTotalRows(), response.getQueued(), response.getFailed());
+        log.info("Bulk income upload {} for farm {}: total={}, queued={}, failed={}",
+                batchId, farmId, response.getTotalRows(),
+                response.getQueued(), response.getFailed());
         return response;
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public BatchStatusResponse bulkStatus(UUID batchId, UUID farmId) {
+        List<StagedIncome> staged =
+                stagedRepo.findByFarmIdAndBatchIdOrderByRowNumberAsc(farmId, batchId);
+
+        if (staged.isEmpty()) {
+            throw new ResourceNotFoundException("Batch not found: " + batchId);
+        }
+
+        int pending = 0, moved = 0, failed = 0;
+        List<BatchStatusResponse.FailedRow> failedRows = new ArrayList<>();
+
+        for (StagedIncome s : staged) {
+            switch (s.getStatus()) {
+                case PENDING, RETRYING -> pending++;
+                case MOVED  -> moved++;
+                case FAILED -> {
+                    failed++;
+                    failedRows.add(new BatchStatusResponse.FailedRow(
+                            s.getRowNumber(), s.getId(), s.getValidationErrors()));
+                }
+            }
+        }
+
+        return BatchStatusResponse.builder()
+                .batchId(batchId)
+                .total(staged.size())
+                .pending(pending)
+                .moved(moved)
+                .failed(failed)
+                .failedRows(failedRows.isEmpty() ? null : failedRows)
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Page<IncomeResponse> listIncome(UUID farmId, Pageable pageable) {
         Page<Income> page = incomeRepo.findByFarmIdLive(farmId, pageable);
         Map<UUID, UserRef> userById = lookupUsers(page.getContent());
@@ -111,6 +157,7 @@ public class IncomeServiceImpl implements IncomeService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public IncomeResponse getIncome(UUID id, UUID farmId) {
         Income income = incomeRepo.findByIdAndFarmIdLive(id, farmId)
                 .orElseThrow(() -> new IncomeNotFoundException("Income not found with ID: " + id));
@@ -157,11 +204,12 @@ public class IncomeServiceImpl implements IncomeService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Page<IncomeStagingResponse> listStaging(UUID farmId, String status, Pageable pageable) {
         Page<StagedIncome> page;
         if (status != null && !status.isBlank()) {
             page = stagedRepo.findByFarmIdAndStatus(farmId,
-                    StagedIncomeStatus.valueOf(status.toUpperCase()), pageable);
+                    StagedStatus.valueOf(status.toUpperCase()), pageable);
         } else {
             page = stagedRepo.findByFarmId(farmId, pageable);
         }
@@ -169,9 +217,10 @@ public class IncomeServiceImpl implements IncomeService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Map<String, Long> stagingStats(UUID farmId) {
         Map<String, Long> out = new LinkedHashMap<>();
-        for (StagedIncomeStatus s : StagedIncomeStatus.values()) {
+        for (StagedStatus s : StagedStatus.values()) {
             out.put(s.name(), stagedRepo.countByFarmIdAndStatus(farmId, s));
         }
         return out;
@@ -206,8 +255,7 @@ public class IncomeServiceImpl implements IncomeService {
     public CursorPageResponse<IncomeResponse> listIncomeByCursor(UUID farmId, String cursor, int size) {
         int cappedSize = Math.clamp(size, 1, 100);
 
-        org.springframework.data.domain.Pageable limit =
-                PageRequest.of(0, cappedSize + 1);
+        Pageable limit = PageRequest.of(0, cappedSize + 1);
 
         java.time.LocalDate cursorDate = null;
         java.util.UUID cursorId = null;

@@ -28,6 +28,7 @@ public class PoultryBatchResponse {
     private LocalDate arrivalDate;
     private String stage;
     private BigDecimal averageWeightG;
+    private BigDecimal initialAvgWeightG;
     private PoultryBatchStatus status;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

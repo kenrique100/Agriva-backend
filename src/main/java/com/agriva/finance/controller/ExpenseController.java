@@ -1,7 +1,8 @@
 package com.agriva.finance.controller;
 
 import com.agriva.finance.model.dto.request.ExpenseRequest;
-import com.agriva.finance.model.dto.response.ExpenseBulkUploadResponse;
+import com.agriva.finance.model.dto.response.BatchStatusResponse;
+import com.agriva.finance.model.dto.response.BatchUploadResponse;
 import com.agriva.finance.model.dto.response.ExpenseResponse;
 import com.agriva.finance.model.dto.response.ExpenseStagingResponse;
 import com.agriva.finance.model.dto.response.ExpenseSubmissionAck;
@@ -51,11 +52,18 @@ public class ExpenseController {
 
     @PostMapping(value = "/bulk", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public ResponseEntity<ExpenseBulkUploadResponse> bulkUpload(
+    public ResponseEntity<BatchUploadResponse> bulkUpload(
             @AuthenticationPrincipal AuthenticatedUser u,
             @RequestPart("file") MultipartFile file) {
         return ResponseEntity.accepted().body(expenseService.bulkUpload(
                 file, u.farmId(), u.userId(), u.email()));
+    }
+
+    @GetMapping("/bulk/{batchId}")
+    public ResponseEntity<BatchStatusResponse> bulkStatus(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID batchId) {
+        return ResponseEntity.ok(expenseService.bulkStatus(batchId, u.farmId()));
     }
 
     @GetMapping

@@ -1,3 +1,5 @@
+
+
 CREATE INDEX idx_income_creator_live
     ON income (farm_id, created_by_user_id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_expense_creator_live
@@ -35,8 +37,5 @@ CREATE INDEX idx_harvests_farm_date_desc ON harvests (farm_id, harvest_date DESC
 CREATE INDEX idx_activities_farm_date    ON crop_activities (farm_id, activity_date DESC);
 CREATE INDEX idx_crops_farm_name         ON crops (farm_id, name);
 
-CREATE INDEX idx_tasks_farm_status_live
-    ON tasks (farm_id, status) WHERE deleted_at IS NULL;
-
-CREATE INDEX idx_sp_farm_personnel_date
-    ON salary_payments (farm_id, personnel_id, payment_date DESC);
+CREATE INDEX idx_tasks_farm_status_live  ON tasks (farm_id, status) WHERE deleted_at IS NULL;
+CREATE INDEX idx_sp_farm_personnel_date  ON salary_payments (farm_id, personnel_id, payment_date DESC);

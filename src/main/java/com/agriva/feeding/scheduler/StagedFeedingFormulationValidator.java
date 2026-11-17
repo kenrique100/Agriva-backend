@@ -58,6 +58,10 @@ public class StagedFeedingFormulationValidator {
         }
     }
 
+    public void processOneImmediately(UUID id) {
+        txTemplate.execute(status -> { processOne(id); return null; });
+    }
+
     private void processOne(UUID id) {
         StagedFeedingFormulation staged = stagedRepo.findByIdForUpdate(id).orElse(null);
         if (staged == null || !isDue(staged, LocalDateTime.now())) return;

@@ -11,6 +11,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class CropBulkUploadResponse {
+
     private int totalRows;
     private int created;
     private int queued;
@@ -24,6 +25,6 @@ public class CropBulkUploadResponse {
         private int rowNumber;
         private String entityId;
         private String status;
-        private String message;
+        private String error;
     }
 }

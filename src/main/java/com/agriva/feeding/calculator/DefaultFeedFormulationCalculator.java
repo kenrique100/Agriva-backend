@@ -25,7 +25,11 @@ import java.util.stream.Collectors;
  *       to the requested {@code targetQuantityKg}. Requires every template
  *       ingredient to be present in the farm's provender (else 422).</li>
  *   <li><b>CUSTOM</b> — passes the caller's {@code manualLines} through, computes
- *       percentages and cost from the farm's cost-per-unit. Validates stock.</li>
+ *       percentages and cost from the farm's cost-per-unit. Validates stock.
+ *       Unknown ingredient ids raise {@link ResourceNotFoundException} (404),
+ *       insufficient stock raises
+ *       {@link InsufficientIngredientQuantityException} (422), and a missing
+ *       cost-per-unit raises {@link BusinessException} (422).</li>
  * </ul>
  * <p>
  * Volumetric ingredients (unit = L) are converted from weight-percentage to
@@ -95,6 +99,9 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
         for (FormulationTemplateLine tl : templateLines) {
             AvailableIngredient ai = byLowerName.get(tl.getIngredientName().toLowerCase(Locale.ROOT));
             if (ai == null) {
+                // Preserved existing behavior: ALGORITHM mode treats a missing
+                // template ingredient as a stock shortfall (the caller is expected
+                // to provision the provender first).
                 throw new InsufficientIngredientQuantityException(
                         tl.getIngredientName(),
                         BigDecimal.ZERO, BigDecimal.ZERO, "KG");
@@ -115,6 +122,8 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
                         ai.unit());
             }
 
+            // Never default to zero cost — that silently corrupts every
+            // downstream financial report. Fail loudly instead.
             if (ai.costPerUnit() == null) {
                 throw new BusinessException(
                         "Ingredient '" + ai.name() + "' has no cost per unit configured on this farm");
@@ -170,19 +179,21 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
                         ai -> ai,
                         (a, b) -> a));
 
+        // First pass: resolve, validate stock, validate cost, accumulate totalKg
         BigDecimal totalKg = BigDecimal.ZERO;
         List<ResolvedCustomLine> resolved = new ArrayList<>(input.manualLines().size());
 
-        for (var ml : input.manualLines()) {                                       // ⚠️ verify ManualLine type
-            UUID ingId = ml.ingredientId();                                        // ⚠️ verify accessor name
-            BigDecimal weightKg = ml.quantityKg();                                 // ⚠️ verify accessor name
+        for (var ml : input.manualLines()) {
+            UUID ingId = ml.ingredientId();
+            BigDecimal weightKg = ml.quantityKg();
             if (weightKg == null || weightKg.signum() <= 0) {
                 throw new BusinessException("quantityKg must be > 0 for ingredient " + ingId);
             }
 
             AvailableIngredient ai = byId.get(ingId);
             if (ai == null) {
-                throw new BusinessException("Ingredient not found on this farm: " + ingId);
+                throw new ResourceNotFoundException(
+                        "Ingredient not found on this farm: " + ingId);
             }
 
             BigDecimal requiredInStockUnit = toStockUnit(weightKg, ai.unit());
@@ -191,6 +202,7 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
                 throw new InsufficientIngredientQuantityException(
                         ai.name(), requiredInStockUnit, ai.quantityOnHand(), ai.unit());
             }
+
             if (ai.costPerUnit() == null) {
                 throw new BusinessException(
                         "Ingredient '" + ai.name() + "' has no cost per unit configured on this farm");

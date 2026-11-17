@@ -4,14 +4,16 @@ import com.agriva.shared.exception.KafkaUnavailableException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
- * Base class for domain producers. Payloads are serialized to JSON bytes
- * here (the template is wired with ByteArraySerializer) and handed to
- * {@link KafkaPublishService}, which owns the circuit breaker.
+ * Base class for domain producers. The payload is handed to
+ * {@link KafkaPublishService} <strong>as-is</strong>; the KafkaTemplate's
+ * configured {@code JsonSerializer} performs the single JSON encode.
  */
 public abstract class BaseKafkaProducer<T> {
 
     protected final KafkaPublishService publishService;
     protected final String topic;
+
+    @Deprecated
     protected final ObjectMapper objectMapper;
 
     protected BaseKafkaProducer(KafkaPublishService publishService,
@@ -24,14 +26,13 @@ public abstract class BaseKafkaProducer<T> {
 
     public void publish(String key, T value) {
         try {
-            byte[] payload = objectMapper.writeValueAsBytes(value);
-            publishService.publish(topic, key, payload);
+            publishService.publish(topic, key, value);
         } catch (KafkaUnavailableException e) {
-            // Propagate unchanged so GlobalExceptionHandler maps it to 503.
+            // Propagate so GlobalExceptionHandler maps it to 503.
             throw e;
         } catch (Exception e) {
             throw new RuntimeException(
-                    "Failed to serialize/publish Kafka payload for topic " + topic, e);
+                    "Failed to publish Kafka payload for topic " + topic, e);
         }
     }
 }

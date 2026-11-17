@@ -8,28 +8,30 @@ import org.springframework.stereotype.Component;
 @Component
 public class IngredientMapper {
 
-    public IngredientResponse toResponse(Ingredient ingredient, IngredientStock stock) {
-        IngredientResponse.CurrentStock cs = null;
+    public IngredientResponse toResponse(Ingredient i, IngredientStock stock) {
+        if (i == null) return null;
+
+        IngredientResponse.CurrentStock currentStock = null;
         if (stock != null) {
-            cs = IngredientResponse.CurrentStock.builder()
+            currentStock = IngredientResponse.CurrentStock.builder()
                     .quantityOnHand(stock.getQuantityOnHand())
-                    .unit(stock.getUnit())
+                    .unit(stock.getUnit() != null ? stock.getUnit() : i.getUnit())
                     .lastReplenishedAt(stock.getLastReplenishedAt())
                     .build();
         }
+
         return IngredientResponse.builder()
-                .id(ingredient.getId())
-                .farmId(ingredient.getFarmId())
-                .name(ingredient.getName())
-                .unit(ingredient.getUnit())
-                .costPerUnit(ingredient.getCostPerUnit())
-                .currency(ingredient.getCurrency())
-                .supplier(ingredient.getSupplier())
-                .supplier(ingredient.getSupplier())
-                .densityKgPerL(ingredient.getDensityKgPerL())
-                .createdAt(ingredient.getCreatedAt())
-                .updatedAt(ingredient.getUpdatedAt())
-                .currentStock(cs)
+                .id(i.getId())
+                .farmId(i.getFarmId())
+                .name(i.getName())
+                .unit(i.getUnit())
+                .costPerUnit(i.getCostPerUnit())
+                .currency(i.getCurrency())
+                .supplier(i.getSupplier())
+                .densityKgPerL(i.getDensityKgPerL())
+                .createdAt(i.getCreatedAt())
+                .updatedAt(i.getUpdatedAt())
+                .currentStock(currentStock)
                 .build();
     }
 }

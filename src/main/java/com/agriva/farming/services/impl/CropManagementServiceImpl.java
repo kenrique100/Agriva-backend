@@ -106,6 +106,7 @@ public class CropManagementServiceImpl implements CropManagementService {
         catch (Exception e) {
             throw new IllegalArgumentException("Failed to read Excel file: " + e.getMessage(), e);
         }
+
         CropBulkUploadResponse response = new CropBulkUploadResponse();
         response.setTotalRows(rows.size());
         for (FieldExcelParser.ParsedRow row : rows) {
@@ -177,6 +178,7 @@ public class CropManagementServiceImpl implements CropManagementService {
         catch (Exception e) {
             throw new IllegalArgumentException("Failed to read Excel file: " + e.getMessage(), e);
         }
+
         CropBulkUploadResponse response = new CropBulkUploadResponse();
         response.setTotalRows(rows.size());
         for (CropExcelParser.ParsedRow row : rows) {
@@ -260,8 +262,6 @@ public class CropManagementServiceImpl implements CropManagementService {
         log.info("Soft-deleted crop cycle {} from farm {}", id, farmId);
     }
 
-    // ---------- Bulk / Staging ----------
-
     @Override
     public CropBulkUploadResponse bulkUploadCycles(MultipartFile file, UUID farmId,
                                                    UUID userId, String email) {
@@ -289,6 +289,7 @@ public class CropManagementServiceImpl implements CropManagementService {
                 String payload = objectMapper.writeValueAsString(row.request());
                 cropCycleProducer.publish(new CropCycleSubmissionEvent(
                         submissionId, farmId, userId, email, payload, LocalDateTime.now()));
+                response.setCreated(response.getCreated() + 1);
                 response.setQueued(response.getQueued() + 1);
                 response.getResults().add(new CropBulkUploadResponse.RowResult(
                         row.rowNumber(), submissionId.toString(), "QUEUED", null));
@@ -298,8 +299,9 @@ public class CropManagementServiceImpl implements CropManagementService {
                         row.rowNumber(), null, "FAILED", e.getMessage()));
             }
         }
-        log.info("Bulk crop cycle upload for farm {}: total={}, queued={}, failed={}",
-                farmId, response.getTotalRows(), response.getQueued(), response.getFailed());
+        log.info("Bulk crop cycle upload for farm {}: total={}, queued={}, created={}, failed={}",
+                farmId, response.getTotalRows(), response.getQueued(),
+                response.getCreated(), response.getFailed());
         return response;
     }
 
@@ -384,8 +386,6 @@ public class CropManagementServiceImpl implements CropManagementService {
         }
         activityRepo.delete(activity);
     }
-
-    // ---------- Harvests ----------
 
     @Override
     @Transactional(readOnly = true)

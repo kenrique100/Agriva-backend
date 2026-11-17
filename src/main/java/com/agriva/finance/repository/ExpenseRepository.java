@@ -72,11 +72,6 @@ public interface ExpenseRepository extends JpaRepository<Expense, UUID> {
     @Query("SELECT SUM(e.amountPaid) FROM Expense e WHERE e.farmId = :farmId AND e.deletedAt IS NULL")
     BigDecimal sumAmountByFarmId(@Param("farmId") UUID farmId);
 
-    @Query("SELECT SUM(e.amountPaid) FROM Expense e " +
-            "WHERE e.farmId = :farmId AND e.createdByUserId = :userId AND e.deletedAt IS NULL")
-    BigDecimal sumAmountByFarmIdAndCreatedByUserId(@Param("farmId") UUID farmId,
-                                                   @Param("userId") UUID userId);
-
     @Query("SELECT e.currency, SUM(e.amountPaid) FROM Expense e " +
             "WHERE e.farmId = :farmId AND e.deletedAt IS NULL GROUP BY e.currency")
     List<Object[]> sumAmountGroupedByCurrency(@Param("farmId") UUID farmId);

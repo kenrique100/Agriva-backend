@@ -14,7 +14,7 @@ public class IdempotencyGuard {
 
     private final JdbcTemplate jdbc;
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional(propagation = Propagation.REQUIRED)
     public boolean tryMarkProcessed(UUID eventId, String consumerGroup) {
         int rows = jdbc.update(
                 "INSERT INTO consumer_processed_events (event_id, consumer_group) " +

@@ -1,6 +1,6 @@
 package com.agriva.finance.model.enums;
 
-public enum StagedExpenseStatus {
+public enum StagedStatus {
     PENDING,
     RETRYING,
     MOVED,

@@ -4,6 +4,7 @@ import com.agriva.feeding.model.dto.request.FeedProductionSubmissionEvent;
 import com.agriva.feeding.model.entity.StagedFeedingProduction;
 import com.agriva.feeding.model.enums.StagedFeedingStatus;
 import com.agriva.feeding.repository.StagedFeedingProductionRepository;
+import com.agriva.feeding.scheduler.StagedFeedingProductionValidator;
 import com.agriva.shared.kafka.IdempotencyGuard;
 import com.agriva.shared.kafka.topics.FeedProductionKafkaConfig;
 import lombok.RequiredArgsConstructor;
@@ -21,11 +22,13 @@ public class FeedProductionStagingConsumer {
 
     private final StagedFeedingProductionRepository stagedRepo;
     private final IdempotencyGuard idempotencyGuard;
+    private final StagedFeedingProductionValidator validator;
 
     @KafkaListener(
             topics = FeedProductionKafkaConfig.STAGING_TOPIC,
             groupId = FeedProductionKafkaConfig.STAGING_CONSUMER_GROUP,
             containerFactory = "feedProductionKafkaListenerContainerFactory")
+    @SuppressWarnings("unused")
     public void onEvent(FeedProductionSubmissionEvent event) {
         if (event == null || event.getSubmissionId() == null
                 || event.getPayloadJson() == null) {
@@ -34,9 +37,11 @@ public class FeedProductionStagingConsumer {
         }
         if (!idempotencyGuard.tryMarkProcessed(
                 event.getSubmissionId(), FeedProductionKafkaConfig.STAGING_CONSUMER_GROUP)) {
-            log.info("Duplicate feeding-production event {} — skipping", event.getSubmissionId());
+            log.info("Duplicate feeding-production event {} — skipping",
+                    event.getSubmissionId());
             return;
         }
+
         StagedFeedingProduction staged = StagedFeedingProduction.builder()
                 .id(event.getSubmissionId())
                 .farmId(event.getFarmId())
@@ -48,13 +53,21 @@ public class FeedProductionStagingConsumer {
                         ? event.getSubmittedAt() : LocalDateTime.now())
                 .retryCount(0)
                 .build();
+
         try {
-            stagedRepo.save(staged);
+            stagedRepo.saveAndFlush(staged);
             log.info("Staged feeding-production {} persisted", staged.getId());
         } catch (DataIntegrityViolationException e) {
             log.error("Staged feeding-production {} FK violation, routing to DLQ: {}",
                     staged.getId(), e.getMessage());
             throw e;
+        }
+
+        try {
+            validator.processOneImmediately(staged.getId());
+        } catch (Exception e) {
+            log.warn("Immediate processing failed for {} — cron will retry: {}",
+                    staged.getId(), e.getMessage());
         }
     }
 }

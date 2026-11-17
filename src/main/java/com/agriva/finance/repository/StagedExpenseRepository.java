@@ -2,7 +2,7 @@ package com.agriva.finance.repository;
 
 import com.agriva.finance.model.entity.StagedExpense;
 import com.agriva.finance.model.entity.StagedExpenseId;
-import com.agriva.finance.model.enums.StagedExpenseStatus;
+import com.agriva.finance.model.enums.StagedStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -21,10 +21,20 @@ public interface StagedExpenseRepository extends JpaRepository<StagedExpense, St
     Page<StagedExpense> findByFarmId(UUID farmId, Pageable pageable);
 
     Page<StagedExpense> findByFarmIdAndStatus(UUID farmId,
-                                              StagedExpenseStatus status,
+                                              StagedStatus status,
                                               Pageable pageable);
 
-    long countByFarmIdAndStatus(UUID farmId, StagedExpenseStatus status);
+    long countByFarmIdAndStatus(UUID farmId, StagedStatus status);
+
+    @Query("""
+            SELECT s FROM StagedExpense s
+            WHERE s.farmId = :farmId
+              AND s.batchId = :batchId
+            ORDER BY s.rowNumber ASC, s.submittedAt ASC
+            """)
+    List<StagedExpense> findByFarmIdAndBatchIdOrderByRowNumberAsc(
+            @Param("farmId") UUID farmId,
+            @Param("batchId") UUID batchId);
 
     @Query("""
             SELECT s FROM StagedExpense s
@@ -35,8 +45,8 @@ public interface StagedExpenseRepository extends JpaRepository<StagedExpense, St
             """)
     List<StagedExpense> findDueForProcessing(
             @Param("now") LocalDateTime now,
-            @Param("pending") StagedExpenseStatus pending,
-            @Param("retrying") StagedExpenseStatus retrying,
+            @Param("pending") StagedStatus pending,
+            @Param("retrying") StagedStatus retrying,
             Pageable pageable);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

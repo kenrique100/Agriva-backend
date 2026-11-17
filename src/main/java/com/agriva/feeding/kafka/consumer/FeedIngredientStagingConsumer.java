@@ -4,6 +4,7 @@ import com.agriva.feeding.model.dto.request.FeedIngredientSubmissionEvent;
 import com.agriva.feeding.model.entity.StagedFeedingIngredient;
 import com.agriva.feeding.model.enums.StagedFeedingStatus;
 import com.agriva.feeding.repository.StagedFeedingIngredientRepository;
+import com.agriva.feeding.scheduler.StagedFeedingIngredientValidator;
 import com.agriva.shared.kafka.IdempotencyGuard;
 import com.agriva.shared.kafka.topics.FeedIngredientKafkaConfig;
 import lombok.RequiredArgsConstructor;
@@ -21,11 +22,13 @@ public class FeedIngredientStagingConsumer {
 
     private final StagedFeedingIngredientRepository stagedRepo;
     private final IdempotencyGuard idempotencyGuard;
+    private final StagedFeedingIngredientValidator validator;
 
     @KafkaListener(
             topics = FeedIngredientKafkaConfig.STAGING_TOPIC,
             groupId = FeedIngredientKafkaConfig.STAGING_CONSUMER_GROUP,
             containerFactory = "feedIngredientKafkaListenerContainerFactory")
+    @SuppressWarnings("unused")   // called by Kafka via reflection
     public void onEvent(FeedIngredientSubmissionEvent event) {
         if (event == null || event.getSubmissionId() == null
                 || event.getPayloadJson() == null) {
@@ -38,6 +41,7 @@ public class FeedIngredientStagingConsumer {
                     event.getSubmissionId());
             return;
         }
+
         StagedFeedingIngredient staged = StagedFeedingIngredient.builder()
                 .id(event.getSubmissionId())
                 .farmId(event.getFarmId())
@@ -49,13 +53,25 @@ public class FeedIngredientStagingConsumer {
                         ? event.getSubmittedAt() : LocalDateTime.now())
                 .retryCount(0)
                 .build();
+
         try {
-            stagedRepo.save(staged);
+            stagedRepo.saveAndFlush(staged);
             log.info("Staged feeding-ingredient {} persisted", staged.getId());
         } catch (DataIntegrityViolationException e) {
             log.error("Staged feeding-ingredient {} FK violation, routing to DLQ: {}",
                     staged.getId(), e.getMessage());
             throw e;
+        }
+
+        // Trigger immediate processing. This makes the pipeline sub-second
+        // instead of waiting for the cron tick. The cron remains as a safety
+        // net for retries and any rows that failed here transiently.
+        try {
+            validator.processOneImmediately(staged.getId());
+        } catch (Exception e) {
+            // The row is already persisted; the cron will pick it up within 60 s.
+            log.warn("Immediate processing failed for {} — cron will retry: {}",
+                    staged.getId(), e.getMessage());
         }
     }
 }

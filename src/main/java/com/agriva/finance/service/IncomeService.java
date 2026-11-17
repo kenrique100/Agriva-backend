@@ -1,7 +1,8 @@
 package com.agriva.finance.service;
 
 import com.agriva.finance.model.dto.request.IncomeRequest;
-import com.agriva.finance.model.dto.response.IncomeBulkUploadResponse;
+import com.agriva.finance.model.dto.response.BatchStatusResponse;
+import com.agriva.finance.model.dto.response.BatchUploadResponse;
 import com.agriva.finance.model.dto.response.IncomeResponse;
 import com.agriva.finance.model.dto.response.IncomeStagingResponse;
 import com.agriva.finance.model.dto.response.IncomeSubmissionAck;
@@ -17,15 +18,12 @@ public interface IncomeService {
 
     IncomeSubmissionAck submitIncome(IncomeRequest request, UUID farmId, UUID userId, String email);
 
-    IncomeBulkUploadResponse bulkUpload(MultipartFile file, UUID farmId, UUID userId, String email);
+    BatchUploadResponse bulkUpload(MultipartFile file, UUID farmId, UUID userId, String email);
+
+    BatchStatusResponse bulkStatus(UUID batchId, UUID farmId);
 
     Page<IncomeResponse> listIncome(UUID farmId, Pageable pageable);
 
-    /**
-     * Keyset (cursor) pagination. {@code cursor} is null on the first page.
-     * The returned envelope contains {@code nextCursor} — pass it back to get
-     * the next page; when {@code hasNext} is false you are done.
-     */
     CursorPageResponse<IncomeResponse> listIncomeByCursor(UUID farmId, String cursor, int size);
 
     IncomeResponse getIncome(UUID id, UUID farmId);

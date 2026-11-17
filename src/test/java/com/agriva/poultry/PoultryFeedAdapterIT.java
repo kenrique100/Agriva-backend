@@ -54,10 +54,6 @@ class PoultryFeedAdapterIT {
 
     @BeforeEach
     void setUp() {
-        // poultry_mortality_record cascades from batch; batch cascades from
-        // house; house cascades from farm — the farmRepository.deleteAll()
-        // below handles all of them. Explicit ordering keeps the test
-        // readable when a failure leaves state behind.
         batchRepo.deleteAll();
         houseRepo.deleteAll();
         authRepository.deleteAll();
