@@ -20,7 +20,6 @@ public class UpdateUserRequest {
     private String username;
 
     private String role;
-
     private Gender gender;
     private LocalDate dateOfBirth;
     private String phoneNumber;

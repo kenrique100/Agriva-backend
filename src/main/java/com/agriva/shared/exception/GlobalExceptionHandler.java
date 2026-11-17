@@ -16,6 +16,8 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -24,6 +26,7 @@ import java.util.UUID;
 
 @RestControllerAdvice
 @Slf4j
+@SuppressWarnings("unused")
 public class GlobalExceptionHandler {
 
     private static final String MDC_KEY = "requestId";
@@ -32,6 +35,15 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleBusiness(BusinessException ex, WebRequest r) {
         log.warn("Business exception: {}", ex.getMessage());
         return build(HttpStatus.BAD_REQUEST, ex.getMessage(), r);
+    }
+
+    @ExceptionHandler(KafkaUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleKafkaUnavailable(
+            KafkaUnavailableException ex, WebRequest r) {
+        log.warn("Kafka unavailable: {}", ex.getMessage());
+        HttpHeaders h = new HttpHeaders();
+        h.set("Retry-After", "30");
+        return buildWithHeaders(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage(), r, h);
     }
 
     @ExceptionHandler(InvalidCredentialsException.class)
@@ -57,6 +69,17 @@ public class GlobalExceptionHandler {
             SalaryPaymentNotFoundException.class})
     public ResponseEntity<ErrorResponse> handleSubclassNotFound(RuntimeException ex, WebRequest r) {
         return build(HttpStatus.NOT_FOUND, ex.getMessage(), r);
+    }
+
+    @ExceptionHandler(InsufficientPondStockException.class)
+    public ResponseEntity<ErrorResponse> handleInsufficientPondStock(
+            InsufficientPondStockException ex, WebRequest r) {
+        Map<String, String> errors = new HashMap<>();
+        errors.put("species",   ex.getSpecies());
+        errors.put("requested", String.valueOf(ex.getRequested()));
+        errors.put("available", String.valueOf(ex.getAvailable()));
+        log.warn("Insufficient pond stock: {}", ex.getMessage());
+        return buildWithErrors(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), r, errors);
     }
 
     @ExceptionHandler({DuplicateIncomeException.class, DuplicateExpenseException.class,
@@ -135,6 +158,74 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, ex.getMessage(), r);
     }
 
+    @ExceptionHandler(InsufficientPoultryStockException.class)
+    public ResponseEntity<ErrorResponse> handleInsufficientPoultryStock(
+            InsufficientPoultryStockException ex, WebRequest r) {
+        Map<String, String> errors = new HashMap<>();
+        errors.put("batch",     ex.getBatchCode());
+        errors.put("requested", String.valueOf(ex.getRequested()));
+        errors.put("available", String.valueOf(ex.getAvailable()));
+        log.warn("Insufficient poultry stock: {}", ex.getMessage());
+        return buildWithErrors(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), r, errors);
+    }
+
+    @ExceptionHandler(InsufficientIngredientQuantityException.class)
+    public ResponseEntity<ErrorResponse> handleInsufficientIngredient(
+            InsufficientIngredientQuantityException ex, WebRequest r) {
+        Map<String, String> errors = new HashMap<>();
+        errors.put("ingredient", ex.getIngredientName());
+        errors.put("required", ex.getRequired() != null ? ex.getRequired().toPlainString() : "0");
+        errors.put("available", ex.getAvailable() != null ? ex.getAvailable().toPlainString() : "0");
+        errors.put("unit", ex.getUnit());
+        log.warn("Insufficient ingredient: {}", ex.getMessage());
+        return buildWithErrors(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), r, errors);
+    }
+
+    @ExceptionHandler(InsufficientFeedStoreException.class)
+    public ResponseEntity<ErrorResponse> handleInsufficientFeedStore(
+            InsufficientFeedStoreException ex, WebRequest r) {
+        Map<String, String> errors = new HashMap<>();
+        errors.put("requested", ex.getRequested() != null ? ex.getRequested().toPlainString() : "0");
+        errors.put("available", ex.getAvailable() != null ? ex.getAvailable().toPlainString() : "0");
+        errors.put("unit", ex.getUnit());
+        log.warn("Insufficient feed store: {}", ex.getMessage());
+        return buildWithErrors(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), r, errors);
+    }
+
+    @ExceptionHandler(UnregisteredConsumerTypeException.class)
+    public ResponseEntity<ErrorResponse> handleUnregisteredConsumerType(
+            UnregisteredConsumerTypeException ex, WebRequest r) {
+        log.warn("Unregistered consumer type: {}", ex.getConsumerType());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), r);
+    }
+
+    @ExceptionHandler(ConsumerNotFoundInDomainException.class)
+    public ResponseEntity<ErrorResponse> handleConsumerNotFound(
+            ConsumerNotFoundInDomainException ex, WebRequest r) {
+        log.warn("Consumer not found: {}", ex.getMessage());
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), r);
+    }
+
+    @ExceptionHandler(UnsupportedOperationException.class)
+    public ResponseEntity<ErrorResponse> handleUnsupported(UnsupportedOperationException ex, WebRequest r) {
+        log.info("Unsupported operation: {}", ex.getMessage());
+        return build(HttpStatus.NOT_IMPLEMENTED, ex.getMessage(), r);
+    }
+
+    /**
+     * Handles requests that reached Spring MVC but matched no controller.
+     * Without this, {@link NoResourceFoundException} falls into
+     * {@link #handleGeneric} and gets mis-reported as a 500.
+     */
+    @ExceptionHandler({NoResourceFoundException.class, NoHandlerFoundException.class})
+    public ResponseEntity<ErrorResponse> handleNoHandler(
+            Exception ex, WebRequest r, HttpServletRequest request) {
+        log.warn("No handler for {} {}: {}",
+                request.getMethod(), request.getRequestURI(), ex.getMessage());
+        return build(HttpStatus.NOT_FOUND,
+                "No endpoint " + request.getMethod() + " " + request.getRequestURI(), r);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneric(Exception ex, WebRequest r, HttpServletRequest request) {
         String correlationId = MDC.get(MDC_KEY);
@@ -165,5 +256,14 @@ public class GlobalExceptionHandler {
                 LocalDateTime.now(), HttpStatus.BAD_REQUEST.value(), "Validation failed",
                 r.getDescription(false).replace("uri=", ""), requestId, errors);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+    }
+
+    private ResponseEntity<ErrorResponse> buildWithErrors(HttpStatus status, String message,
+                                                          WebRequest r, Map<String, String> errors) {
+        String requestId = MDC.get(MDC_KEY);
+        ErrorResponse body = new ErrorResponse(
+                LocalDateTime.now(), status.value(), message,
+                r.getDescription(false).replace("uri=", ""), requestId, errors);
+        return ResponseEntity.status(status).body(body);
     }
 }

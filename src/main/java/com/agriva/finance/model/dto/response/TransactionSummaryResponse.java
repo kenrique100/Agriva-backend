@@ -16,11 +16,9 @@ public class TransactionSummaryResponse {
     private UUID transactionId;
     private String transactionRef;
     private String status;
-
     private BigDecimal totalIncome;
     private BigDecimal totalExpense;
     private BigDecimal totalInvestment;
-
     private BigDecimal netGain;
     private BigDecimal netLoss;
     private BigDecimal netPosition;

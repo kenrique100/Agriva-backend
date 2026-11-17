@@ -19,7 +19,6 @@ public class UserResponse {
     private String username;
     private String role;
     private UUID farmId;
-
     private Gender gender;
     private LocalDate dateOfBirth;
     private String phoneNumber;
@@ -29,7 +28,6 @@ public class UserResponse {
     private String country;
     private String postalCode;
     private String preferredCurrency;
-
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

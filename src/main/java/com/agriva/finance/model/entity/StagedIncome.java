@@ -2,26 +2,27 @@ package com.agriva.finance.model.entity;
 
 import com.agriva.finance.model.enums.StagedIncomeStatus;
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
 @Table(name = "staged_income")
+@IdClass(StagedIncomeId.class)
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class StagedIncome {
 
-    /** Assigned by the producer as the Kafka submissionId. No @GeneratedValue. */
     @Id
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
+
+    @Id
+    @Column(name = "submitted_at", nullable = false, updatable = false)
+    private LocalDateTime submittedAt;
 
     @Column(name = "farm_id", nullable = false)
     private UUID farmId;
@@ -42,9 +43,6 @@ public class StagedIncome {
     @Column(name = "submitted_by_email", length = 100)
     private String submittedByEmail;
 
-    @Column(name = "submitted_at", nullable = false)
-    private LocalDateTime submittedAt;
-
     @Column(name = "last_attempt_at")
     private LocalDateTime lastAttemptAt;
 
@@ -60,4 +58,8 @@ public class StagedIncome {
     @Column(name = "retry_count", nullable = false)
     @Builder.Default
     private Integer retryCount = 0;
+
+    @Version
+    @Column(nullable = false)
+    private Long version;
 }

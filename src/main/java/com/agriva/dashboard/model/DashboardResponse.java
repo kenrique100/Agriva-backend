@@ -21,14 +21,11 @@ public class DashboardResponse {
 
     private UUID farmId;
     private String farmName;
-
     private UUID userId;
     private String username;
     private String role;
-
     private Totals personal;
     private Totals farm;
-
     private List<UserActivity> users;
     private List<TransactionSummary> transactions;
 
@@ -42,14 +39,14 @@ public class DashboardResponse {
         private Long totalIncomes;
         private Long totalExpenses;
         private Long totalInvestments;
-
         private BigDecimal totalIncome;
         private BigDecimal totalExpense;
         private BigDecimal totalInvestment;
-
         private BigDecimal netGain;
         private BigDecimal netLoss;
         private BigDecimal netPosition;
+        private Boolean mixedCurrency;
+        private String mixedCurrencyReason;
     }
 
     @Data
@@ -76,20 +73,16 @@ public class DashboardResponse {
         private LocalDateTime occurredAt;
         private String status;
         private String notes;
-
         private UUID recordedByUserId;
         private String recordedByUsername;
         private String recordedByRole;
-
         private BigDecimal income;
         private BigDecimal expense;
         private BigDecimal investment;
         private BigDecimal netPosition;
-
         private Integer incomeCount;
         private Integer expenseCount;
         private Integer investmentCount;
-
         private List<IncomeLine> incomeLines;
         private List<ExpenseLine> expenseLines;
         private List<InvestmentLine> investmentLines;

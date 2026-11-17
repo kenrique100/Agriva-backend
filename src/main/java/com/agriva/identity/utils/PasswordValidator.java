@@ -1,22 +1,17 @@
 package com.agriva.identity.utils;
 
 import com.agriva.shared.exception.BusinessException;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
-
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.util.HexFormat;
 
 @Component
+@RequiredArgsConstructor
 @Slf4j
 public class PasswordValidator {
 
-    private static final RestClient HIBP = RestClient.builder()
-            .baseUrl("https://api.pwnedpasswords.com")
-            .build();
+    private final HibpService hibpService;
 
     @Value("${agriva.security.password.min-length:12}")
     private int minLength;
@@ -51,33 +46,10 @@ public class PasswordValidator {
             throw new BusinessException("Password must contain at least one " + list);
         }
 
-        if (checkHibp && isPwned(password)) {
+        if (checkHibp && hibpService.isPwned(password)) {
             throw new BusinessException(
-                    "This password has appeared in a known data breach. Please choose a different one.");
-        }
-    }
-
-    /** HIBP k-anonymity — only the first 5 chars of the SHA-1 leave the JVM. */
-    private boolean isPwned(String password) {
-        try {
-            byte[] hash = MessageDigest.getInstance("SHA-1")
-                    .digest(password.getBytes(StandardCharsets.UTF_8));
-            String sha1   = HexFormat.of().formatHex(hash).toUpperCase();
-            String prefix = sha1.substring(0, 5);
-            String suffix = sha1.substring(5);
-
-            String body = HIBP.get()
-                    .uri("/range/{prefix}", prefix)
-                    .retrieve()
-                    .body(String.class);
-
-            if (body == null) return false;
-            return body.lines()
-                    .map(l -> l.split(":", 2)[0])
-                    .anyMatch(suffix::equals);
-        } catch (Exception e) {
-            log.warn("HIBP check skipped (fail-open): {}", e.getMessage());
-            return false;
+                    "This password has appeared in a known data breach. " +
+                            "Please choose a different one.");
         }
     }
 }

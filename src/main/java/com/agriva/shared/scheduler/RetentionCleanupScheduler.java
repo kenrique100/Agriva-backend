@@ -8,6 +8,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 
 @Component
@@ -30,50 +31,61 @@ public class RetentionCleanupScheduler {
     @Scheduled(cron = "0 30 3 * * *")
     public void daily() {
         lock.runIfLocked("retention-cleanup", Duration.ofMinutes(30), () -> {
-            rollPartitionsForward();
-            dropOldPartitions();
-            pruneIdempotency();
+            List<RuntimeException> failures = new ArrayList<>();
+            rollPartitionsForward(failures);
+            dropOldPartitions(failures);
+            pruneIdempotency(failures);
+
+            if (!failures.isEmpty()) {
+                // Bubble up so @Scheduled turns this into a metric / log alert.
+                throw new IllegalStateException(
+                        "Retention cleanup finished with " + failures.size()
+                                + " failure(s); first: " + failures.get(0).getMessage(),
+                        failures.get(0));
+            }
             return null;
         });
     }
 
-    private void rollPartitionsForward() {
+    private void rollPartitionsForward(List<RuntimeException> failures) {
         for (String table : STAGING_TABLES) {
             try {
-                jdbc.queryForObject(
-                        "SELECT ensure_partitions(?, ?, ?)",
-                        Object.class,
+                jdbc.queryForObject("SELECT ensure_partitions(?, ?, ?)", Object.class,
                         table, CREATE_MONTHS_AHEAD, 0);
-            } catch (Exception e) {
-                log.error("ensure_partitions failed for {}: {}", table, e.getMessage());
+            } catch (RuntimeException e) {
+                log.error("ensure_partitions failed for {}: {}", table, e.getMessage(), e);
+                failures.add(e);
             }
         }
         log.info("Partition roll-forward complete for {} tables", STAGING_TABLES.size());
     }
 
-    private void dropOldPartitions() {
+    private void dropOldPartitions(List<RuntimeException> failures) {
         for (String table : STAGING_TABLES) {
             try {
                 Integer dropped = jdbc.queryForObject(
-                        "SELECT drop_partitions_older_than(?, ?)",
-                        Integer.class, table, KEEP_STAGING_DAYS);
+                        "SELECT drop_partitions_older_than(?, ?)", Integer.class,
+                        table, KEEP_STAGING_DAYS);
                 if (dropped != null && dropped > 0) {
                     log.info("Dropped {} old partition(s) from {}", dropped, table);
                 }
-            } catch (Exception e) {
-                log.error("drop_partitions_older_than failed for {}: {}", table, e.getMessage());
+            } catch (RuntimeException e) {
+                log.error("drop_partitions_older_than failed for {}: {}",
+                        table, e.getMessage(), e);
+                failures.add(e);
             }
         }
     }
 
-    private void pruneIdempotency() {
+    private void pruneIdempotency(List<RuntimeException> failures) {
         try {
             int deleted = jdbc.update(
                     "DELETE FROM consumer_processed_events " +
                             "WHERE processed_at < NOW() - INTERVAL '30 days'");
             if (deleted > 0) log.info("Pruned {} stale idempotency markers", deleted);
-        } catch (Exception e) {
-            log.error("Idempotency prune failed: {}", e.getMessage());
+        } catch (RuntimeException e) {
+            log.error("Idempotency prune failed: {}", e.getMessage(), e);
+            failures.add(e);
         }
     }
 }

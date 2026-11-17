@@ -68,6 +68,7 @@ CREATE TABLE staged_income (
                                processed_at          TIMESTAMP,
                                moved_income_id       UUID,
                                retry_count           INT           NOT NULL DEFAULT 0,
+                               version               BIGINT        NOT NULL DEFAULT 0,
                                PRIMARY KEY (id, submitted_at),
                                CONSTRAINT fk_staged_income_farm
                                    FOREIGN KEY (farm_id) REFERENCES farms (id) ON DELETE CASCADE,
@@ -101,6 +102,7 @@ CREATE TABLE staged_expense (
                                 processed_at          TIMESTAMP,
                                 moved_expense_id      UUID,
                                 retry_count           INT           NOT NULL DEFAULT 0,
+                                version               BIGINT        NOT NULL DEFAULT 0,
                                 PRIMARY KEY (id, submitted_at),
                                 CONSTRAINT fk_staged_expense_farm
                                     FOREIGN KEY (farm_id) REFERENCES farms (id) ON DELETE CASCADE,
@@ -134,6 +136,7 @@ CREATE TABLE staged_task (
                              processed_at          TIMESTAMP,
                              moved_task_id         UUID,
                              retry_count           INT           NOT NULL DEFAULT 0,
+                             version               BIGINT        NOT NULL DEFAULT 0,
                              PRIMARY KEY (id, submitted_at),
                              CONSTRAINT fk_staged_task_farm
                                  FOREIGN KEY (farm_id) REFERENCES farms (id) ON DELETE CASCADE,
@@ -167,6 +170,7 @@ CREATE TABLE staged_salary (
                                processed_at          TIMESTAMP,
                                moved_salary_id       UUID,
                                retry_count           INT           NOT NULL DEFAULT 0,
+                               version               BIGINT        NOT NULL DEFAULT 0,
                                PRIMARY KEY (id, submitted_at),
                                CONSTRAINT fk_staged_salary_farm
                                    FOREIGN KEY (farm_id) REFERENCES farms (id) ON DELETE CASCADE,
@@ -200,6 +204,7 @@ CREATE TABLE staged_crop_cycle (
                                    processed_at          TIMESTAMP,
                                    moved_cycle_id        UUID,
                                    retry_count           INT           NOT NULL DEFAULT 0,
+                                   version               BIGINT        NOT NULL DEFAULT 0,
                                    PRIMARY KEY (id, submitted_at),
                                    CONSTRAINT fk_staged_crop_farm
                                        FOREIGN KEY (farm_id) REFERENCES farms (id) ON DELETE CASCADE,

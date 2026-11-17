@@ -9,21 +9,29 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "staged_salary")
+@IdClass(StagedSalaryId.class)
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class StagedSalary {
+
     @Id
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
+
+    @Id
+    @Column(name = "submitted_at", nullable = false, updatable = false)
+    private LocalDateTime submittedAt;
+
     @Column(name = "farm_id", nullable = false)
     private UUID farmId;
 
     @Column(name = "payload_json", nullable = false, columnDefinition = "TEXT")
     private String payloadJson;
 
-    @Enumerated(EnumType.STRING) @Column(nullable = false, length = 20)
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
     private StagedSalaryStatus status;
 
     @Column(name = "validation_errors", length = 2000)
@@ -34,9 +42,6 @@ public class StagedSalary {
 
     @Column(name = "submitted_by_email", length = 100)
     private String submittedByEmail;
-
-    @Column(name = "submitted_at", nullable = false)
-    private LocalDateTime submittedAt;
 
     @Column(name = "last_attempt_at")
     private LocalDateTime lastAttemptAt;
@@ -50,6 +55,11 @@ public class StagedSalary {
     @Column(name = "moved_salary_id")
     private UUID movedSalaryId;
 
-    @Column(name = "retry_count", nullable = false) @Builder.Default
+    @Column(name = "retry_count", nullable = false)
+    @Builder.Default
     private Integer retryCount = 0;
+
+    @Version
+    @Column(nullable = false)
+    private Long version;
 }

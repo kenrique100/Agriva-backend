@@ -21,7 +21,7 @@ import java.util.UUID;
 @Repository
 public interface InvestmentRepository extends JpaRepository<Investment, UUID> {
 
-    // ---- Live reads ----
+    // Live reads
     @Query("SELECT i FROM Investment i WHERE i.farmId = :farmId AND i.deletedAt IS NULL")
     Page<Investment> findByFarmIdLive(@Param("farmId") UUID farmId, Pageable p);
 
@@ -36,11 +36,11 @@ public interface InvestmentRepository extends JpaRepository<Investment, UUID> {
     @Query("SELECT i FROM Investment i WHERE i.transactionId IN :ids AND i.deletedAt IS NULL")
     List<Investment> findByTransactionIdInLive(@Param("ids") Collection<UUID> ids);
 
-    // ---- Counts ----
+    // Counts
     long countByFarmId(UUID farmId);
     long countByFarmIdAndCreatedByUserId(UUID farmId, UUID userId);
 
-    // ---- Aggregates ----
+    // Aggregates
     @Query("SELECT SUM(i.amount) FROM Investment i WHERE i.farmId = :farmId AND i.deletedAt IS NULL")
     BigDecimal sumAmountByFarmId(@Param("farmId") UUID farmId);
 
@@ -78,7 +78,7 @@ public interface InvestmentRepository extends JpaRepository<Investment, UUID> {
         return v == null ? BigDecimal.ZERO : v;
     }
 
-    // ---- Active investment lookups ----
+    // Active investment lookups
     @Query("SELECT i FROM Investment i WHERE i.farmId = :farmId " +
             "AND i.active = true AND i.deletedAt IS NULL")
     Optional<Investment> findFirstByFarmIdAndActiveTrue(@Param("farmId") UUID farmId);

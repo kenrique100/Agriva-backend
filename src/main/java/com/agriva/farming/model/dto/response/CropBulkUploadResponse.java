@@ -13,6 +13,7 @@ import java.util.List;
 public class CropBulkUploadResponse {
     private int totalRows;
     private int created;
+    private int queued;
     private int failed;
     private List<RowResult> results = new ArrayList<>();
 
@@ -23,6 +24,6 @@ public class CropBulkUploadResponse {
         private int rowNumber;
         private String entityId;
         private String status;
-        private String error;
+        private String message;
     }
 }

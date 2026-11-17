@@ -38,6 +38,22 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@agriva.local}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-agriva-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD?ADMIN_PASSWORD is required}
+
+      # ---- Feature flags (must match the frontend's expectations) ----
+      AGRIVA_FEEDING_INGREDIENTS_ENABLED: "true"
+      AGRIVA_FEEDING_FORMULATION_ENABLED: "true"
+      AGRIVA_FEEDING_PRODUCTION_ENABLED: "true"
+      AGRIVA_FEEDING_CONSUMPTION_ENABLED: "true"
+      AGRIVA_FEEDING_FORECAST_ENABLED: "true"
+      AGRIVA_FEEDING_BULK_ENABLED: "true"
+
+      AGRIVA_POULTRY_ENABLED: "true"
+      AGRIVA_POULTRY_MORTALITY_ENABLED: "true"
+      AGRIVA_POULTRY_WEIGHT_SAMPLES_ENABLED: "true"
+      AGRIVA_POULTRY_EGG_RECORDS_ENABLED: "true"
+      AGRIVA_POULTRY_FCR_ENABLED: "true"
+
+      AGRIVA_FISHERY_ENABLED: "true"
     volumes:
       - agriva-uploads:/app/uploads
     depends_on:
@@ -71,6 +87,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 30s
 
   redis:
     image: redis:8.0-alpine
