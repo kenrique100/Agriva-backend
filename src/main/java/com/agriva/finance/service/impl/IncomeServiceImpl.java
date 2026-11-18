@@ -2,13 +2,12 @@ package com.agriva.finance.service.impl;
 
 import com.agriva.finance.model.dto.request.IncomeRequest;
 import com.agriva.finance.model.dto.request.IncomeSubmissionEvent;
-import com.agriva.finance.model.dto.response.BatchStatusResponse;
-import com.agriva.finance.model.dto.response.BatchUploadResponse;
 import com.agriva.finance.model.dto.response.IncomeResponse;
 import com.agriva.finance.model.dto.response.IncomeStagingResponse;
 import com.agriva.finance.model.dto.response.IncomeSubmissionAck;
-import com.agriva.finance.model.enums.StagedStatus;
-import com.agriva.finance.utils.BatchParsedRow;
+import com.agriva.shared.models.dto.BatchStatusResponse;
+import com.agriva.shared.models.dto.BatchUploadResponse;
+import com.agriva.shared.models.enums.StagedStatus;
 import com.agriva.finance.utils.IncomeExcelParser;
 import com.agriva.shared.exception.DuplicateIncomeException;
 import com.agriva.shared.exception.IncomeNotFoundException;
@@ -24,6 +23,7 @@ import com.agriva.finance.repository.IncomeRepository;
 import com.agriva.finance.repository.StagedIncomeRepository;
 import com.agriva.finance.service.IncomeService;
 import com.agriva.shared.models.ref.UserRef;
+import com.agriva.shared.utils.BatchParsedRow;
 import com.agriva.shared.utils.CursorCodec;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -61,7 +61,6 @@ public class IncomeServiceImpl implements IncomeService {
     @Override
     public IncomeSubmissionAck submitIncome(IncomeRequest request, UUID farmId, UUID userId, String email) {
         UUID submissionId = UUID.randomUUID();
-        // Single-submit: batchId and rowNumber stay null.
         IncomeSubmissionEvent event = new IncomeSubmissionEvent(
                 submissionId, farmId, userId, email, serialize(request),
                 LocalDateTime.now(), null, null);
@@ -254,7 +253,6 @@ public class IncomeServiceImpl implements IncomeService {
     @Transactional(readOnly = true)
     public CursorPageResponse<IncomeResponse> listIncomeByCursor(UUID farmId, String cursor, int size) {
         int cappedSize = Math.clamp(size, 1, 100);
-
         Pageable limit = PageRequest.of(0, cappedSize + 1);
 
         java.time.LocalDate cursorDate = null;

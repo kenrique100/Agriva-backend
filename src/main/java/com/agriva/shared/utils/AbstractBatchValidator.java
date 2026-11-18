@@ -1,4 +1,4 @@
-package com.agriva.finance.utils;
+package com.agriva.shared.utils;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -6,15 +6,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Shared validation rules for income and expense request DTOs. Collects
- * <em>all</em> errors (never short-circuits) because the batch upload response
- * must report every problem for a row in one shot.
- *
- * <p>Labels differ by domain so user-facing messages stay domain-accurate
- * ("Amount paid" for expense vs "Amount received" for income) while the
- * structural rules live here once.
- */
 public abstract class AbstractBatchValidator<R> {
 
     public List<String> validate(R request, UUID farmId) {
@@ -62,12 +53,7 @@ public abstract class AbstractBatchValidator<R> {
                                                LocalDate date,
                                                String reason);
 
-    /** "Amount paid" / "Amount received" — the amount's user-facing label. */
     protected abstract String amountLabel();
-
-    /** "Expense date" / "Income date" — the date's user-facing label. */
     protected abstract String dateLabel();
-
-    /** "expense" / "income" — used in the duplicate-error message. */
     protected abstract String domainLabel();
 }

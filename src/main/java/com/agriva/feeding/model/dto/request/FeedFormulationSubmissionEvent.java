@@ -17,4 +17,6 @@ public class FeedFormulationSubmissionEvent {
     private String submittedByEmail;
     private String payloadJson;
     private LocalDateTime submittedAt;
+    private UUID batchId;
+    private Integer rowNumber;
 }

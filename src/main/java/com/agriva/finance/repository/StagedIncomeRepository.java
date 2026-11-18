@@ -2,7 +2,7 @@ package com.agriva.finance.repository;
 
 import com.agriva.finance.model.entity.StagedIncome;
 import com.agriva.finance.model.entity.StagedIncomeId;
-import com.agriva.finance.model.enums.StagedStatus;
+import com.agriva.shared.models.enums.StagedStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;

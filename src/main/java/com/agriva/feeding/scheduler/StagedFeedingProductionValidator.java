@@ -4,12 +4,12 @@ import com.agriva.feeding.model.dto.request.ProductionRequest;
 import com.agriva.feeding.model.dto.request.ProductionSubmissionPayload;
 import com.agriva.feeding.model.dto.response.FeedBatchResponse;
 import com.agriva.feeding.model.entity.StagedFeedingProduction;
-import com.agriva.feeding.model.enums.StagedFeedingStatus;
 import com.agriva.feeding.repository.FormulationRepository;
 import com.agriva.feeding.repository.StagedFeedingProductionRepository;
 import com.agriva.feeding.service.ProductionService;
 import com.agriva.shared.exception.InsufficientIngredientQuantityException;
 import com.agriva.shared.exception.ResourceNotFoundException;
+import com.agriva.shared.models.enums.StagedStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -47,8 +47,8 @@ public class StagedFeedingProductionValidator {
     public void processStaged() {
         List<StagedFeedingProduction> due = stagedRepo.findDueForProcessing(
                 LocalDateTime.now(),
-                StagedFeedingStatus.PENDING,
-                StagedFeedingStatus.RETRYING,
+                StagedStatus.PENDING,
+                StagedStatus.RETRYING,
                 PageRequest.of(0, batchSize));
         if (due.isEmpty()) return;
         log.info("StagedFeedingProductionValidator: {} row(s) due", due.size());
@@ -80,7 +80,7 @@ public class StagedFeedingProductionValidator {
             FeedBatchResponse created = productionService.produce(
                     req, staged.getFarmId(), staged.getSubmittedByUserId());
 
-            staged.setStatus(StagedFeedingStatus.MOVED);
+            staged.setStatus(StagedStatus.MOVED);
             staged.setMovedBatchId(created.getId());
             staged.setProcessedAt(LocalDateTime.now());
             staged.setNextRetryAt(null);
@@ -102,7 +102,7 @@ public class StagedFeedingProductionValidator {
     private void markFailed(StagedFeedingProduction staged, String msg) {
         staged.setRetryCount((staged.getRetryCount() == null ? 0 : staged.getRetryCount()) + 1);
         staged.setValidationErrors(truncate(msg));
-        staged.setStatus(StagedFeedingStatus.FAILED);
+        staged.setStatus(StagedStatus.FAILED);
         staged.setProcessedAt(LocalDateTime.now());
         staged.setNextRetryAt(null);
         stagedRepo.save(staged);
@@ -113,13 +113,13 @@ public class StagedFeedingProductionValidator {
         staged.setRetryCount(attempt);
         staged.setValidationErrors(truncate(String.join("; ", errors)));
         if (attempt >= maxAttempts) {
-            staged.setStatus(StagedFeedingStatus.FAILED);
+            staged.setStatus(StagedStatus.FAILED);
             staged.setProcessedAt(LocalDateTime.now());
             staged.setNextRetryAt(null);
             log.error("Staged feeding-production {} FAILED after {} attempts: {}",
                     staged.getId(), attempt, errors);
         } else {
-            staged.setStatus(StagedFeedingStatus.RETRYING);
+            staged.setStatus(StagedStatus.RETRYING);
             staged.setNextRetryAt(LocalDateTime.now().plusMinutes(retryDelayMinutes));
             log.warn("Staged feeding-production {} RETRY {}/{} — {}",
                     staged.getId(), attempt, maxAttempts, errors);
@@ -133,8 +133,8 @@ public class StagedFeedingProductionValidator {
     }
 
     private static boolean isDue(StagedFeedingProduction s, LocalDateTime now) {
-        if (s.getStatus() == StagedFeedingStatus.PENDING) return true;
-        if (s.getStatus() != StagedFeedingStatus.RETRYING) return false;
+        if (s.getStatus() == StagedStatus.PENDING) return true;
+        if (s.getStatus() != StagedStatus.RETRYING) return false;
         return s.getNextRetryAt() == null || !s.getNextRetryAt().isAfter(now);
     }
 

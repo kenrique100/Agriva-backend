@@ -2,11 +2,11 @@ package com.agriva.feeding.kafka.consumer;
 
 import com.agriva.feeding.model.dto.request.FeedFeedingSubmissionEvent;
 import com.agriva.feeding.model.entity.StagedFeedingEvent;
-import com.agriva.feeding.model.enums.StagedFeedingStatus;
 import com.agriva.feeding.repository.StagedFeedingEventRepository;
 import com.agriva.feeding.scheduler.StagedFeedingEventValidator;
 import com.agriva.shared.kafka.IdempotencyGuard;
 import com.agriva.shared.kafka.topics.FeedFeedingKafkaConfig;
+import com.agriva.shared.models.enums.StagedStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -45,7 +45,7 @@ public class FeedFeedingStagingConsumer {
                 .id(event.getSubmissionId())
                 .farmId(event.getFarmId())
                 .payloadJson(event.getPayloadJson())
-                .status(StagedFeedingStatus.PENDING)
+                .status(StagedStatus.PENDING)
                 .submittedByUserId(event.getSubmittedByUserId())
                 .submittedByEmail(event.getSubmittedByEmail())
                 .submittedAt(event.getSubmittedAt() != null

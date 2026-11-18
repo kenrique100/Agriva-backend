@@ -4,7 +4,7 @@ import com.agriva.finance.model.dto.request.ExpenseRequest;
 import com.agriva.finance.model.entity.Expense;
 import com.agriva.finance.model.entity.Investment;
 import com.agriva.finance.model.entity.StagedExpense;
-import com.agriva.finance.model.enums.StagedStatus;
+import com.agriva.shared.models.enums.StagedStatus;
 import com.agriva.finance.repository.ExpenseRepository;
 import com.agriva.finance.repository.InvestmentRepository;
 import com.agriva.finance.repository.StagedExpenseRepository;

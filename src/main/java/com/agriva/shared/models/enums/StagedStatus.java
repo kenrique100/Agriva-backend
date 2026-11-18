@@ -1,4 +1,4 @@
-package com.agriva.finance.model.enums;
+package com.agriva.shared.models.enums;
 
 public enum StagedStatus {
     PENDING,

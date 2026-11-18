@@ -2,7 +2,7 @@ package com.agriva.feeding.repository;
 
 import com.agriva.feeding.model.entity.StagedFeedingFormulation;
 import com.agriva.feeding.model.entity.StagedFeedingFormulationId;
-import com.agriva.feeding.model.enums.StagedFeedingStatus;
+import com.agriva.shared.models.enums.StagedStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -22,10 +22,10 @@ public interface StagedFeedingFormulationRepository
     Page<StagedFeedingFormulation> findByFarmId(UUID farmId, Pageable pageable);
 
     Page<StagedFeedingFormulation> findByFarmIdAndStatus(UUID farmId,
-                                                         StagedFeedingStatus status,
+                                                         StagedStatus status,
                                                          Pageable pageable);
 
-    long countByFarmIdAndStatus(UUID farmId, StagedFeedingStatus status);
+    long countByFarmIdAndStatus(UUID farmId, StagedStatus status);
 
     @Query("""
             SELECT s FROM StagedFeedingFormulation s
@@ -36,8 +36,8 @@ public interface StagedFeedingFormulationRepository
             """)
     List<StagedFeedingFormulation> findDueForProcessing(
             @Param("now") LocalDateTime now,
-            @Param("pending") StagedFeedingStatus pending,
-            @Param("retrying") StagedFeedingStatus retrying,
+            @Param("pending") StagedStatus pending,
+            @Param("retrying") StagedStatus retrying,
             Pageable pageable);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

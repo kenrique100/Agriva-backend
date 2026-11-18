@@ -2,6 +2,7 @@ package com.agriva.finance.utils;
 
 import com.agriva.finance.model.dto.request.IncomeRequest;
 import com.agriva.finance.model.enums.IncomeCategory;
+import com.agriva.shared.utils.AbstractExcelBatchParser;
 import com.agriva.shared.utils.ExcelCellReader;
 import org.apache.poi.ss.usermodel.Row;
 import org.springframework.stereotype.Component;

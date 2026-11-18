@@ -1,8 +1,6 @@
 package com.agriva.finance;
 
 import com.agriva.TestcontainersConfiguration;
-import com.agriva.finance.model.dto.response.BatchStatusResponse;
-import com.agriva.finance.model.dto.response.BatchUploadResponse;
 import com.agriva.finance.repository.IncomeRepository;
 import com.agriva.finance.repository.InvestmentRepository;
 import com.agriva.finance.repository.StagedIncomeRepository;
@@ -14,6 +12,8 @@ import com.agriva.identity.models.dto.response.AuthResponse;
 import com.agriva.identity.repository.AuthRepository;
 import com.agriva.identity.service.AuthService;
 import com.agriva.personnel.models.enums.Gender;
+import com.agriva.shared.models.dto.BatchStatusResponse;
+import com.agriva.shared.models.dto.BatchUploadResponse;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;

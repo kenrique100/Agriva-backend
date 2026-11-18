@@ -1,6 +1,6 @@
 package com.agriva.finance.service.impl;
 
-import com.agriva.finance.model.enums.StagedStatus;
+import com.agriva.shared.models.enums.StagedStatus;
 import com.agriva.shared.kafka.IdempotencyGuard;
 import com.agriva.shared.kafka.topics.IncomeKafkaConfig;
 import com.agriva.finance.model.dto.request.IncomeSubmissionEvent;

@@ -1,6 +1,6 @@
 package com.agriva.feeding.model.entity;
 
-import com.agriva.feeding.model.enums.StagedFeedingStatus;
+import com.agriva.shared.models.enums.StagedStatus;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -32,7 +32,7 @@ public class StagedFeedingEvent {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
-    private StagedFeedingStatus status;
+    private StagedStatus status;
 
     @Column(name = "validation_errors", length = 2000)
     private String validationErrors;

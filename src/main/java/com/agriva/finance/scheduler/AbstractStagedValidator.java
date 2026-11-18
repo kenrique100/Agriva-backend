@@ -1,8 +1,8 @@
 package com.agriva.finance.scheduler;
 
-import com.agriva.finance.model.entity.StagedSubmission;
-import com.agriva.finance.model.enums.StagedStatus;
 import com.agriva.shared.lock.DistributedLockService;
+import com.agriva.shared.models.entity.StagedSubmission;
+import com.agriva.shared.models.enums.StagedStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -33,6 +33,7 @@ public abstract class AbstractStagedValidator<S extends StagedSubmission, R> {
     protected abstract int getBatchSize();
     protected abstract int getMaxAttempts();
     protected abstract long getRetryDelayMinutes();
+
     protected abstract String typeName();
     protected abstract String getLockKey();
     protected abstract Class<R> requestType();
@@ -40,8 +41,8 @@ public abstract class AbstractStagedValidator<S extends StagedSubmission, R> {
     protected abstract List<S> fetchDueRows(int batchSize);
     protected abstract S findForUpdate(UUID stagedId);
     protected abstract void saveStaged(S staged);
-    protected abstract PromotionResult promote(S staged, R request);
 
+    protected abstract PromotionResult promote(S staged, R request);
 
     public record PromotionResult(UUID movedId, String terminalError) {
         public static PromotionResult moved(UUID id)          { return new PromotionResult(id, null); }

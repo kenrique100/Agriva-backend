@@ -1,11 +1,11 @@
 package com.agriva.finance.controller;
 
 import com.agriva.finance.model.dto.request.ExpenseRequest;
-import com.agriva.finance.model.dto.response.BatchStatusResponse;
-import com.agriva.finance.model.dto.response.BatchUploadResponse;
 import com.agriva.finance.model.dto.response.ExpenseResponse;
 import com.agriva.finance.model.dto.response.ExpenseStagingResponse;
 import com.agriva.finance.model.dto.response.ExpenseSubmissionAck;
+import com.agriva.shared.models.dto.BatchStatusResponse;
+import com.agriva.shared.models.dto.BatchUploadResponse;
 import com.agriva.shared.models.dto.CursorPageResponse;
 import com.agriva.shared.models.dto.PageResponse;
 import com.agriva.shared.security.AuthenticatedUser;

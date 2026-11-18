@@ -1,25 +1,37 @@
 package com.agriva.feeding.service.impl;
 
+import com.agriva.feeding.kafka.producer.FeedIngredientProducer;
 import com.agriva.feeding.mapper.IngredientMapper;
+import com.agriva.feeding.model.dto.request.FeedIngredientSubmissionEvent;
 import com.agriva.feeding.model.dto.request.IngredientRequest;
 import com.agriva.feeding.model.dto.request.IngredientStockReplenishRequest;
+import com.agriva.feeding.model.dto.request.IngredientSubmissionPayload;
 import com.agriva.feeding.model.dto.response.IngredientResponse;
 import com.agriva.feeding.model.entity.Ingredient;
 import com.agriva.feeding.model.entity.IngredientStock;
+import com.agriva.feeding.model.entity.StagedFeedingIngredient;
 import com.agriva.feeding.repository.IngredientRepository;
 import com.agriva.feeding.repository.IngredientStockRepository;
+import com.agriva.feeding.repository.StagedFeedingIngredientRepository;
 import com.agriva.feeding.service.IngredientService;
+import com.agriva.feeding.utils.IngredientExcelParser;
 import com.agriva.shared.exception.BusinessException;
 import com.agriva.shared.exception.ResourceNotFoundException;
+import com.agriva.shared.models.dto.BatchStatusResponse;
+import com.agriva.shared.models.dto.BatchUploadResponse;
+import com.agriva.shared.utils.BatchParsedRow;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -32,7 +44,11 @@ public class IngredientServiceImpl implements IngredientService {
 
     private final IngredientRepository ingredientRepository;
     private final IngredientStockRepository stockRepository;
+    private final StagedFeedingIngredientRepository stagedRepo;
     private final IngredientMapper mapper;
+    private final IngredientExcelParser excelParser;
+    private final FeedIngredientProducer producer;
+    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional
@@ -65,7 +81,6 @@ public class IngredientServiceImpl implements IngredientService {
             return page.map(i -> mapper.toResponse(i, null));
         }
 
-        // Batch-fetch all stocks in ONE query rather than one-per-row.
         List<UUID> ids = page.map(Ingredient::getId).getContent();
         Map<UUID, IngredientStock> stockById = stockRepository.findAllByFarmId(farmId)
                 .stream()
@@ -132,6 +147,95 @@ public class IngredientServiceImpl implements IngredientService {
         ingredient.setDeletedAt(LocalDateTime.now());
         ingredientRepository.save(ingredient);
         log.info("Soft-deleted ingredient {} from farm {}", id, farmId);
+    }
+
+    @Override
+    public BatchUploadResponse bulkUpload(MultipartFile file, UUID farmId,
+                                          UUID userId, String email) {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Excel file is required");
+        }
+
+        List<BatchParsedRow<IngredientSubmissionPayload>> rows;
+        try {
+            rows = excelParser.parse(file.getInputStream());
+        } catch (Exception e) {
+            throw new IllegalArgumentException(
+                    "Failed to read Excel file: " + e.getMessage(), e);
+        }
+
+        UUID batchId = UUID.randomUUID();
+        BatchUploadResponse response = new BatchUploadResponse();
+        response.setBatchId(batchId);
+        response.setTotalRows(rows.size());
+
+        for (BatchParsedRow<IngredientSubmissionPayload> row : rows) {
+            if (row.isError()) {
+                response.setFailed(response.getFailed() + 1);
+                response.getResults().add(new BatchUploadResponse.RowResult(
+                        row.rowNumber(), null, "FAILED", row.error()));
+                continue;
+            }
+
+            UUID submissionId = UUID.randomUUID();
+            producer.publish(new FeedIngredientSubmissionEvent(
+                    submissionId, farmId, userId, email,
+                    serialize(row.request()), LocalDateTime.now(),
+                    batchId, row.rowNumber()));
+
+            response.setQueued(response.getQueued() + 1);
+            response.getResults().add(new BatchUploadResponse.RowResult(
+                    row.rowNumber(), submissionId, "QUEUED", null));
+        }
+
+        log.info("Bulk ingredient upload {} for farm {}: total={}, queued={}, failed={}",
+                batchId, farmId, response.getTotalRows(),
+                response.getQueued(), response.getFailed());
+        return response;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public BatchStatusResponse bulkStatus(UUID batchId, UUID farmId) {
+        List<StagedFeedingIngredient> staged =
+                stagedRepo.findByFarmIdAndBatchIdOrderByRowNumberAsc(farmId, batchId);
+
+        if (staged.isEmpty()) {
+            throw new ResourceNotFoundException("Batch not found: " + batchId);
+        }
+
+        int pending = 0, moved = 0, failed = 0;
+        List<BatchStatusResponse.FailedRow> failedRows = new ArrayList<>();
+
+        for (StagedFeedingIngredient s : staged) {
+            switch (s.getStatus()) {
+                case PENDING, RETRYING -> pending++;
+                case MOVED  -> moved++;
+                case FAILED -> {
+                    failed++;
+                    failedRows.add(new BatchStatusResponse.FailedRow(
+                            s.getRowNumber(), s.getId(), s.getValidationErrors()));
+                }
+            }
+        }
+
+        return BatchStatusResponse.builder()
+                .batchId(batchId)
+                .total(staged.size())
+                .pending(pending)
+                .moved(moved)
+                .failed(failed)
+                .failedRows(failedRows.isEmpty() ? null : failedRows)
+                .build();
+    }
+
+    private String serialize(Object o) {
+        try {
+            return objectMapper.writeValueAsString(o);
+        } catch (Exception e) {
+            throw new IllegalArgumentException(
+                    "Failed to serialize ingredient payload", e);
+        }
     }
 
     private Ingredient loadIngredient(UUID id, UUID farmId) {

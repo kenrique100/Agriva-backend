@@ -2,7 +2,7 @@ package com.agriva.feeding.repository;
 
 import com.agriva.feeding.model.entity.StagedFeedingIngredient;
 import com.agriva.feeding.model.entity.StagedFeedingIngredientId;
-import com.agriva.feeding.model.enums.StagedFeedingStatus;
+import com.agriva.shared.models.enums.StagedStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -22,10 +22,20 @@ public interface StagedFeedingIngredientRepository
     Page<StagedFeedingIngredient> findByFarmId(UUID farmId, Pageable pageable);
 
     Page<StagedFeedingIngredient> findByFarmIdAndStatus(UUID farmId,
-                                                        StagedFeedingStatus status,
+                                                        StagedStatus status,
                                                         Pageable pageable);
 
-    long countByFarmIdAndStatus(UUID farmId, StagedFeedingStatus status);
+    long countByFarmIdAndStatus(UUID farmId, StagedStatus status);
+
+    @Query("""
+            SELECT s FROM StagedFeedingIngredient s
+            WHERE s.farmId = :farmId
+              AND s.batchId = :batchId
+            ORDER BY s.rowNumber ASC, s.submittedAt ASC
+            """)
+    List<StagedFeedingIngredient> findByFarmIdAndBatchIdOrderByRowNumberAsc(
+            @Param("farmId") UUID farmId,
+            @Param("batchId") UUID batchId);
 
     @Query("""
             SELECT s FROM StagedFeedingIngredient s
@@ -36,13 +46,20 @@ public interface StagedFeedingIngredientRepository
             """)
     List<StagedFeedingIngredient> findDueForProcessing(
             @Param("now") LocalDateTime now,
-            @Param("pending") StagedFeedingStatus pending,
-            @Param("retrying") StagedFeedingStatus retrying,
+            @Param("pending") StagedStatus pending,
+            @Param("retrying") StagedStatus retrying,
             Pageable pageable);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT s FROM StagedFeedingIngredient s WHERE s.id = :id")
     Optional<StagedFeedingIngredient> findByIdForUpdate(@Param("id") UUID id);
+
+    @Query("SELECT s FROM StagedFeedingIngredient s WHERE s.id = :id ORDER BY s.submittedAt DESC")
+    List<StagedFeedingIngredient> findAllByEventId(@Param("id") UUID id);
+
+    default Optional<StagedFeedingIngredient> findByIdOnly(UUID id) {
+        return findAllByEventId(id).stream().findFirst();
+    }
 
     @Modifying
     @Query("DELETE FROM StagedFeedingIngredient s WHERE s.farmId = :farmId")

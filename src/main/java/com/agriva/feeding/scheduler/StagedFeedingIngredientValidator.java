@@ -5,10 +5,11 @@ import com.agriva.feeding.model.dto.request.IngredientStockReplenishRequest;
 import com.agriva.feeding.model.dto.request.IngredientSubmissionPayload;
 import com.agriva.feeding.model.dto.response.IngredientResponse;
 import com.agriva.feeding.model.entity.StagedFeedingIngredient;
-import com.agriva.feeding.model.enums.StagedFeedingStatus;
 import com.agriva.feeding.repository.StagedFeedingIngredientRepository;
 import com.agriva.feeding.service.IngredientService;
 import com.agriva.shared.exception.BusinessException;
+import com.agriva.shared.lock.DistributedLockService;
+import com.agriva.shared.models.enums.StagedStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,6 +20,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -29,11 +31,14 @@ import java.util.UUID;
 public class StagedFeedingIngredientValidator {
 
     private static final int ERROR_FIELD_LIMIT = 1990;
+    private static final String LOCK_KEY = "staged-feeding-ingredient-validator";
+    private static final Duration LOCK_TIMEOUT = Duration.ofSeconds(55);
 
     private final StagedFeedingIngredientRepository stagedRepo;
     private final IngredientService ingredientService;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate txTemplate;
+    private final DistributedLockService lock;
 
     @Value("${agriva.feeding.ingredient.validator.batch-size:100}")
     private int batchSize;
@@ -44,31 +49,38 @@ public class StagedFeedingIngredientValidator {
 
     @Scheduled(cron = "${agriva.feeding.ingredient.validator.cron:0 * * * * *}")
     public void processStaged() {
-        List<StagedFeedingIngredient> due = stagedRepo.findDueForProcessing(
-                LocalDateTime.now(),
-                StagedFeedingStatus.PENDING,
-                StagedFeedingStatus.RETRYING,
-                PageRequest.of(0, batchSize));
-        if (due.isEmpty()) return;
-        log.info("StagedFeedingIngredientValidator: {} row(s) due", due.size());
-        for (StagedFeedingIngredient s : due) {
-            final UUID id = s.getId();
-            txTemplate.execute(status -> { processOne(id); return null; });
-        }
+        lock.runIfLocked(LOCK_KEY, LOCK_TIMEOUT, () -> {
+            List<StagedFeedingIngredient> due = stagedRepo.findDueForProcessing(
+                    LocalDateTime.now(),
+                    StagedStatus.PENDING,
+                    StagedStatus.RETRYING,
+                    PageRequest.of(0, batchSize));
+            if (due.isEmpty()) return null;
+
+            log.info("StagedFeedingIngredientValidator: {} row(s) due", due.size());
+
+            for (StagedFeedingIngredient s : due) {
+                final UUID id = s.getId();
+                txTemplate.execute(status -> {
+                    processOne(id);
+                    return null;
+                });
+            }
+            return null;
+        });
     }
 
-    /**
-     * Public entry point used by the Kafka consumer to bypass the 60 s cron
-     * window. Wraps processOne in its own transaction so it is safe to call
-     * from a non-transactional listener.
-     */
     public void processOneImmediately(UUID id) {
-        txTemplate.execute(status -> { processOne(id); return null; });
+        txTemplate.execute(status -> {
+            processOne(id);
+            return null;
+        });
     }
 
     private void processOne(UUID id) {
         StagedFeedingIngredient staged = stagedRepo.findByIdForUpdate(id).orElse(null);
         if (staged == null || !isDue(staged, LocalDateTime.now())) return;
+
         staged.setLastAttemptAt(LocalDateTime.now());
         try {
             IngredientSubmissionPayload payload = objectMapper.readValue(
@@ -93,7 +105,7 @@ public class StagedFeedingIngredientValidator {
                         created.getId(), rep, staged.getFarmId(), staged.getSubmittedByUserId());
             }
 
-            staged.setStatus(StagedFeedingStatus.MOVED);
+            staged.setStatus(StagedStatus.MOVED);
             staged.setMovedIngredientId(created.getId());
             staged.setProcessedAt(LocalDateTime.now());
             staged.setNextRetryAt(null);
@@ -102,34 +114,37 @@ public class StagedFeedingIngredientValidator {
             log.info("Staged feeding-ingredient {} MOVED -> ingredient {}",
                     staged.getId(), created.getId());
         } catch (BusinessException e) {
-            markFailed(staged, e.getMessage());
+            markTerminal(staged, e.getMessage());
         } catch (Exception e) {
-            log.error("Staged feeding-ingredient {} threw: {}", staged.getId(), e.getMessage(), e);
+            log.error("Staged feeding-ingredient {} threw: {}",
+                    staged.getId(), e.getMessage(), e);
             onFailure(staged, List.of("Processing error: " + e.getMessage()));
         }
     }
 
-    private void markFailed(StagedFeedingIngredient staged, String msg) {
-        staged.setRetryCount((staged.getRetryCount() == null ? 0 : staged.getRetryCount()) + 1);
+    private void markTerminal(StagedFeedingIngredient staged, String msg) {
         staged.setValidationErrors(truncate(msg));
-        staged.setStatus(StagedFeedingStatus.FAILED);
+        staged.setStatus(StagedStatus.FAILED);
         staged.setProcessedAt(LocalDateTime.now());
         staged.setNextRetryAt(null);
         stagedRepo.save(staged);
+        log.warn("Staged feeding-ingredient {} FAILED (terminal): {}",
+                staged.getId(), msg);
     }
 
     private void onFailure(StagedFeedingIngredient staged, List<String> errors) {
         int attempt = (staged.getRetryCount() == null ? 0 : staged.getRetryCount()) + 1;
         staged.setRetryCount(attempt);
         staged.setValidationErrors(truncate(String.join("; ", errors)));
+
         if (attempt >= maxAttempts) {
-            staged.setStatus(StagedFeedingStatus.FAILED);
+            staged.setStatus(StagedStatus.FAILED);
             staged.setProcessedAt(LocalDateTime.now());
             staged.setNextRetryAt(null);
-            log.error("Staged feeding-ingredient {} FAILED after {} attempts: {}",
+            log.error("Staged feeding-ingredient {} FAILED after {} attempt(s): {}",
                     staged.getId(), attempt, errors);
         } else {
-            staged.setStatus(StagedFeedingStatus.RETRYING);
+            staged.setStatus(StagedStatus.RETRYING);
             staged.setNextRetryAt(LocalDateTime.now().plusMinutes(retryDelayMinutes));
             log.warn("Staged feeding-ingredient {} RETRY {}/{} — {}",
                     staged.getId(), attempt, maxAttempts, errors);
@@ -143,8 +158,8 @@ public class StagedFeedingIngredientValidator {
     }
 
     private static boolean isDue(StagedFeedingIngredient s, LocalDateTime now) {
-        if (s.getStatus() == StagedFeedingStatus.PENDING) return true;
-        if (s.getStatus() != StagedFeedingStatus.RETRYING) return false;
+        if (s.getStatus() == StagedStatus.PENDING) return true;
+        if (s.getStatus() != StagedStatus.RETRYING) return false;
         return s.getNextRetryAt() == null || !s.getNextRetryAt().isAfter(now);
     }
 }

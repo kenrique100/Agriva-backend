@@ -1,4 +1,4 @@
-package com.agriva.finance.model.dto.response;
+package com.agriva.shared.models.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

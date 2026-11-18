@@ -2,13 +2,12 @@ package com.agriva.finance.service.impl;
 
 import com.agriva.finance.model.dto.request.ExpenseRequest;
 import com.agriva.finance.model.dto.request.ExpenseSubmissionEvent;
-import com.agriva.finance.model.dto.response.BatchStatusResponse;
-import com.agriva.finance.model.dto.response.BatchUploadResponse;
 import com.agriva.finance.model.dto.response.ExpenseResponse;
 import com.agriva.finance.model.dto.response.ExpenseStagingResponse;
 import com.agriva.finance.model.dto.response.ExpenseSubmissionAck;
-import com.agriva.finance.model.enums.StagedStatus;
-import com.agriva.finance.utils.BatchParsedRow;
+import com.agriva.shared.models.dto.BatchStatusResponse;
+import com.agriva.shared.models.dto.BatchUploadResponse;
+import com.agriva.shared.models.enums.StagedStatus;
 import com.agriva.shared.exception.DuplicateExpenseException;
 import com.agriva.shared.exception.ExpenseNotFoundException;
 import com.agriva.shared.exception.InvestmentLimitExceededException;
@@ -27,6 +26,7 @@ import com.agriva.finance.repository.InvestmentRepository;
 import com.agriva.finance.repository.StagedExpenseRepository;
 import com.agriva.finance.service.ExpenseService;
 import com.agriva.shared.models.ref.UserRef;
+import com.agriva.shared.utils.BatchParsedRow;
 import com.agriva.shared.utils.CursorCodec;
 import com.agriva.finance.utils.ExpenseExcelParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -68,7 +68,6 @@ public class ExpenseServiceImpl implements ExpenseService {
     public ExpenseSubmissionAck submitExpense(ExpenseRequest request, UUID farmId,
                                               UUID userId, String email) {
         UUID submissionId = UUID.randomUUID();
-        // Single-submit: batchId and rowNumber stay null — see endpoint contract.
         ExpenseSubmissionEvent event = new ExpenseSubmissionEvent(
                 submissionId, farmId, userId, email, serialize(request),
                 LocalDateTime.now(), null, null);
@@ -128,8 +127,7 @@ public class ExpenseServiceImpl implements ExpenseService {
                 stagedRepo.findByFarmIdAndBatchIdOrderByRowNumberAsc(farmId, batchId);
 
         if (staged.isEmpty()) {
-            throw new ResourceNotFoundException(
-                    "Batch not found: " + batchId);
+            throw new ResourceNotFoundException("Batch not found: " + batchId);
         }
 
         int pending = 0, moved = 0, failed = 0;
@@ -317,7 +315,6 @@ public class ExpenseServiceImpl implements ExpenseService {
     @Transactional(readOnly = true)
     public CursorPageResponse<ExpenseResponse> listExpensesByCursor(UUID farmId, String cursor, int size) {
         int cappedSize = Math.clamp(size, 1, 100);
-
         Pageable limit = PageRequest.of(0, cappedSize + 1);
 
         java.time.LocalDate cursorDate = null;

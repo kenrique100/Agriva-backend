@@ -1,8 +1,7 @@
-package com.agriva.finance.utils;
+package com.agriva.shared.utils;
 
 import com.agriva.shared.exception.ExcelProcessingException;
 import com.agriva.shared.models.enums.Currency;
-import com.agriva.shared.utils.ExcelCellReader;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.DataFormatter;
@@ -22,19 +21,13 @@ public abstract class AbstractExcelBatchParser<R> {
 
     protected static final int HEADER_ROW = 0;
 
-    /** Request DTO class this parser produces (used only for logging). */
+    /** Payload type this parser produces (used only for logging). */
     protected abstract Class<R> requestType();
 
-    /**
-     * Headers (lowercased, whitespace-trimmed) that must be present in the
-     * file. Example: {@code List.of("reason", "expensedate", "amountpaid")}.
-     */
+    /** Headers (lowercased, whitespace-trimmed) that must be present. */
     protected abstract List<String> requiredHeaders();
 
-    /**
-     * Map a single data row into the domain request DTO. The {@code colMap}
-     * keys are the lowercased header names.
-     */
+    /** Map a single data row into the domain payload. */
     protected abstract R mapRow(Row row, Map<String, Integer> colMap);
 
     public List<BatchParsedRow<R>> parse(InputStream in) {
@@ -76,14 +69,12 @@ public abstract class AbstractExcelBatchParser<R> {
         return rows;
     }
 
-    /** Safely fetch a cell by header key. Returns {@code null} if the column is absent. */
     protected Cell getCell(Row row, Map<String, Integer> colMap, String key) {
         Integer idx = colMap.get(key);
         if (idx == null || idx < 0) return null;
         return row.getCell(idx);
     }
 
-    /** Currencies default to XAF for every batch domain in this codebase. */
     protected Currency parseCurrency(String s) {
         if (s == null || s.isBlank()) return Currency.XAF;
         try { return Currency.valueOf(s.trim().toUpperCase()); }

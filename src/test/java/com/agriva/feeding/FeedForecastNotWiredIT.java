@@ -34,17 +34,6 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Verifies that WITHOUT a wired-in FeedDemandForecaster, POST /feed/forecasts
- * returns 501 (UnsupportedOperationException).
- * <p>
- * This class runs on the shared Spring test context (same Postgres container
- * as FeedConsumptionIT / FeedFormulationIT / FeedProductionIT / Fishery*), so
- * its {@code @BeforeEach} must clean every feeding + fishery table in
- * FK-dependency order — otherwise {@code farmRepository.deleteAll()} is blocked
- * by the ON DELETE RESTRICT FK from {@code formulation_line} to
- * {@code ingredient}, producing the "could not execute batch" failure.
- */
 @SpringBootTest
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)

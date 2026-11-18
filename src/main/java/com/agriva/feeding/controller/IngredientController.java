@@ -4,6 +4,8 @@ import com.agriva.feeding.model.dto.request.IngredientRequest;
 import com.agriva.feeding.model.dto.request.IngredientStockReplenishRequest;
 import com.agriva.feeding.model.dto.response.IngredientResponse;
 import com.agriva.feeding.service.IngredientService;
+import com.agriva.shared.models.dto.BatchStatusResponse;
+import com.agriva.shared.models.dto.BatchUploadResponse;
 import com.agriva.shared.models.dto.PageResponse;
 import com.agriva.shared.security.AuthenticatedUser;
 import jakarta.validation.Valid;
@@ -12,10 +14,12 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.UUID;
 
@@ -77,5 +81,24 @@ public class IngredientController {
         if (u == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         ingredientService.softDelete(id, u.farmId());
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping(value = "/bulk", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<BatchUploadResponse> bulkUpload(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @RequestPart("file") MultipartFile file) {
+        if (u == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        return ResponseEntity.accepted().body(ingredientService.bulkUpload(
+                file, u.farmId(), u.userId(), u.email()));
+    }
+
+    @GetMapping("/bulk/{batchId}")
+    public ResponseEntity<BatchStatusResponse> bulkStatus(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID batchId) {
+        if (u == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        return ResponseEntity.ok(ingredientService.bulkStatus(batchId, u.farmId()));
     }
 }

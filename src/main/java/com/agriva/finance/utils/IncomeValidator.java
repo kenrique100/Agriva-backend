@@ -2,6 +2,7 @@ package com.agriva.finance.utils;
 
 import com.agriva.finance.model.dto.request.IncomeRequest;
 import com.agriva.finance.repository.IncomeRepository;
+import com.agriva.shared.utils.AbstractBatchValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 

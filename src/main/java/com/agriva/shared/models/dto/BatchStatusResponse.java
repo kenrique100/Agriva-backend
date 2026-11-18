@@ -1,4 +1,4 @@
-package com.agriva.finance.model.dto.response;
+package com.agriva.shared.models.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;

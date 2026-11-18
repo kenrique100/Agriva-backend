@@ -4,10 +4,10 @@ import com.agriva.feeding.kafka.producer.*;
 import com.agriva.feeding.model.dto.request.*;
 import com.agriva.feeding.model.dto.response.*;
 import com.agriva.feeding.model.entity.*;
-import com.agriva.feeding.model.enums.StagedFeedingStatus;
 import com.agriva.feeding.repository.*;
 import com.agriva.feeding.service.FeedBulkService;
 import com.agriva.feeding.utils.*;
+import com.agriva.shared.models.enums.StagedStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -63,7 +63,8 @@ public class FeedBulkServiceImpl implements FeedBulkService {
             try {
                 ingredientProducer.publish(new FeedIngredientSubmissionEvent(
                         submissionId, farmId, userId, email,
-                        objectMapper.writeValueAsString(row.payload()), LocalDateTime.now()));
+                        objectMapper.writeValueAsString(row.payload()),
+                        LocalDateTime.now(), null, row.rowNumber()));
                 resp.setQueued(resp.getQueued() + 1);
                 resp.getResults().add(new FeedBulkUploadResponse.RowResult(
                         row.rowNumber(), submissionId, "QUEUED", null));
@@ -96,7 +97,8 @@ public class FeedBulkServiceImpl implements FeedBulkService {
             try {
                 formulationProducer.publish(new FeedFormulationSubmissionEvent(
                         submissionId, farmId, userId, email,
-                        objectMapper.writeValueAsString(row.payload()), LocalDateTime.now()));
+                        objectMapper.writeValueAsString(row.payload()),
+                        LocalDateTime.now(), null, row.rowNumber()));
                 resp.setQueued(resp.getQueued() + 1);
                 resp.getResults().add(new FeedBulkUploadResponse.RowResult(
                         row.rowNumber(), submissionId, "QUEUED", null));
@@ -127,7 +129,8 @@ public class FeedBulkServiceImpl implements FeedBulkService {
             try {
                 productionProducer.publish(new FeedProductionSubmissionEvent(
                         submissionId, farmId, userId, email,
-                        objectMapper.writeValueAsString(row.payload()), LocalDateTime.now()));
+                        objectMapper.writeValueAsString(row.payload()),
+                        LocalDateTime.now(), null, row.rowNumber()));
                 resp.setQueued(resp.getQueued() + 1);
                 resp.getResults().add(new FeedBulkUploadResponse.RowResult(
                         row.rowNumber(), submissionId, "QUEUED", null));
@@ -158,7 +161,8 @@ public class FeedBulkServiceImpl implements FeedBulkService {
             try {
                 feedingProducer.publish(new FeedFeedingSubmissionEvent(
                         submissionId, farmId, userId, email,
-                        objectMapper.writeValueAsString(row.payload()), LocalDateTime.now()));
+                        objectMapper.writeValueAsString(row.payload()),
+                        LocalDateTime.now(), null, row.rowNumber()));
                 resp.setQueued(resp.getQueued() + 1);
                 resp.getResults().add(new FeedBulkUploadResponse.RowResult(
                         row.rowNumber(), submissionId, "QUEUED", null));
@@ -178,7 +182,7 @@ public class FeedBulkServiceImpl implements FeedBulkService {
         var page = (status == null || status.isBlank())
                 ? stagedIngredientRepo.findByFarmId(farmId, pageable)
                 : stagedIngredientRepo.findByFarmIdAndStatus(
-                farmId, StagedFeedingStatus.valueOf(status.toUpperCase()), pageable);
+                farmId, StagedStatus.valueOf(status.toUpperCase()), pageable);
         return page.map(this::toIngredientResp);
     }
 
@@ -189,7 +193,7 @@ public class FeedBulkServiceImpl implements FeedBulkService {
         var page = (status == null || status.isBlank())
                 ? stagedFormulationRepo.findByFarmId(farmId, pageable)
                 : stagedFormulationRepo.findByFarmIdAndStatus(
-                farmId, StagedFeedingStatus.valueOf(status.toUpperCase()), pageable);
+                farmId, StagedStatus.valueOf(status.toUpperCase()), pageable);
         return page.map(this::toFormulationResp);
     }
 
@@ -200,7 +204,7 @@ public class FeedBulkServiceImpl implements FeedBulkService {
         var page = (status == null || status.isBlank())
                 ? stagedProductionRepo.findByFarmId(farmId, pageable)
                 : stagedProductionRepo.findByFarmIdAndStatus(
-                farmId, StagedFeedingStatus.valueOf(status.toUpperCase()), pageable);
+                farmId, StagedStatus.valueOf(status.toUpperCase()), pageable);
         return page.map(this::toProductionResp);
     }
 
@@ -211,7 +215,7 @@ public class FeedBulkServiceImpl implements FeedBulkService {
         var page = (status == null || status.isBlank())
                 ? stagedEventRepo.findByFarmId(farmId, pageable)
                 : stagedEventRepo.findByFarmIdAndStatus(
-                farmId, StagedFeedingStatus.valueOf(status.toUpperCase()), pageable);
+                farmId, StagedStatus.valueOf(status.toUpperCase()), pageable);
         return page.map(this::toEventResp);
     }
 
@@ -233,25 +237,25 @@ public class FeedBulkServiceImpl implements FeedBulkService {
 
     private Map<String, Long> stats(StagedFeedingIngredientRepository r, UUID farmId) {
         Map<String, Long> out = new LinkedHashMap<>();
-        for (var s : StagedFeedingStatus.values())
+        for (var s : StagedStatus.values())
             out.put(s.name(), r.countByFarmIdAndStatus(farmId, s));
         return out;
     }
     private Map<String, Long> stats(StagedFeedingFormulationRepository r, UUID farmId) {
         Map<String, Long> out = new LinkedHashMap<>();
-        for (var s : StagedFeedingStatus.values())
+        for (var s : StagedStatus.values())
             out.put(s.name(), r.countByFarmIdAndStatus(farmId, s));
         return out;
     }
     private Map<String, Long> stats(StagedFeedingProductionRepository r, UUID farmId) {
         Map<String, Long> out = new LinkedHashMap<>();
-        for (var s : StagedFeedingStatus.values())
+        for (var s : StagedStatus.values())
             out.put(s.name(), r.countByFarmIdAndStatus(farmId, s));
         return out;
     }
     private Map<String, Long> stats(StagedFeedingEventRepository r, UUID farmId) {
         Map<String, Long> out = new LinkedHashMap<>();
-        for (var s : StagedFeedingStatus.values())
+        for (var s : StagedStatus.values())
             out.put(s.name(), r.countByFarmIdAndStatus(farmId, s));
         return out;
     }

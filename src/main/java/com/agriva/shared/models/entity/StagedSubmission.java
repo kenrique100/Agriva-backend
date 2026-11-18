@@ -1,6 +1,6 @@
-package com.agriva.finance.model.entity;
+package com.agriva.shared.models.entity;
 
-import com.agriva.finance.model.enums.StagedStatus;
+import com.agriva.shared.models.enums.StagedStatus;
 
 import java.time.LocalDateTime;
 import java.util.UUID;

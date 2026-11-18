@@ -1,11 +1,11 @@
 package com.agriva.finance.service;
 
 import com.agriva.finance.model.dto.request.IncomeRequest;
-import com.agriva.finance.model.dto.response.BatchStatusResponse;
-import com.agriva.finance.model.dto.response.BatchUploadResponse;
 import com.agriva.finance.model.dto.response.IncomeResponse;
 import com.agriva.finance.model.dto.response.IncomeStagingResponse;
 import com.agriva.finance.model.dto.response.IncomeSubmissionAck;
+import com.agriva.shared.models.dto.BatchStatusResponse;
+import com.agriva.shared.models.dto.BatchUploadResponse;
 import com.agriva.shared.models.dto.CursorPageResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;

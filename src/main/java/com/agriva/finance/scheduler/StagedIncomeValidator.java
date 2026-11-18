@@ -3,7 +3,7 @@ package com.agriva.finance.scheduler;
 import com.agriva.finance.model.dto.request.IncomeRequest;
 import com.agriva.finance.model.entity.Income;
 import com.agriva.finance.model.entity.StagedIncome;
-import com.agriva.finance.model.enums.StagedStatus;
+import com.agriva.shared.models.enums.StagedStatus;
 import com.agriva.finance.repository.IncomeRepository;
 import com.agriva.finance.repository.StagedIncomeRepository;
 import com.agriva.finance.utils.IncomeValidator;

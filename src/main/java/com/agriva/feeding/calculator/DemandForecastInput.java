@@ -9,7 +9,7 @@ public record DemandForecastInput(
         long numberOfHead,
         BigDecimal initialWeightKg,
         BigDecimal targetWeightKg,
-        BigDecimal waterTemperatureC,   // nullable for non-aquatic species
-        BigDecimal targetCpValue,       // nullable
-        UUID formulaTemplateId          // nullable; user's calculator decides whether to use it
+        BigDecimal waterTemperatureC,
+        BigDecimal targetCpValue,
+        UUID formulaTemplateId
 ) {}

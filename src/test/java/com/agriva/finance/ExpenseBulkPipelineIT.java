@@ -2,9 +2,6 @@ package com.agriva.finance;
 
 import com.agriva.TestcontainersConfiguration;
 import com.agriva.finance.model.dto.request.InvestmentRequest;
-import com.agriva.finance.model.dto.response.BatchStatusResponse;
-import com.agriva.finance.model.dto.response.BatchUploadResponse;
-import com.agriva.finance.model.entity.StagedExpense;
 import com.agriva.finance.repository.ExpenseRepository;
 import com.agriva.finance.repository.InvestmentRepository;
 import com.agriva.finance.repository.StagedExpenseRepository;
@@ -17,6 +14,8 @@ import com.agriva.identity.models.dto.response.AuthResponse;
 import com.agriva.identity.repository.AuthRepository;
 import com.agriva.identity.service.AuthService;
 import com.agriva.personnel.models.enums.Gender;
+import com.agriva.shared.models.dto.BatchStatusResponse;
+import com.agriva.shared.models.dto.BatchUploadResponse;
 import com.agriva.shared.models.enums.Currency;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
@@ -35,7 +34,6 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDate;
-import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;

@@ -1,6 +1,7 @@
 package com.agriva.finance.model.entity;
 
-import com.agriva.finance.model.enums.StagedStatus;
+import com.agriva.shared.models.entity.StagedSubmission;
+import com.agriva.shared.models.enums.StagedStatus;
 import jakarta.persistence.*;
 import lombok.*;
 

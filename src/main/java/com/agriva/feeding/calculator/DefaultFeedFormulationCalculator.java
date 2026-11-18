@@ -16,29 +16,6 @@ import java.math.RoundingMode;
 import java.util.*;
 import java.util.stream.Collectors;
 
-/**
- * Default calculator shipped with DR-3. Handles BOTH formulation modes:
- * <ul>
- *   <li><b>ALGORITHM</b> — reads a {@link FormulationTemplate} (defaults to the
- *       seeded {@code AGRIVA_DEFAULT_TILAPIA_GROWER}), resolves each template
- *       line to a farm ingredient by name, and scales the template percentages
- *       to the requested {@code targetQuantityKg}. Requires every template
- *       ingredient to be present in the farm's provender (else 422).</li>
- *   <li><b>CUSTOM</b> — passes the caller's {@code manualLines} through, computes
- *       percentages and cost from the farm's cost-per-unit. Validates stock.
- *       Unknown ingredient ids raise {@link ResourceNotFoundException} (404),
- *       insufficient stock raises
- *       {@link InsufficientIngredientQuantityException} (422), and a missing
- *       cost-per-unit raises {@link BusinessException} (422).</li>
- * </ul>
- * <p>
- * Volumetric ingredients (unit = L) are converted from weight-percentage to
- * volume using a default liquid density of <b>0.90 kg/L</b> — which matches
- * Palm Oil, the only liquid in the seed recipe.
- * <p>
- * The user's own calculator can override this bean by annotating theirs with
- * {@code @Primary}.
- */
 @Component
 @RequiredArgsConstructor
 @Slf4j
@@ -99,9 +76,6 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
         for (FormulationTemplateLine tl : templateLines) {
             AvailableIngredient ai = byLowerName.get(tl.getIngredientName().toLowerCase(Locale.ROOT));
             if (ai == null) {
-                // Preserved existing behavior: ALGORITHM mode treats a missing
-                // template ingredient as a stock shortfall (the caller is expected
-                // to provision the provender first).
                 throw new InsufficientIngredientQuantityException(
                         tl.getIngredientName(),
                         BigDecimal.ZERO, BigDecimal.ZERO, "KG");
@@ -122,8 +96,6 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
                         ai.unit());
             }
 
-            // Never default to zero cost — that silently corrupts every
-            // downstream financial report. Fail loudly instead.
             if (ai.costPerUnit() == null) {
                 throw new BusinessException(
                         "Ingredient '" + ai.name() + "' has no cost per unit configured on this farm");

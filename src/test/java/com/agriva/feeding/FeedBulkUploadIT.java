@@ -10,7 +10,6 @@ import com.agriva.feeding.model.entity.FarmFeedStore;
 import com.agriva.feeding.model.entity.Formulation;
 import com.agriva.feeding.model.entity.FormulationLine;
 import com.agriva.feeding.model.enums.IngredientUnit;
-import com.agriva.feeding.model.enums.StagedFeedingStatus;
 import com.agriva.feeding.repository.*;
 import com.agriva.feeding.scheduler.*;
 import com.agriva.feeding.service.FeedBulkService;
@@ -26,6 +25,7 @@ import com.agriva.identity.models.dto.response.AuthResponse;
 import com.agriva.identity.repository.AuthRepository;
 import com.agriva.identity.service.AuthService;
 import com.agriva.personnel.models.enums.Gender;
+import com.agriva.shared.models.enums.StagedStatus;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -141,7 +141,7 @@ class FeedBulkUploadIT {
 
         var staged = stagedIngredientRepo.findByFarmId(farmId, PageRequest.of(0, 10))
                 .getContent().get(0);
-        assertThat(staged.getStatus()).isEqualTo(StagedFeedingStatus.MOVED);
+        assertThat(staged.getStatus()).isEqualTo(StagedStatus.MOVED);
         assertThat(staged.getMovedIngredientId()).isNotNull();
 
         var ingredient = ingredientRepo.findById(staged.getMovedIngredientId()).orElseThrow();
@@ -175,7 +175,7 @@ class FeedBulkUploadIT {
 
         var staged = stagedFormulationRepo.findByFarmId(farmId, PageRequest.of(0, 10))
                 .getContent().get(0);
-        assertThat(staged.getStatus()).isEqualTo(StagedFeedingStatus.MOVED);
+        assertThat(staged.getStatus()).isEqualTo(StagedStatus.MOVED);
         assertThat(staged.getMovedFormulationId()).isNotNull();
         assertThat(formulationLineRepo.findByFormulationIdOrderByPercentageDesc(
                 staged.getMovedFormulationId())).hasSize(2);
@@ -202,7 +202,7 @@ class FeedBulkUploadIT {
 
         var staged = stagedProductionRepo.findByFarmId(farmId, PageRequest.of(0, 10))
                 .getContent().get(0);
-        assertThat(staged.getStatus()).isEqualTo(StagedFeedingStatus.MOVED);
+        assertThat(staged.getStatus()).isEqualTo(StagedStatus.MOVED);
         assertThat(staged.getMovedBatchId()).isNotNull();
         assertThat(feedBatchRepo.findById(staged.getMovedBatchId())).isPresent();
     }
@@ -245,7 +245,7 @@ class FeedBulkUploadIT {
 
         var staged = stagedEventRepo.findByFarmId(farmId, PageRequest.of(0, 10))
                 .getContent().get(0);
-        assertThat(staged.getStatus()).isEqualTo(StagedFeedingStatus.MOVED);
+        assertThat(staged.getStatus()).isEqualTo(StagedStatus.MOVED);
         assertThat(staged.getMovedFeedingId()).isNotNull();
         assertThat(feedingEventRepo.findById(staged.getMovedFeedingId())).isPresent();
     }

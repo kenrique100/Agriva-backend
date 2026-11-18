@@ -1,11 +1,11 @@
 package com.agriva.finance.service;
 
 import com.agriva.finance.model.dto.request.ExpenseRequest;
-import com.agriva.finance.model.dto.response.BatchStatusResponse;
-import com.agriva.finance.model.dto.response.BatchUploadResponse;
 import com.agriva.finance.model.dto.response.ExpenseResponse;
 import com.agriva.finance.model.dto.response.ExpenseStagingResponse;
 import com.agriva.finance.model.dto.response.ExpenseSubmissionAck;
+import com.agriva.shared.models.dto.BatchStatusResponse;
+import com.agriva.shared.models.dto.BatchUploadResponse;
 import com.agriva.shared.models.dto.CursorPageResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -24,7 +24,6 @@ public interface ExpenseService {
 
     Page<ExpenseResponse> listExpenses(UUID farmId, Pageable pageable);
 
-    /** Keyset (cursor) pagination. */
     CursorPageResponse<ExpenseResponse> listExpensesByCursor(UUID farmId, String cursor, int size);
 
     ExpenseResponse getExpense(UUID id, UUID farmId);
