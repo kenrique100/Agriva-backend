@@ -2,20 +2,12 @@ package com.agriva.feeding.model.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.CreationTimestamp;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-/**
- * A physical production run. Immutable once persisted — corrections go through
- * a future FeedBatchAdjustment slice. {@code formulationName} is snapshotted so
- * batch history survives formulation soft-deletion. {@code bagSizeKg} is
- * snapshot from the running config so historic reports stay accurate even if
- * the global default later changes.
- */
 @Entity
 @Table(name = "feed_batch")
 @Data
@@ -61,7 +53,11 @@ public class FeedBatch {
     @Column(name = "created_by_user_id")
     private UUID createdByUserId;
 
-    @CreationTimestamp
-    @Column(name = "created_at", updatable = false)
+    @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
+
+    @PrePersist
+    void onCreate() {
+        if (this.createdAt == null) this.createdAt = LocalDateTime.now();
+    }
 }

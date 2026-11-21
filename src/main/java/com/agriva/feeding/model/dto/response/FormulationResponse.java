@@ -34,6 +34,8 @@ public class FormulationResponse {
     private Map<String, BigDecimal> nutrientSummary;
     private LocalDateTime createdAt;
     private List<Line> lines;
+    private BigDecimal computedCpValue;
+    private UUID expenseSubmissionId;
 
     @Data
     @Builder

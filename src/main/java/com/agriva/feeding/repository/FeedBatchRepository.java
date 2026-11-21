@@ -21,4 +21,6 @@ public interface FeedBatchRepository extends JpaRepository<FeedBatch, UUID> {
     Optional<FeedBatch> findByIdAndFarmId(@Param("id") UUID id, @Param("farmId") UUID farmId);
 
     long countByFarmId(UUID farmId);
+
+    Page<FeedBatch> findByFarmIdOrderByProductionDateDesc(UUID farmId, Pageable pageable);
 }

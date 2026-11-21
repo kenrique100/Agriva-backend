@@ -9,6 +9,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -27,6 +28,13 @@ import java.time.Duration;
  * <p>
  * For horizontal scaling, swap the cache for bucket4j-redis. The identity
  * resolution and Rule shape stay the same.
+ * <p>
+ * CLIENT IP RESOLUTION:
+ *   clientIp() delegates to TrustedProxyResolver, which only trusts
+ *   X-Forwarded-For / X-Real-IP when the direct peer is in a configured
+ *   trusted-proxy CIDR range (agriva.security.proxy.trusted-cidrs). This
+ *   prevents an attacker from spoofing X-Forwarded-For to bypass the
+ *   login / register / forgot-password limits.
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 10)
@@ -39,6 +47,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
     @Value("${agriva.rate-limit.forgot-password-per-hour-per-email:3}") private int forgotPerHour;
     @Value("${agriva.rate-limit.default-per-minute:120}")          private int defaultPerMin;
     @Value("${agriva.rate-limit.upload-per-minute:30}")            private int uploadPerMin;
+
+    @Autowired
+    private TrustedProxyResolver proxyResolver;
 
     private final Cache<String, Bucket> buckets = Caffeine.newBuilder()
             .expireAfterAccess(Duration.ofHours(2))
@@ -107,6 +118,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 || rule.name.equals("forgot")) {
             return clientIp(req);
         }
+
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.getPrincipal() instanceof AuthenticatedUser u) {
             return "u:" + u.userId();
@@ -115,9 +127,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     }
 
     private String clientIp(HttpServletRequest req) {
-        String xff = req.getHeader("X-Forwarded-For");
-        if (xff != null && !xff.isBlank()) return xff.split(",")[0].trim();
-        return req.getRemoteAddr();
+        return proxyResolver.resolve(req);
     }
 
     private Bucket newBucket(Rule r) {

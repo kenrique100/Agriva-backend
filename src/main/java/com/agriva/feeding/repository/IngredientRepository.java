@@ -35,6 +35,9 @@ public interface IngredientRepository extends JpaRepository<Ingredient, UUID> {
             "WHERE i.farmId = :farmId AND LOWER(i.name) = LOWER(:name) AND i.deletedAt IS NULL")
     boolean existsByFarmIdAndNameLive(@Param("farmId") UUID farmId, @Param("name") String name);
 
+    @Query("SELECT COUNT(i) FROM Ingredient i WHERE i.farmId = :farmId AND i.deletedAt IS NULL")
+    long countLiveByFarmId(@Param("farmId") UUID farmId);
+
     @Modifying
     @Query("UPDATE Ingredient i SET i.deletedAt = :now " +
             "WHERE i.farmId = :farmId AND i.deletedAt IS NULL")

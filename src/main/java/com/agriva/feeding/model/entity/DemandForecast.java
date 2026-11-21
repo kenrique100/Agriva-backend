@@ -7,11 +7,6 @@ import lombok.*;
 import java.math.BigDecimal;
 import java.util.UUID;
 
-/**
- * Immutable once persisted. Corrections require a new forecast.
- * {@code algorithmVersion} pins the calculator's identity so results are
- * reproducible even if the calculator is upgraded later.
- */
 @Entity
 @Table(name = "demand_forecast")
 @Data
@@ -63,6 +58,12 @@ public class DemandForecast extends AuditableEntity {
 
     @Column(name = "created_by_user_id")
     private UUID createdByUserId;
+
+    @Column(name = "computed_cp_value", precision = 6, scale = 2)
+    private BigDecimal computedCpValue;
+
+    @Column(name = "nutrient_summary_json", columnDefinition = "TEXT")
+    private String nutrientSummaryJson;
 
     @Version
     @Column(nullable = false)

@@ -102,7 +102,8 @@ class FeedIngredientStagingIdempotencyIT {
         LocalDateTime submittedAt = LocalDateTime.now();
         IngredientSubmissionPayload payload = new IngredientSubmissionPayload(
                 "Idem Soya", IngredientUnit.KG, new BigDecimal("50"),
-                new BigDecimal("900"), Currency.XAF, null, null);
+                new BigDecimal("900"), Currency.XAF, null, null,
+                new BigDecimal("44"));                          // crudeProteinPct
         String payloadJson = objectMapper.writeValueAsString(payload);
 
         FeedIngredientSubmissionEvent event = new FeedIngredientSubmissionEvent(

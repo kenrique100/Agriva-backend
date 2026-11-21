@@ -9,12 +9,16 @@ import com.agriva.feeding.model.dto.request.DemandForecastRequest;
 import com.agriva.feeding.model.dto.response.DemandForecastResponse;
 import com.agriva.feeding.model.entity.DemandForecast;
 import com.agriva.feeding.model.entity.DemandForecastStage;
+import com.agriva.feeding.model.entity.FormulationTemplateLine;
 import com.agriva.feeding.repository.DemandForecastRepository;
 import com.agriva.feeding.repository.DemandForecastStageRepository;
+import com.agriva.feeding.repository.FormulationTemplateLineRepository;
 import com.agriva.feeding.repository.FormulationTemplateRepository;
 import com.agriva.feeding.service.ForecastService;
+import com.agriva.feeding.utils.IngredientCrudeProteinResolver;    // NEW (Stage 4)
 import com.agriva.shared.exception.BusinessException;
 import com.agriva.shared.exception.ResourceNotFoundException;
+import com.fasterxml.jackson.databind.ObjectMapper;                  // NEW (Stage 4)
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -22,9 +26,14 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -36,6 +45,9 @@ public class ForecastServiceImpl implements ForecastService {
     private final DemandForecastStageRepository stageRepository;
     private final FormulationTemplateRepository templateRepository;
     private final DemandForecastMapper mapper;
+    private final IngredientCrudeProteinResolver cpResolver;
+    private final FormulationTemplateLineRepository templateLineRepo;
+    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional
@@ -65,9 +77,10 @@ public class ForecastServiceImpl implements ForecastService {
                 request.getFormulaTemplateId()
         );
 
-        // Delegates to the calculator. If no user calculator is wired in,
-        // ManualDemandForecaster throws UnsupportedOperationException → 501.
         DemandForecastResult result = forecaster.calculate(input);
+
+        BigDecimal computedCp = computeTemplateBlendCp(
+                farmId, request.getFormulaTemplateId());
 
         DemandForecast forecast = DemandForecast.builder()
                 .farmId(farmId)
@@ -83,6 +96,9 @@ public class ForecastServiceImpl implements ForecastService {
                 .averageDailyFeedKg(result.averageDailyFeedKg())
                 .algorithmVersion(result.algorithmVersion())
                 .createdByUserId(userId)
+                .computedCpValue(computedCp)
+                .nutrientSummaryJson(serializeNutrientSummary(
+                        request.getTargetCpValue(), computedCp))
                 .build();
 
         DemandForecast saved = forecastRepository.save(forecast);
@@ -104,9 +120,10 @@ public class ForecastServiceImpl implements ForecastService {
         }
         stageRepository.saveAll(stages);
 
-        log.info("Forecast {} created for farm {} (species={}, algorithm={}, totalFeedKg={})",
+        log.info("Forecast {} created for farm {} (species={}, algorithm={}, "
+                        + "totalFeedKg={}, computedCp={})",
                 saved.getId(), farmId, saved.getSpecies(),
-                saved.getAlgorithmVersion(), saved.getTotalFeedKg());
+                saved.getAlgorithmVersion(), saved.getTotalFeedKg(), computedCp);
 
         return mapper.toResponse(saved, stages);
     }
@@ -131,5 +148,56 @@ public class ForecastServiceImpl implements ForecastService {
         List<DemandForecastStage> stages =
                 stageRepository.findByForecastIdOrderByStageIndexAsc(id);
         return mapper.toResponse(forecast, stages);
+    }
+
+    private BigDecimal computeTemplateBlendCp(UUID farmId, UUID templateId) {
+        if (templateId == null) return null;
+
+        List<FormulationTemplateLine> templateLines =
+                templateLineRepo.findByTemplateId(templateId);
+        if (templateLines.isEmpty()) return null;
+
+        Map<String, BigDecimal> cpByLowerName = cpResolver
+                .resolveByName(farmId)
+                .entrySet().stream()
+                .collect(Collectors.toMap(
+                        e -> e.getKey().trim().toLowerCase(Locale.ROOT),
+                        Map.Entry::getValue,
+                        (a, b) -> a));
+
+        BigDecimal weightedSum = BigDecimal.ZERO;
+        BigDecimal totalPct    = BigDecimal.ZERO;
+
+        for (FormulationTemplateLine line : templateLines) {
+            if (line.getPercentage() == null) continue;
+
+            BigDecimal cp = line.getIngredientName() == null
+                    ? null
+                    : cpByLowerName.get(line.getIngredientName().trim().toLowerCase(Locale.ROOT));
+            if (cp == null) {
+                cp = cpResolver.cpForName(line.getIngredientName());
+            }
+            if (cp == null) continue;
+
+            weightedSum = weightedSum.add(line.getPercentage().multiply(cp));
+            totalPct    = totalPct.add(line.getPercentage());
+        }
+
+        if (totalPct.signum() == 0) return null;
+
+        return weightedSum.divide(totalPct, 4, RoundingMode.HALF_UP)
+                .setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private String serializeNutrientSummary(BigDecimal targetCp, BigDecimal computedCp) {
+        if (computedCp == null) return null;
+        try {
+            return objectMapper.writeValueAsString(Map.of(
+                    "targetCp", targetCp == null ? BigDecimal.ZERO : targetCp,
+                    "computedCp", computedCp));
+        } catch (Exception e) {
+            log.warn("Failed to serialize nutrient summary: {}", e.getMessage());
+            return null;
+        }
     }
 }

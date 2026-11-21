@@ -58,9 +58,16 @@ public class FeedIngredientExcelParser {
                                 "Invalid unit: " + unitStr + " (expected KG/L/EACH)");
                     }
 
-                    BigDecimal qty = readOptionalDecimal(row, colMap, "quantity");
-                    BigDecimal cost = readOptionalDecimal(row, colMap, "cost_per_unit");
+                    BigDecimal qty     = readOptionalDecimal(row, colMap, "quantity");
+                    BigDecimal cost    = readOptionalDecimal(row, colMap, "cost_per_unit");
                     BigDecimal density = readOptionalDecimal(row, colMap, "density_kg_per_l");
+
+                    BigDecimal cp = readOptionalDecimal(row, colMap, "crude_protein_pct");
+                    if (cp != null && (cp.signum() < 0
+                            || cp.compareTo(new BigDecimal("100")) > 0)) {
+                        throw new ExcelProcessingException(
+                                "crude_protein_pct must be between 0 and 100");
+                    }
 
                     String currencyStr = ExcelCellReader.readString(getCell(row, colMap, "currency"));
                     Currency currency = null;
@@ -75,7 +82,7 @@ public class FeedIngredientExcelParser {
                     String supplier = ExcelCellReader.readString(getCell(row, colMap, "supplier"));
 
                     rows.add(new ParsedRow(rowNum, new IngredientSubmissionPayload(
-                            name.trim(), unit, qty, cost, currency, supplier, density), null));
+                            name.trim(), unit, qty, cost, currency, supplier, density, cp), null));
                 } catch (Exception ex) {
                     log.warn("Feed-ingredient Excel row {} failed: {}", rowNum, ex.getMessage());
                     rows.add(new ParsedRow(rowNum, null, ex.getMessage()));

@@ -124,7 +124,8 @@ class FeedIngredientValidatorLockIT {
         UUID submissionId = UUID.randomUUID();
         IngredientSubmissionPayload payload = new IngredientSubmissionPayload(
                 "Lock Test Soya", IngredientUnit.KG, new BigDecimal("50"),
-                new BigDecimal("1000"), Currency.XAF, "Lock Supplier", null);
+                new BigDecimal("1000"), Currency.XAF, "Lock Supplier", null,
+                new BigDecimal("44"));
 
         producer.publish(new FeedIngredientSubmissionEvent(
                 submissionId, farmId, userId, "lock-feed@test.local",

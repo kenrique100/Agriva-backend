@@ -74,7 +74,8 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
         BigDecimal weightedCp = BigDecimal.ZERO;
 
         for (FormulationTemplateLine tl : templateLines) {
-            AvailableIngredient ai = byLowerName.get(tl.getIngredientName().toLowerCase(Locale.ROOT));
+            AvailableIngredient ai = byLowerName.get(
+                    tl.getIngredientName().toLowerCase(Locale.ROOT));
             if (ai == null) {
                 throw new InsufficientIngredientQuantityException(
                         tl.getIngredientName(),
@@ -98,13 +99,14 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
 
             if (ai.costPerUnit() == null) {
                 throw new BusinessException(
-                        "Ingredient '" + ai.name() + "' has no cost per unit configured on this farm");
+                        "Ingredient '" + ai.name()
+                                + "' has no cost per unit configured on this farm");
             }
             BigDecimal unitCost = ai.costPerUnit();
             BigDecimal lineCost = unitCost.multiply(requiredInStockUnit);
 
-            BigDecimal cpPct = tl.getCrudeProteinPct() == null
-                    ? BigDecimal.ZERO : tl.getCrudeProteinPct();
+            BigDecimal cpPct = ai.crudeProteinPct() == null
+                    ? BigDecimal.ZERO : ai.crudeProteinPct();
             weightedCp = weightedCp.add(cpPct.multiply(percentage));
 
             lines.add(new FormulationLineResult(
@@ -120,7 +122,7 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
         BigDecimal averageCp = weightedCp.divide(HUNDRED, 2, RoundingMode.HALF_UP);
         Map<String, BigDecimal> nutrients = Map.of("crudeProteinPct", averageCp);
 
-        log.info("ALGORITHM formulation computed: template={} lines={} totalKg={} avgCp={}",
+        log.info("ALGORITHM formulation computed: template={} lines={} totalKg={} avgCp={}%",
                 template.getName(), lines.size(), totalKg, averageCp);
 
         return new FormulationResult(lines, totalKg, totalCost, nutrients, ALGORITHM_VERSION);
@@ -177,7 +179,8 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
 
             if (ai.costPerUnit() == null) {
                 throw new BusinessException(
-                        "Ingredient '" + ai.name() + "' has no cost per unit configured on this farm");
+                        "Ingredient '" + ai.name()
+                                + "' has no cost per unit configured on this farm");
             }
 
             resolved.add(new ResolvedCustomLine(ai, weightKg, requiredInStockUnit));
@@ -188,9 +191,11 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
             throw new BusinessException("Total quantity must be greater than zero");
         }
 
-        // Second pass: compute percentages and line costs
+        // Second pass: compute percentages, line costs, and CP.
         List<FormulationLineResult> lines = new ArrayList<>(resolved.size());
         BigDecimal totalCost = BigDecimal.ZERO;
+        BigDecimal weightedCp = BigDecimal.ZERO;
+
         for (ResolvedCustomLine r : resolved) {
             BigDecimal percentage = r.weightKg
                     .multiply(HUNDRED)
@@ -205,12 +210,20 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
                     r.ai.costPerUnit()));
 
             totalCost = totalCost.add(lineCost);
+
+            // NEW: CP contribution — same formula as ALGORITHM (percentage × cpPct / 100).
+            BigDecimal cpPct = r.ai.crudeProteinPct() == null
+                    ? BigDecimal.ZERO : r.ai.crudeProteinPct();
+            weightedCp = weightedCp.add(percentage.multiply(cpPct));
         }
 
-        log.info("CUSTOM formulation computed: lines={} totalKg={} totalCost={}",
-                lines.size(), totalKg, totalCost);
+        BigDecimal averageCp = weightedCp.divide(HUNDRED, 2, RoundingMode.HALF_UP);
+        Map<String, BigDecimal> nutrients = Map.of("crudeProteinPct", averageCp);
 
-        return new FormulationResult(lines, totalKg, totalCost, Map.of(), ALGORITHM_VERSION);
+        log.info("CUSTOM formulation computed: lines={} totalKg={} totalCost={} avgCp={}%",
+                lines.size(), totalKg, totalCost, averageCp);
+
+        return new FormulationResult(lines, totalKg, totalCost, nutrients, ALGORITHM_VERSION);
     }
 
     private record ResolvedCustomLine(

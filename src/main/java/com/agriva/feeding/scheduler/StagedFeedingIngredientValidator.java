@@ -61,20 +61,14 @@ public class StagedFeedingIngredientValidator {
 
             for (StagedFeedingIngredient s : due) {
                 final UUID id = s.getId();
-                txTemplate.execute(status -> {
-                    processOne(id);
-                    return null;
-                });
+                txTemplate.execute(status -> { processOne(id); return null; });
             }
             return null;
         });
     }
 
     public void processOneImmediately(UUID id) {
-        txTemplate.execute(status -> {
-            processOne(id);
-            return null;
-        });
+        txTemplate.execute(status -> { processOne(id); return null; });
     }
 
     private void processOne(UUID id) {
@@ -93,6 +87,7 @@ public class StagedFeedingIngredientValidator {
             req.setCurrency(payload.currency());
             req.setSupplier(payload.supplier());
             req.setDensityKgPerL(payload.densityKgPerL());
+            req.setCrudeProteinPct(payload.crudeProteinPct());
 
             IngredientResponse created = ingredientService.createIngredient(
                     req, staged.getFarmId(), staged.getSubmittedByUserId());

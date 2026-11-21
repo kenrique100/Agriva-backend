@@ -1,12 +1,20 @@
 package com.agriva.shared.config;
 
+import com.agriva.shared.security.IpBlacklistFilter;
 import com.agriva.shared.security.JwtAuthFilter;
 import com.agriva.shared.security.RateLimitFilter;
 import com.agriva.shared.security.RequestIdFilter;
+import com.agriva.shared.security.TrustedProxyResolver;
+import com.agriva.shared.security.blacklist.CaffeineIpBlacklistService;
+import com.agriva.shared.security.blacklist.IpBlacklistService;
+import com.agriva.shared.security.blacklist.RedisIpBlacklistService;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -38,46 +46,80 @@ public class SecurityConfig {
     private final JwtAuthFilter jwtAuthFilter;
     private final RateLimitFilter rateLimitFilter;
     private final RequestIdFilter requestIdFilter;
+    private final TrustedProxyResolver proxyResolver;
+
+    // Inject both implementations
+    private final RedisIpBlacklistService redisIpBlacklistService;
+    private final CaffeineIpBlacklistService caffeineIpBlacklistService;
+
+    @Value("${agriva.security.ip-blacklist.backend:redis}")
+    private String blacklistBackend;
 
     @Value("${agriva.cors.allowed-origins}")
     private String allowedOrigins;
 
     public SecurityConfig(JwtAuthFilter jwtAuthFilter,
                           RateLimitFilter rateLimitFilter,
-                          RequestIdFilter requestIdFilter) {
+                          RequestIdFilter requestIdFilter,
+                          TrustedProxyResolver proxyResolver,
+                          RedisIpBlacklistService redisIpBlacklistService,
+                          CaffeineIpBlacklistService caffeineIpBlacklistService) {
         this.jwtAuthFilter = jwtAuthFilter;
         this.rateLimitFilter = rateLimitFilter;
         this.requestIdFilter = requestIdFilter;
+        this.proxyResolver = proxyResolver;
+        this.redisIpBlacklistService = redisIpBlacklistService;
+        this.caffeineIpBlacklistService = caffeineIpBlacklistService;
+    }
+
+    /**
+     * Manually select the correct bean based on the property.
+     * This prevents Spring startup failures if the property is missing.
+     */
+    @Bean
+    @Primary
+    public IpBlacklistService ipBlacklistService() {
+        if ("memory".equalsIgnoreCase(blacklistBackend)) {
+            return caffeineIpBlacklistService;
+        }
+        return redisIpBlacklistService;
     }
 
     @Bean
-    public FilterRegistrationBean<RequestIdFilter> requestIdFilterRegistration(RequestIdFilter filter) {
-        FilterRegistrationBean<RequestIdFilter> reg = new FilterRegistrationBean<>(filter);
-        reg.setEnabled(false);
-        return reg;
+    public IpBlacklistFilter ipBlacklistFilter(IpBlacklistService ipBlacklistService) {
+        return new IpBlacklistFilter(ipBlacklistService, proxyResolver);
+    }
+
+    @Bean public FilterRegistrationBean<RequestIdFilter> requestIdFilterRegistration(RequestIdFilter f) {
+        FilterRegistrationBean<RequestIdFilter> r = new FilterRegistrationBean<>(f); r.setEnabled(false); return r;
+    }
+    @Bean public FilterRegistrationBean<RateLimitFilter> rateLimitFilterRegistration(RateLimitFilter f) {
+        FilterRegistrationBean<RateLimitFilter> r = new FilterRegistrationBean<>(f); r.setEnabled(false); return r;
+    }
+    @Bean public FilterRegistrationBean<JwtAuthFilter> jwtAuthFilterRegistration(JwtAuthFilter f) {
+        FilterRegistrationBean<JwtAuthFilter> r = new FilterRegistrationBean<>(f); r.setEnabled(false); return r;
     }
 
     @Bean
-    public FilterRegistrationBean<RateLimitFilter> rateLimitFilterRegistration(RateLimitFilter filter) {
-        FilterRegistrationBean<RateLimitFilter> reg = new FilterRegistrationBean<>(filter);
-        reg.setEnabled(false);
-        return reg;
-    }
-
-    @Bean
-    public FilterRegistrationBean<JwtAuthFilter> jwtAuthFilterRegistration(JwtAuthFilter filter) {
-        FilterRegistrationBean<JwtAuthFilter> reg = new FilterRegistrationBean<>(filter);
-        reg.setEnabled(false);
-        return reg;
-    }
-
-    @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http, IpBlacklistFilter ipBlacklistFilter) throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .headers(this::configureHeaders)
+                .exceptionHandling(e -> e
+                        .authenticationEntryPoint((req, res, ex) -> {
+                            res.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                            res.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                            res.getWriter().write(
+                                    "{\"status\":401,\"message\":\"Authentication required\"}");
+                        })
+                        .accessDeniedHandler((req, res, ex) -> {
+                            res.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                            res.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                            res.getWriter().write(
+                                    "{\"status\":403,\"message\":\"Access denied\"}");
+                        }))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
                                 "/api/v1/users/login",
@@ -85,21 +127,18 @@ public class SecurityConfig {
                                 "/api/v1/users/register/master",
                                 "/api/v1/users/forgot-password",
                                 "/api/v1/users/reset-password",
-                                "/swagger-ui.html",
-                                "/swagger-ui/**",
-                                "/v3/api-docs/**",
-                                "/swagger-resources/**",
-                                "/webjars/**",
-                                "/actuator/health",
-                                "/actuator/health/**",
-                                "/actuator/info"
+                                "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**",
+                                "/swagger-resources/**", "/webjars/**",
+                                "/actuator/health", "/actuator/health/**", "/actuator/info"
                         ).permitAll()
                         .requestMatchers("/api/v1/users/register/sub-user")
                         .hasAnyRole("MASTER", "ADMIN")
                         .anyRequest().authenticated()
                 )
+                // Chain order: RequestId → IpBlacklist → RateLimit → JwtAuth
                 .addFilterBefore(requestIdFilter, UsernamePasswordAuthenticationFilter.class)
-                .addFilterAfter(rateLimitFilter, RequestIdFilter.class)
+                .addFilterAfter(ipBlacklistFilter, RequestIdFilter.class)
+                .addFilterAfter(rateLimitFilter, IpBlacklistFilter.class)
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
@@ -137,25 +176,21 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         List<String> origins = Arrays.stream(allowedOrigins.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .toList();
-
+                .map(String::trim).filter(s -> !s.isEmpty()).toList();
         if (origins.isEmpty()) {
             throw new IllegalStateException(
                     "agriva.cors.allowed-origins is empty — set CORS_ALLOWED_ORIGINS");
         }
-
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOriginPatterns(origins);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of(
-                "Authorization", "Content-Type", "X-Request-Id", "X-Idempotency-Key", "Accept", "Origin"));
+                "Authorization", "Content-Type", "X-Request-Id", "X-Idempotency-Key",
+                "Accept", "Origin"));
         config.setExposedHeaders(List.of(
                 "Authorization", "X-Request-Id", "X-RateLimit-Remaining", "Retry-After"));
         config.setAllowCredentials(true);
         config.setMaxAge(3600L);
-
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
         return source;

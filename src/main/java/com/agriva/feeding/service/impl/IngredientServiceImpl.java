@@ -7,9 +7,11 @@ import com.agriva.feeding.model.dto.request.IngredientRequest;
 import com.agriva.feeding.model.dto.request.IngredientStockReplenishRequest;
 import com.agriva.feeding.model.dto.request.IngredientSubmissionPayload;
 import com.agriva.feeding.model.dto.response.IngredientResponse;
+import com.agriva.feeding.model.dto.response.IngredientStatsResponse;
 import com.agriva.feeding.model.entity.Ingredient;
 import com.agriva.feeding.model.entity.IngredientStock;
 import com.agriva.feeding.model.entity.StagedFeedingIngredient;
+import com.agriva.feeding.model.enums.IngredientUnit;
 import com.agriva.feeding.repository.IngredientRepository;
 import com.agriva.feeding.repository.IngredientStockRepository;
 import com.agriva.feeding.repository.StagedFeedingIngredientRepository;
@@ -30,10 +32,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -65,11 +69,13 @@ public class IngredientServiceImpl implements IngredientService {
                 .currency(request.getCurrency())
                 .supplier(request.getSupplier())
                 .densityKgPerL(request.getDensityKgPerL())
+                .crudeProteinPct(request.getCrudeProteinPct())
                 .build();
 
         Ingredient saved = ingredientRepository.save(ingredient);
-        log.info("Ingredient {} created for farm {} (name='{}', by={})",
-                saved.getId(), farmId, saved.getName(), userId);
+        log.info("Ingredient {} created for farm {} (name='{}', cp={}, by={})",
+                saved.getId(), farmId, saved.getName(),
+                saved.getCrudeProteinPct(), userId);
         return mapper.toResponse(saved, null);
     }
 
@@ -100,6 +106,44 @@ public class IngredientServiceImpl implements IngredientService {
         IngredientStock stock = stockRepository
                 .findByFarmIdAndIngredientId(farmId, id).orElse(null);
         return mapper.toResponse(ingredient, stock);
+    }
+
+    @Override
+    @Transactional
+    public IngredientResponse updateIngredient(UUID id, IngredientRequest request,
+                                               UUID farmId, UUID userId) {
+        Ingredient ingredient = loadIngredient(id, farmId);
+
+        // Name uniqueness check — only when the new name actually differs case-insensitively.
+        if (!ingredient.getName().equalsIgnoreCase(request.getName().trim())
+                && ingredientRepository.existsByFarmIdAndNameLive(farmId, request.getName())) {
+            throw new BusinessException("Ingredient with this name already exists");
+        }
+
+        // Guard: cannot change unit while stock is non-zero (stock is stored in the old unit).
+        if (!ingredient.getUnit().equals(request.getUnit())) {
+            IngredientStock existing = stockRepository
+                    .findByFarmIdAndIngredientId(farmId, id).orElse(null);
+            if (existing != null && existing.getQuantityOnHand() != null
+                    && existing.getQuantityOnHand().signum() > 0) {
+                throw new BusinessException(
+                        "Cannot change unit while stock is non-zero. Zero the stock first.");
+            }
+        }
+
+        ingredient.setName(request.getName().trim());
+        ingredient.setUnit(request.getUnit());
+        ingredient.setCostPerUnit(request.getCostPerUnit());
+        ingredient.setCurrency(request.getCurrency());
+        ingredient.setSupplier(request.getSupplier());
+        ingredient.setDensityKgPerL(request.getDensityKgPerL());
+        ingredient.setCrudeProteinPct(request.getCrudeProteinPct());
+
+        Ingredient saved = ingredientRepository.save(ingredient);
+        IngredientStock stock = stockRepository
+                .findByFarmIdAndIngredientId(farmId, id).orElse(null);
+        log.info("Ingredient {} updated for farm {} (by={})", id, farmId, userId);
+        return mapper.toResponse(saved, stock);
     }
 
     @Override
@@ -227,6 +271,34 @@ public class IngredientServiceImpl implements IngredientService {
                 .failed(failed)
                 .failedRows(failedRows.isEmpty() ? null : failedRows)
                 .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public IngredientStatsResponse getStats(UUID farmId) {
+        long totalIngredients = ingredientRepository.countLiveByFarmId(farmId);
+        BigDecimal totalStockKg = stockRepository
+                .sumQuantityByFarmIdAndUnit(farmId, IngredientUnit.KG);
+        BigDecimal currentStockValue = stockRepository.sumStockValueByFarmId(farmId);
+
+        // First non-null currency for display purposes only.
+        String currency = ingredientRepository.findAllByFarmIdLive(farmId).stream()
+                .map(Ingredient::getCurrency)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .map(Enum::name)
+                .orElse(null);
+
+        return IngredientStatsResponse.builder()
+                .totalIngredients(totalIngredients)
+                .totalStockKg(round(totalStockKg))
+                .currentStockValue(round(currentStockValue))
+                .currency(currency)
+                .build();
+    }
+
+    private static BigDecimal round(BigDecimal v) {
+        return v == null ? BigDecimal.ZERO : v.setScale(4, RoundingMode.HALF_UP);
     }
 
     private String serialize(Object o) {

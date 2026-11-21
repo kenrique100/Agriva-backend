@@ -58,6 +58,12 @@ public class Formulation extends AuditableEntity {
     @Column(name = "created_by_user_id")
     private UUID createdByUserId;
 
+    @Column(name = "expense_submission_id")
+    private UUID expenseSubmissionId;
+
+    @Column(name = "computed_cp_value", precision = 6, scale = 2)
+    private BigDecimal computedCpValue;
+
     @Version
     @Column(nullable = false)
     private Long version;

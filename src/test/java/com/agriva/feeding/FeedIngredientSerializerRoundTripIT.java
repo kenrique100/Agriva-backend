@@ -99,9 +99,11 @@ class FeedIngredientSerializerRoundTripIT {
         long dlqBefore = dlqEndOffset(FeedIngredientKafkaConfig.STAGING_DLQ_TOPIC);
 
         UUID submissionId = UUID.randomUUID();
+        BigDecimal expectedCp = new BigDecimal("44");
         IngredientSubmissionPayload payload = new IngredientSubmissionPayload(
                 "Round-trip Soya", IngredientUnit.KG, new BigDecimal("100"),
-                new BigDecimal("1200"), Currency.XAF, "Serializer Supplier", null);
+                new BigDecimal("1200"), Currency.XAF, "Serializer Supplier", null,
+                expectedCp);                                    // crudeProteinPct
 
         producer.publish(new FeedIngredientSubmissionEvent(
                 submissionId, farmId, userId, "serializer-feed@test.local",
@@ -115,6 +117,13 @@ class FeedIngredientSerializerRoundTripIT {
                             "if absent, the producer/consumer serializers disagree")
                     .isNotNull();
         });
+
+        StagedFeedingIngredient staged = stagedRepo.findByIdOnly(submissionId).orElseThrow();
+        IngredientSubmissionPayload roundTripped =
+                objectMapper.readValue(staged.getPayloadJson(), IngredientSubmissionPayload.class);
+        assertThat(roundTripped.crudeProteinPct())
+                .as("crudeProteinPct must survive producer→Kafka→consumer JSON round-trip")
+                .isEqualByComparingTo(expectedCp);
 
         long dlqAfter = dlqEndOffset(FeedIngredientKafkaConfig.STAGING_DLQ_TOPIC);
         assertThat(dlqAfter)

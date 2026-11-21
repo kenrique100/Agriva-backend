@@ -3,10 +3,7 @@ package com.agriva.feeding.model.dto.response;
 import com.agriva.feeding.model.enums.IngredientUnit;
 import com.agriva.shared.models.enums.Currency;
 import com.fasterxml.jackson.annotation.JsonInclude;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -30,6 +27,8 @@ public class IngredientResponse {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private CurrentStock currentStock;
+    private BigDecimal crudeProteinPct;
+    private BigDecimal totalCost;
 
     @Data
     @Builder

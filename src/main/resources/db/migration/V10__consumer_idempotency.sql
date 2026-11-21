@@ -1,5 +1,4 @@
 
-
 CREATE TABLE consumer_processed_events (
                                            event_id       UUID NOT NULL,
                                            consumer_group VARCHAR(100) NOT NULL,

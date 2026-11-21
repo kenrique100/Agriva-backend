@@ -1,6 +1,7 @@
 package com.agriva.identity.models.dto.request;
 
 import com.agriva.personnel.models.enums.Gender;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.*;
 import lombok.Data;
 
@@ -40,6 +41,12 @@ public class MasterRegisterRequest {
     @NotBlank(message = "Phone number is required")
     @Size(max = 20)
     private String phoneNumber;
+
+    @Size(max = 15, message = "National ID must not exceed 15 characters")
+    @Pattern(regexp = "^[A-Za-z0-9-]*$",
+            message = "National ID may only contain letters, digits and hyphens")
+    @Schema(description = "National identification number", example = "CM123456789")
+    private String nationalId;
 
     @NotBlank(message = "Country is required") private String country;
     @NotBlank(message = "State is required") private String state;

@@ -3,6 +3,7 @@ package com.agriva.feeding.service;
 import com.agriva.feeding.model.dto.request.IngredientRequest;
 import com.agriva.feeding.model.dto.request.IngredientStockReplenishRequest;
 import com.agriva.feeding.model.dto.response.IngredientResponse;
+import com.agriva.feeding.model.dto.response.IngredientStatsResponse;
 import com.agriva.shared.models.dto.BatchStatusResponse;
 import com.agriva.shared.models.dto.BatchUploadResponse;
 import org.springframework.data.domain.Page;
@@ -19,6 +20,9 @@ public interface IngredientService {
 
     IngredientResponse getIngredient(UUID id, UUID farmId);
 
+    IngredientResponse updateIngredient(UUID id, IngredientRequest request,
+                                        UUID farmId, UUID userId);
+
     IngredientResponse replenishStock(UUID id, IngredientStockReplenishRequest request,
                                       UUID farmId, UUID userId);
 
@@ -27,4 +31,6 @@ public interface IngredientService {
     BatchUploadResponse bulkUpload(MultipartFile file, UUID farmId, UUID userId, String email);
 
     BatchStatusResponse bulkStatus(UUID batchId, UUID farmId);
+
+    IngredientStatsResponse getStats(UUID farmId);
 }

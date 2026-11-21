@@ -1,5 +1,4 @@
 
-
 CREATE TABLE farms (
                        id         UUID PRIMARY KEY,
                        name       VARCHAR(100) NOT NULL,
@@ -35,15 +34,12 @@ CREATE TABLE users (
                        updated_at         TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-ALTER TABLE farms
-    ADD CONSTRAINT fk_farms_master
-        FOREIGN KEY (master_id) REFERENCES users (id) ON DELETE SET NULL;
-ALTER TABLE users
-    ADD CONSTRAINT fk_users_farm
-        FOREIGN KEY (farm_id) REFERENCES farms (id) ON DELETE SET NULL;
-ALTER TABLE users
-    ADD CONSTRAINT chk_users_role
-        CHECK (role IN ('ADMIN','MASTER','SUB_USER','USER'));
+ALTER TABLE farms ADD CONSTRAINT fk_farms_master
+    FOREIGN KEY (master_id) REFERENCES users (id) ON DELETE SET NULL;
+ALTER TABLE users ADD CONSTRAINT fk_users_farm
+    FOREIGN KEY (farm_id) REFERENCES farms (id) ON DELETE SET NULL;
+ALTER TABLE users ADD CONSTRAINT chk_users_role
+    CHECK (role IN ('ADMIN','MASTER','SUB_USER','USER'));
 
 CREATE UNIQUE INDEX ux_users_email_live
     ON users (LOWER(email)) WHERE deleted_at IS NULL;
@@ -51,7 +47,6 @@ CREATE UNIQUE INDEX ux_users_username_live
     ON users (LOWER(username)) WHERE deleted_at IS NULL AND username IS NOT NULL;
 CREATE UNIQUE INDEX ux_farms_name_live
     ON farms (LOWER(name)) WHERE deleted_at IS NULL;
-
 CREATE INDEX idx_users_farm_id   ON users (farm_id);
 CREATE INDEX idx_users_role      ON users (role);
 CREATE INDEX idx_farms_master_id ON farms (master_id);
@@ -87,15 +82,12 @@ CREATE TABLE personnel (
                            created_at                      TIMESTAMP NOT NULL DEFAULT NOW(),
                            updated_at                      TIMESTAMP NOT NULL DEFAULT NOW(),
                            version                         BIGINT NOT NULL DEFAULT 0,
-
                            CONSTRAINT fk_personnel_farm FOREIGN KEY (farm_id) REFERENCES farms (id) ON DELETE CASCADE,
                            CONSTRAINT fk_personnel_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
                            CONSTRAINT ux_personnel_user_id UNIQUE (user_id),
                            CONSTRAINT ux_personnel_farm_national_id UNIQUE (farm_id, national_id),
-                           CONSTRAINT chk_personnel_gender
-                               CHECK (gender IS NULL OR gender IN ('MALE','FEMALE','OTHER')),
-                           CONSTRAINT chk_personnel_status
-                               CHECK (status IN ('ACTIVE','INACTIVE','ON_LEAVE','SUSPENDED','TERMINATED'))
+                           CONSTRAINT chk_personnel_gender CHECK (gender IS NULL OR gender IN ('MALE','FEMALE','OTHER')),
+                           CONSTRAINT chk_personnel_status CHECK (status IN ('ACTIVE','INACTIVE','ON_LEAVE','SUSPENDED','TERMINATED'))
 );
 CREATE INDEX idx_personnel_farm       ON personnel (farm_id);
 CREATE INDEX idx_personnel_user       ON personnel (user_id);
@@ -112,15 +104,11 @@ CREATE TABLE personnel_status_history (
                                           actual_duration        INTERVAL,
                                           expected_end_timestamp TIMESTAMP,
                                           created_at             TIMESTAMP NOT NULL DEFAULT NOW(),
-
-                                          CONSTRAINT fk_psh_personnel
-                                              FOREIGN KEY (personnel_id) REFERENCES personnel (id) ON DELETE CASCADE,
-                                          CONSTRAINT chk_psh_status
-                                              CHECK (status IN ('ACTIVE','INACTIVE','ON_LEAVE','SUSPENDED','TERMINATED'))
+                                          CONSTRAINT fk_psh_personnel FOREIGN KEY (personnel_id) REFERENCES personnel (id) ON DELETE CASCADE,
+                                          CONSTRAINT chk_psh_status CHECK (status IN ('ACTIVE','INACTIVE','ON_LEAVE','SUSPENDED','TERMINATED'))
 );
 CREATE INDEX idx_psh_personnel ON personnel_status_history (personnel_id);
-CREATE INDEX idx_psh_open
-    ON personnel_status_history (personnel_id) WHERE end_timestamp IS NULL;
+CREATE INDEX idx_psh_open ON personnel_status_history (personnel_id) WHERE end_timestamp IS NULL;
 
 CREATE TABLE tasks (
                        id                   UUID PRIMARY KEY,
@@ -145,14 +133,11 @@ CREATE TABLE tasks (
                        created_at           TIMESTAMP NOT NULL DEFAULT NOW(),
                        updated_at           TIMESTAMP NOT NULL DEFAULT NOW(),
                        version              BIGINT NOT NULL DEFAULT 0,
-
                        CONSTRAINT fk_tasks_farm FOREIGN KEY (farm_id) REFERENCES farms (id) ON DELETE CASCADE,
                        CONSTRAINT fk_tasks_personnel FOREIGN KEY (personnel_id) REFERENCES personnel (id) ON DELETE CASCADE,
                        CONSTRAINT fk_tasks_assigned_by FOREIGN KEY (assigned_by_user_id) REFERENCES users (id) ON DELETE SET NULL,
                        CONSTRAINT fk_tasks_validated_by FOREIGN KEY (validated_by_user_id) REFERENCES users (id) ON DELETE SET NULL,
-                       CONSTRAINT chk_tasks_status
-                           CHECK (status IN ('PENDING','IN_PROGRESS','PAUSED','STOPPED','SUBMITTED',
-                                             'COMPLETED','UNCOMPLETED','CANCELLED')),
+                       CONSTRAINT chk_tasks_status CHECK (status IN ('PENDING','IN_PROGRESS','PAUSED','STOPPED','SUBMITTED','COMPLETED','UNCOMPLETED','CANCELLED')),
                        CONSTRAINT chk_tasks_minutes_non_negative CHECK (total_worked_minutes >= 0)
 );
 CREATE INDEX idx_tasks_farm      ON tasks (farm_id);
@@ -161,8 +146,7 @@ CREATE INDEX idx_tasks_status    ON tasks (status);
 CREATE INDEX idx_tasks_deadline  ON tasks (deadline);
 CREATE INDEX idx_tasks_submitted ON tasks (status, is_submitted, stop_time);
 CREATE INDEX idx_tasks_deleted_at ON tasks (deleted_at);
-CREATE INDEX idx_tasks_in_progress_resume
-    ON tasks (status, last_resume_time)
+CREATE INDEX idx_tasks_in_progress_resume ON tasks (status, last_resume_time)
     WHERE status = 'IN_PROGRESS' AND last_resume_time IS NOT NULL;
 
 CREATE TABLE auth_events (
@@ -185,10 +169,8 @@ CREATE TABLE event_publication (
                                    publication_date TIMESTAMPTZ NOT NULL,
                                    completion_date  TIMESTAMPTZ
 );
-CREATE INDEX event_publication_serialized_event_hash_idx
-    ON event_publication USING hash(serialized_event);
-CREATE INDEX event_publication_completion_date_idx
-    ON event_publication (completion_date);
+CREATE INDEX event_publication_serialized_event_hash_idx ON event_publication USING hash(serialized_event);
+CREATE INDEX event_publication_completion_date_idx ON event_publication (completion_date);
 
 CREATE TABLE transactions (
                               id                 UUID PRIMARY KEY,
@@ -204,7 +186,6 @@ CREATE TABLE transactions (
                               created_at         TIMESTAMP NOT NULL DEFAULT NOW(),
                               updated_at         TIMESTAMP NOT NULL DEFAULT NOW(),
                               version            BIGINT NOT NULL DEFAULT 0,
-
                               CONSTRAINT fk_transactions_farm FOREIGN KEY (farm_id) REFERENCES farms (id) ON DELETE CASCADE,
                               CONSTRAINT fk_transactions_creator FOREIGN KEY (created_by_user_id) REFERENCES users (id) ON DELETE SET NULL,
                               CONSTRAINT chk_transactions_status CHECK (status IN ('DRAFT','POSTED','VOID'))
@@ -212,8 +193,7 @@ CREATE TABLE transactions (
 CREATE INDEX idx_transactions_farm     ON transactions (farm_id);
 CREATE INDEX idx_transactions_occurred ON transactions (occurred_at);
 CREATE INDEX idx_transactions_status   ON transactions (status);
-CREATE UNIQUE INDEX ux_transactions_farm_ref
-    ON transactions (farm_id, transaction_ref) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX ux_transactions_farm_ref ON transactions (farm_id, transaction_ref) WHERE deleted_at IS NULL;
 
 CREATE TABLE investment (
                             id                 UUID PRIMARY KEY,
@@ -234,7 +214,6 @@ CREATE TABLE investment (
                             created_at         TIMESTAMP NOT NULL DEFAULT NOW(),
                             updated_at         TIMESTAMP NOT NULL DEFAULT NOW(),
                             version            BIGINT NOT NULL DEFAULT 0,
-
                             CONSTRAINT fk_investment_farm FOREIGN KEY (farm_id) REFERENCES farms (id) ON DELETE CASCADE,
                             CONSTRAINT fk_investment_creator FOREIGN KEY (created_by_user_id) REFERENCES users (id) ON DELETE SET NULL,
                             CONSTRAINT fk_investment_transaction FOREIGN KEY (transaction_id) REFERENCES transactions (id) ON DELETE SET NULL,
@@ -246,10 +225,8 @@ CREATE INDEX idx_investment_investment_date ON investment (investment_date);
 CREATE INDEX idx_investment_farm_date       ON investment (farm_id, investment_date);
 CREATE INDEX idx_investment_creator         ON investment (created_by_user_id);
 CREATE INDEX idx_investment_transaction     ON investment (transaction_id);
-CREATE UNIQUE INDEX uq_investment_one_active_per_farm
-    ON investment (farm_id) WHERE active = TRUE;
-CREATE INDEX idx_investment_active
-    ON investment (farm_id) WHERE active = TRUE AND deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_investment_one_active_per_farm ON investment (farm_id) WHERE active = TRUE;
+CREATE INDEX idx_investment_active ON investment (farm_id) WHERE active = TRUE AND deleted_at IS NULL;
 
 CREATE TABLE expense (
                          id                 UUID PRIMARY KEY,
@@ -272,7 +249,6 @@ CREATE TABLE expense (
                          created_at         TIMESTAMP NOT NULL DEFAULT NOW(),
                          updated_at         TIMESTAMP NOT NULL DEFAULT NOW(),
                          version            BIGINT NOT NULL DEFAULT 0,
-
                          CONSTRAINT fk_expense_farm FOREIGN KEY (farm_id) REFERENCES farms (id) ON DELETE CASCADE,
                          CONSTRAINT fk_expense_creator FOREIGN KEY (created_by_user_id) REFERENCES users (id) ON DELETE SET NULL,
                          CONSTRAINT fk_expense_transaction FOREIGN KEY (transaction_id) REFERENCES transactions (id) ON DELETE SET NULL,
@@ -307,7 +283,6 @@ CREATE TABLE income (
                         created_at         TIMESTAMP NOT NULL DEFAULT NOW(),
                         updated_at         TIMESTAMP NOT NULL DEFAULT NOW(),
                         version            BIGINT NOT NULL DEFAULT 0,
-
                         CONSTRAINT fk_income_farm FOREIGN KEY (farm_id) REFERENCES farms (id) ON DELETE CASCADE,
                         CONSTRAINT fk_income_creator FOREIGN KEY (created_by_user_id) REFERENCES users (id) ON DELETE SET NULL,
                         CONSTRAINT fk_income_transaction FOREIGN KEY (transaction_id) REFERENCES transactions (id) ON DELETE SET NULL,
@@ -331,7 +306,6 @@ CREATE TABLE salary_payments (
                                  expense_id        UUID,
                                  paid_by_user_id   UUID,
                                  created_at        TIMESTAMP NOT NULL DEFAULT NOW(),
-
                                  CONSTRAINT fk_sp_farm FOREIGN KEY (farm_id) REFERENCES farms (id) ON DELETE CASCADE,
                                  CONSTRAINT fk_sp_personnel FOREIGN KEY (personnel_id) REFERENCES personnel (id) ON DELETE CASCADE,
                                  CONSTRAINT fk_sp_expense FOREIGN KEY (expense_id) REFERENCES expense (id) ON DELETE SET NULL,

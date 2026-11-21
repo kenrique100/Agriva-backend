@@ -38,12 +38,18 @@ public class IngredientExcelParser extends AbstractExcelBatchParser<IngredientSu
                     "Unit is required and must be one of: KG, L, EACH");
         }
 
-        BigDecimal quantity = readOptionalBigDecimal(row, colMap, "quantity");
-        BigDecimal costPerUnit = readOptionalBigDecimal(row, colMap, "costperunit");
-        BigDecimal density = readOptionalBigDecimal(row, colMap, "densitykgperl");
+        BigDecimal quantity     = readOptionalBigDecimal(row, colMap, "quantity");
+        BigDecimal costPerUnit  = readOptionalBigDecimal(row, colMap, "costperunit");
+        BigDecimal density      = readOptionalBigDecimal(row, colMap, "densitykgperl");
+
+        BigDecimal cp = readOptionalBigDecimal(row, colMap, "crudeproteinpct");
+        if (cp != null && (cp.signum() < 0
+                || cp.compareTo(new BigDecimal("100")) > 0)) {
+            throw new IllegalArgumentException("crude protein must be between 0 and 100");
+        }
 
         String currencyStr = ExcelCellReader.readString(getCell(row, colMap, "currency"));
-        String supplier = ExcelCellReader.readString(getCell(row, colMap, "supplier"));
+        String supplier    = ExcelCellReader.readString(getCell(row, colMap, "supplier"));
 
         return new IngredientSubmissionPayload(
                 name.trim(),
@@ -52,7 +58,8 @@ public class IngredientExcelParser extends AbstractExcelBatchParser<IngredientSu
                 costPerUnit,
                 currencyStr == null || currencyStr.isBlank() ? null : parseCurrency(currencyStr),
                 supplier,
-                density
+                density,
+                cp
         );
     }
 

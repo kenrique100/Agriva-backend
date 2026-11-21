@@ -23,7 +23,6 @@ public interface FormulationRepository extends JpaRepository<Formulation, UUID> 
             "AND f.deletedAt IS NULL")
     Optional<Formulation> findByIdAndFarmIdLive(@Param("id") UUID id, @Param("farmId") UUID farmId);
 
-    /** NEW (DR-6): resolve a raw formulation name to a Formulation on this farm. */
     @Query("SELECT f FROM Formulation f WHERE f.farmId = :farmId " +
             "AND LOWER(f.name) = LOWER(:name) AND f.deletedAt IS NULL")
     Optional<Formulation> findByFarmIdAndNameLive(@Param("farmId") UUID farmId,

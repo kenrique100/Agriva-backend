@@ -1,5 +1,4 @@
 
-
 CREATE OR REPLACE FUNCTION ensure_partitions(
     parent_table TEXT,
     months_ahead INTEGER DEFAULT 3,
@@ -17,8 +16,7 @@ FOR m IN (-months_back)..months_ahead LOOP
         partition_nm := parent_table || '_' || TO_CHAR(start_date, 'YYYY_MM');
 EXECUTE format(
         'CREATE TABLE IF NOT EXISTS %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
-        partition_nm, parent_table, start_date, end_date
-        );
+        partition_nm, parent_table, start_date, end_date);
 END LOOP;
 END;
 $$ LANGUAGE plpgsql;
