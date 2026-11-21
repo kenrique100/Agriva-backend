@@ -9,8 +9,8 @@ public class TaskActionRequest {
 
     @NotBlank
     @Pattern(
-            regexp = "^(?i)(START|STOP|CONTINUE|SUBMIT|CANCEL)$",
-            message = "Action must be START, STOP, CONTINUE, SUBMIT or CANCEL"
+            regexp = "^(?i)(START|STOP|PAUSE|RESUME|CONTINUE|SUBMIT|CANCEL)$",
+            message = "Action must be START, STOP, PAUSE, RESUME, CONTINUE, SUBMIT or CANCEL"
     )
     private String action;
 }

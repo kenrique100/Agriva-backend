@@ -61,8 +61,7 @@ public class TaskController {
             @AuthenticationPrincipal AuthenticatedUser u,
             @RequestParam(required = false) UUID personnelId,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-
+            @RequestParam(defaultValue = "10") int size) {
         UUID filter = personnelId;
         if (!u.isMasterOrAdmin()) {
             var own = personnelService.getOwnProfile(u.userId());
@@ -70,7 +69,7 @@ public class TaskController {
         }
         return ResponseEntity.ok(PageResponse.of(taskService.list(
                 u.farmId(), filter,
-                PageRequest.of(page, Math.min(size, 100),
+                PageRequest.of(page, Math.min(size, 10),
                         Sort.by(Sort.Direction.DESC, "createdAt")))));
     }
 
@@ -138,10 +137,10 @@ public class TaskController {
             @AuthenticationPrincipal AuthenticatedUser u,
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "10") int size) {
         return ResponseEntity.ok(PageResponse.of(taskService.listStaging(
                 u.farmId(), status,
-                PageRequest.of(page, Math.min(size, 100),
+                PageRequest.of(page, Math.min(size, 10),
                         Sort.by(Sort.Direction.DESC, "submittedAt")))));
     }
 

@@ -3,6 +3,7 @@ package com.agriva.task.service.impl;
 import com.agriva.personnel.models.entity.Personnel;
 import com.agriva.personnel.models.enums.PersonnelStatus;
 import com.agriva.personnel.repository.PersonnelRepository;
+import com.agriva.shared.exception.BusinessException;
 import com.agriva.shared.exception.PersonnelAccessDeniedException;
 import com.agriva.shared.exception.PersonnelNotFoundException;
 import com.agriva.shared.exception.TaskNotFoundException;
@@ -62,6 +63,11 @@ public class TaskServiceImpl implements TaskService {
                 .orElseThrow(() -> new PersonnelNotFoundException(
                         "Personnel not found with ID: " + req.getPersonnelId()));
 
+        // FIX: Prevent assigning tasks to inactive/suspended personnel
+        if (p.getStatus() != PersonnelStatus.ACTIVE) {
+            throw new BusinessException("Cannot assign tasks to personnel who are not ACTIVE.");
+        }
+
         Task t = Task.builder()
                 .farmId(farmId)
                 .personnelId(p.getId())
@@ -98,10 +104,15 @@ public class TaskServiceImpl implements TaskService {
         if (req.getDescription() != null) t.setDescription(req.getDescription());
         if (req.getDeadline() != null) t.setDeadline(req.getDeadline());
         if (req.getExpectedHours() != null) t.setExpectedHours(req.getExpectedHours());
+
         if (req.getPersonnelId() != null && !req.getPersonnelId().equals(t.getPersonnelId())) {
             Personnel p = personnelRepository.findByIdAndFarmIdLive(req.getPersonnelId(), farmId)
                     .orElseThrow(() -> new PersonnelNotFoundException(
                             "Personnel not found: " + req.getPersonnelId()));
+
+            if (p.getStatus() != PersonnelStatus.ACTIVE) {
+                throw new BusinessException("Cannot assign tasks to personnel who are not ACTIVE.");
+            }
             t.setPersonnelId(p.getId());
         }
         return mapper.toResponse(taskRepository.save(t));
@@ -201,12 +212,12 @@ public class TaskServiceImpl implements TaskService {
         LocalDate today = LocalDate.now();
         if (!today.equals(p.getLastProductivityUpdate())) {
             p.setWorkingDaysCount(p.getWorkingDaysCount() + 1);
-            p.setTotalHoursWorkedLast30Days(
-                    (p.getTotalHoursWorkedLast30Days() == null ? 0.0 : p.getTotalHoursWorkedLast30Days())
-                            + hours);
             p.setLastProductivityUpdate(today);
-            personnelRepository.save(p);
         }
+        // Always add the hours, regardless of whether it's a new day or not
+        p.setTotalHoursWorkedLast30Days(
+                (p.getTotalHoursWorkedLast30Days() == null ? 0.0 : p.getTotalHoursWorkedLast30Days()) + hours);
+        personnelRepository.save(p);
     }
 
     @Override
@@ -262,10 +273,12 @@ public class TaskServiceImpl implements TaskService {
     @Override
     @Transactional
     public void processUnvalidatedTasks() {
-        LocalDateTime startOfDay = LocalDate.now().atStartOfDay();
-        LocalDateTime endOfDay = LocalDate.now().atTime(23, 59, 59);
+        // FIX: Look for tasks that were submitted *yesterday* to give admins a full day to validate
+        LocalDateTime startOfYesterday = LocalDate.now().minusDays(1).atStartOfDay();
+        LocalDateTime endOfYesterday = LocalDate.now().minusDays(1).atTime(23, 59, 59);
+
         List<Task> unvalidated = taskRepository.findSubmittedTasksWithStopTimeBetween(
-                TaskStatus.SUBMITTED, startOfDay, endOfDay);
+                TaskStatus.SUBMITTED, startOfYesterday, endOfYesterday);
         unvalidated.forEach(t -> {
             t.setStatus(TaskStatus.UNCOMPLETED);
             t.setIsValidated(false);
@@ -280,29 +293,7 @@ public class TaskServiceImpl implements TaskService {
     @Override
     @Transactional
     public void updateDailyProductivity() {
-        LocalDate yesterday = LocalDate.now().minusDays(1);
-        personnelRepository.findByStatusLive(PersonnelStatus.ACTIVE).forEach(p -> {
-            if (yesterday.equals(p.getLastProductivityUpdate())) return;
 
-            List<Task> completed = taskRepository.findByPersonnelIdAndIsValidatedLive(
-                            p.getId(), true)
-                    .stream()
-                    .filter(t -> t.getValidationTime() != null
-                            && t.getValidationTime().toLocalDate().equals(yesterday))
-                    .toList();
-
-            if (!completed.isEmpty()) {
-                double h = completed.stream()
-                        .mapToDouble(t -> t.getActualHours() != null ? t.getActualHours() : 0.0)
-                        .sum();
-                p.setTotalHoursWorkedLast30Days(
-                        (p.getTotalHoursWorkedLast30Days() == null
-                                ? 0.0 : p.getTotalHoursWorkedLast30Days()) + h);
-                p.setWorkingDaysCount(p.getWorkingDaysCount() + 1);
-                p.setLastProductivityUpdate(yesterday);
-                personnelRepository.save(p);
-            }
-        });
     }
 
     @Override

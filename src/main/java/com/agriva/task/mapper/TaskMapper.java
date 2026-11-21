@@ -14,7 +14,7 @@ public class TaskMapper {
 
     public TaskResponse toResponse(Task t) {
         String personnelName = t.getPersonnelId() == null ? null
-                : personnelLookupPort.findById(t.getPersonnelId())
+                : personnelLookupPort.findByIdAndFarmId(t.getPersonnelId(), t.getFarmId())
                   .map(PersonnelLookupPort.PersonnelInfo::name)
                   .orElse("Unknown");
 

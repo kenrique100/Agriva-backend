@@ -12,12 +12,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 
-/**
- * Runs every minute. For any IN_PROGRESS task whose accumulated time
- * (totalWorkedMinutes + elapsed since last résumé) has reached or exceeded
- * expectedHours, the timer is force-stopped at exactly expectedHours and the
- * task is auto-submitted so MASTER can validate it.
- */
 @Component
 @RequiredArgsConstructor
 @Slf4j
@@ -30,10 +24,14 @@ public class TaskAutoStopScheduler {
     public void autoStopOverdueTasks() {
         List<Task> running = taskRepository.findTasksDueForAutoStop();
         if (running.isEmpty()) return;
+
         LocalDateTime now = LocalDateTime.now();
         for (Task t : running) {
             long accumulated = t.getTotalWorkedMinutes() != null ? t.getTotalWorkedMinutes() : 0L;
-            long expectedMinutes = t.getExpectedHours() * 60L;
+
+            long expectedHours = t.getExpectedHours() != null ? t.getExpectedHours() : 0;
+            long expectedMinutes = expectedHours * 60L;
+
             LocalDateTime stopAt = t.getLastResumeTime().plusMinutes(expectedMinutes - accumulated);
             if (stopAt.isAfter(now)) stopAt = now;
             t.setTotalWorkedMinutes(expectedMinutes);

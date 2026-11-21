@@ -14,7 +14,7 @@ public class SalaryMapper {
 
     public SalaryPaymentResponse toResponse(SalaryPayment p) {
         String personnelName = p.getPersonnelId() == null ? null
-                : personnelLookupPort.findById(p.getPersonnelId())
+                : personnelLookupPort.findByIdAndFarmId(p.getPersonnelId(), p.getFarmId())
                   .map(PersonnelLookupPort.PersonnelInfo::name)
                   .orElse("Unknown");
 
