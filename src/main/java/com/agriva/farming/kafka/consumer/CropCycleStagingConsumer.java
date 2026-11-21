@@ -1,6 +1,5 @@
 package com.agriva.farming.kafka.consumer;
 
-import com.agriva.shared.kafka.IdempotencyGuard;
 import com.agriva.shared.kafka.topics.CropKafkaConfig;
 import com.agriva.farming.model.dto.requests.CropCycleSubmissionEvent;
 import com.agriva.farming.model.entity.StagedCropCycle;
@@ -21,7 +20,6 @@ import java.time.LocalDateTime;
 public class CropCycleStagingConsumer {
 
     private final StagedCropCycleRepository stagedRepo;
-    private final IdempotencyGuard idempotencyGuard;
 
     @KafkaListener(
             topics = CropKafkaConfig.STAGING_TOPIC,
@@ -40,10 +38,8 @@ public class CropCycleStagingConsumer {
 
         StagedCropCycleId pk = new StagedCropCycleId(event.getSubmissionId(), submittedAt);
 
-        // Idempotency: composite PK already exists → duplicate delivery
         if (stagedRepo.existsById(pk)) {
-            log.info("Duplicate delivery of crop cycle event {} — skipping",
-                    event.getSubmissionId());
+            log.info("Duplicate delivery of crop cycle event {} — skipping", event.getSubmissionId());
             return;
         }
 
@@ -60,17 +56,11 @@ public class CropCycleStagingConsumer {
 
         try {
             stagedRepo.saveAndFlush(staged);
+            log.info("Staged crop cycle {} persisted", staged.getId());
         } catch (DataIntegrityViolationException e) {
-            // Race with another consumer instance → treat as duplicate, not error.
+            // Race condition: another consumer instance inserted it milliseconds ago.
             log.warn("Duplicate insert for crop cycle event {} (idempotent): {}",
                     event.getSubmissionId(), e.getMessage());
-            return;
         }
-
-        // Only mark processed AFTER a successful save.
-        idempotencyGuard.tryMarkProcessed(
-                event.getSubmissionId(), CropKafkaConfig.STAGING_CONSUMER_GROUP);
-
-        log.info("Staged crop cycle {} persisted", staged.getId());
     }
 }
