@@ -3,6 +3,7 @@ package com.agriva.finance.service;
 import com.agriva.finance.model.dto.request.IncomeRequest;
 import com.agriva.finance.model.dto.response.IncomeResponse;
 import com.agriva.finance.model.dto.response.IncomeStagingResponse;
+import com.agriva.finance.model.dto.response.IncomeStatsResponse;
 import com.agriva.finance.model.dto.response.IncomeSubmissionAck;
 import com.agriva.shared.models.dto.BatchStatusResponse;
 import com.agriva.shared.models.dto.BatchUploadResponse;
@@ -11,6 +12,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.PrintWriter;
 import java.util.Map;
 import java.util.UUID;
 
@@ -35,4 +37,8 @@ public interface IncomeService {
     Page<IncomeStagingResponse> listStaging(UUID farmId, String status, Pageable pageable);
 
     Map<String, Long> stagingStats(UUID farmId);
+
+    IncomeStatsResponse getStats(UUID farmId);
+
+    void exportToCsv(UUID farmId, PrintWriter writer);
 }

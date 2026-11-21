@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -19,6 +20,9 @@ public class TransactionResponse {
     private String notes;
     private UUID createdByUserId;
     private String createdByUsername;
+    private String createdByRole;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private BigDecimal totalAmount;
+    private String primaryType;
 }

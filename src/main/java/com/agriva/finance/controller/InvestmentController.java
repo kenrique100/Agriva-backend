@@ -42,11 +42,12 @@ public class InvestmentController {
     public ResponseEntity<PageResponse<InvestmentResponse>> list(
             @AuthenticationPrincipal AuthenticatedUser u,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "10") int size, // Default size 10
             @RequestParam(defaultValue = "investmentDate,desc") String sort) {
         return ResponseEntity.ok(PageResponse.of(investmentService.listInvestments(
                 u.farmId(),
-                PageRequest.of(page, Math.min(size, 100), parseSort(sort)))));
+                // RESTRICTED TO MAX 10 RECORDS PER PAGE
+                PageRequest.of(page, Math.min(size, 10), parseSort(sort)))));
     }
 
     @GetMapping("/active")

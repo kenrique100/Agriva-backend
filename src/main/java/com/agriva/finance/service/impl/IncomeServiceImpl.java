@@ -4,6 +4,7 @@ import com.agriva.finance.model.dto.request.IncomeRequest;
 import com.agriva.finance.model.dto.request.IncomeSubmissionEvent;
 import com.agriva.finance.model.dto.response.IncomeResponse;
 import com.agriva.finance.model.dto.response.IncomeStagingResponse;
+import com.agriva.finance.model.dto.response.IncomeStatsResponse;
 import com.agriva.finance.model.dto.response.IncomeSubmissionAck;
 import com.agriva.shared.models.dto.BatchStatusResponse;
 import com.agriva.shared.models.dto.BatchUploadResponse;
@@ -35,6 +36,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.PrintWriter;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -225,6 +228,22 @@ public class IncomeServiceImpl implements IncomeService {
         return out;
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public IncomeStatsResponse getStats(UUID farmId) {
+        BigDecimal received = incomeRepo.sumAmountReceivedByFarmId(farmId);
+        BigDecimal expected = incomeRepo.sumExpectedAmountByFarmId(farmId);
+        BigDecimal due = incomeRepo.sumDueBalanceByFarmId(farmId);
+        long records = incomeRepo.countByFarmId(farmId);
+
+        return new IncomeStatsResponse(
+                received != null ? received : BigDecimal.ZERO,
+                expected != null ? expected : BigDecimal.ZERO,
+                due != null ? due : BigDecimal.ZERO,
+                records
+        );
+    }
+
     private String serialize(Object o) {
         try {
             return objectMapper.writeValueAsString(o);
@@ -252,7 +271,7 @@ public class IncomeServiceImpl implements IncomeService {
     @Override
     @Transactional(readOnly = true)
     public CursorPageResponse<IncomeResponse> listIncomeByCursor(UUID farmId, String cursor, int size) {
-        int cappedSize = Math.clamp(size, 1, 100);
+        int cappedSize = Math.clamp(size, 1, 10);
         Pageable limit = PageRequest.of(0, cappedSize + 1);
 
         java.time.LocalDate cursorDate = null;
@@ -279,5 +298,44 @@ public class IncomeServiceImpl implements IncomeService {
                 : null;
 
         return new CursorPageResponse<>(dtos, nextCursor, hasNext, dtos.size());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public void exportToCsv(UUID farmId, PrintWriter writer) {
+        List<Income> incomes = incomeRepo.findByFarmIdLive(farmId, Pageable.unpaged()).getContent();
+        Map<UUID, UserRef> userById = lookupUsers(incomes);
+
+        writer.println("ID,Date,Reason,Category,Amount Received,Expected Amount,Due Balance,Currency,Qty Received,Created By,Receipt URL");
+
+        for (Income i : incomes) {
+            String createdBy = "N/A";
+            if (i.getCreatedByUserId() != null) {
+                UserRef ref = userById.get(i.getCreatedByUserId());
+                createdBy = ref != null ? ref.username() : "deleted-user";
+            }
+
+            writer.printf("%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s%n",
+                    i.getId(),
+                    i.getIncomeDate(),
+                    escapeCsv(i.getReason()),
+                    i.getCategory(),
+                    i.getAmountReceived(),
+                    i.getExpectedAmount(),
+                    i.getDueBalance(),
+                    i.getCurrency(),
+                    i.getQuantity(),
+                    escapeCsv(createdBy),
+                    escapeCsv(i.getReceipt())
+            );
+        }
+    }
+
+    private String escapeCsv(String value) {
+        if (value == null) return "";
+        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
     }
 }

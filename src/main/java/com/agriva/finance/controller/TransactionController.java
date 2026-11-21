@@ -6,6 +6,7 @@ import com.agriva.finance.model.dto.response.TransactionSummaryResponse;
 import com.agriva.shared.models.dto.PageResponse;
 import com.agriva.shared.security.AuthenticatedUser;
 import com.agriva.finance.service.TransactionService;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,6 +17,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.IOException;
+import java.io.PrintWriter;
 import java.util.Map;
 import java.util.UUID;
 
@@ -40,10 +43,10 @@ public class TransactionController {
     public ResponseEntity<PageResponse<TransactionResponse>> list(
             @AuthenticationPrincipal AuthenticatedUser u,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "10") int size) {
         return ResponseEntity.ok(PageResponse.of(transactionService.list(
                 u.farmId(),
-                PageRequest.of(page, Math.min(size, 100),
+                PageRequest.of(page, Math.min(size, 10),
                         Sort.by(Sort.Direction.DESC, "occurredAt")))));
     }
 
@@ -76,6 +79,22 @@ public class TransactionController {
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id) {
         return ResponseEntity.ok(transactionService.summary(id, u.farmId()));
+    }
+
+    @GetMapping("/stats")
+    public ResponseEntity<Map<String, Long>> getStats(@AuthenticationPrincipal AuthenticatedUser u) {
+        return ResponseEntity.ok(transactionService.getStats(u.farmId()));
+    }
+
+    @GetMapping("/export")
+    public void exportToCsv(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            HttpServletResponse response) throws IOException {
+        response.setContentType("text/csv");
+        response.setHeader("Content-Disposition", "attachment; filename=\"transactions.csv\"");
+        try (PrintWriter writer = response.getWriter()) {
+            transactionService.exportToCsv(u.farmId(), writer);
+        }
     }
 
     @PostMapping("/backfill/from-income")

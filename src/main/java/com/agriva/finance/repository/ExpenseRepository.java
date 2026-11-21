@@ -97,6 +97,15 @@ public interface ExpenseRepository extends JpaRepository<Expense, UUID> {
         return v == null ? BigDecimal.ZERO : v;
     }
 
+    @Query("SELECT COALESCE(SUM(e.amountPaid), 0) FROM Expense e WHERE e.farmId = :farmId AND e.deletedAt IS NULL")
+    BigDecimal sumAmountPaidByFarmId(@Param("farmId") UUID farmId);
+
+    @Query("SELECT COALESCE(SUM(e.expectedAmount), 0) FROM Expense e WHERE e.farmId = :farmId AND e.deletedAt IS NULL")
+    BigDecimal sumExpectedAmountByFarmId(@Param("farmId") UUID farmId);
+
+    @Query("SELECT COALESCE(SUM(e.dueBalance), 0) FROM Expense e WHERE e.farmId = :farmId AND e.deletedAt IS NULL")
+    BigDecimal sumDueBalanceByFarmId(@Param("farmId") UUID farmId);
+
     @Query("SELECT e.receipt FROM Expense e " +
             "WHERE e.farmId = :farmId AND e.receipt IS NOT NULL")
     List<String> findReceiptsByFarmId(@Param("farmId") UUID farmId);

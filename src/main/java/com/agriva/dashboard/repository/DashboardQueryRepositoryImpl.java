@@ -47,8 +47,18 @@ public class DashboardQueryRepositoryImpl implements DashboardQueryRepository {
             return BigDecimal.ZERO;
         }
         if (sumsByCurrency.size() > 1) {
-            return null;
+            return null; // Mixed currency
         }
-        return (BigDecimal) sumsByCurrency.get(0)[1];
+
+        Object sumResult = sumsByCurrency.get(0)[1];
+        if (sumResult == null) return BigDecimal.ZERO;
+
+        // Safely convert from any Number type (BigDecimal, Double, Long) to BigDecimal
+        if (sumResult instanceof BigDecimal bd) {
+            return bd;
+        } else if (sumResult instanceof Number num) {
+            return new BigDecimal(num.toString());
+        }
+        return BigDecimal.ZERO;
     }
 }

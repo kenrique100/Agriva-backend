@@ -4,10 +4,13 @@ import com.agriva.finance.model.dto.response.TransactionResponse;
 import com.agriva.finance.model.entity.Transaction;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+
 @Component
 public class TransactionMapper {
 
-    public TransactionResponse toResponse(Transaction tx, String createdByUsername) {
+    public TransactionResponse toResponse(Transaction tx, String createdByUsername, String createdByRole,
+                                          BigDecimal totalAmount, String primaryType) {
         return new TransactionResponse(
                 tx.getId(),
                 tx.getFarmId(),
@@ -17,8 +20,11 @@ public class TransactionMapper {
                 tx.getNotes(),
                 tx.getCreatedByUserId(),
                 createdByUsername,
+                createdByRole,
                 tx.getCreatedAt(),
-                tx.getUpdatedAt()
+                tx.getUpdatedAt(),
+                totalAmount,
+                primaryType
         );
     }
 }

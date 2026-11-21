@@ -25,13 +25,13 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.PrintWriter;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -58,29 +58,26 @@ public class TransactionServiceImpl implements TransactionService {
         Transaction tx = txRepo.save(Transaction.builder()
                 .farmId(farmId)
                 .transactionRef(ref)
-                .occurredAt(request.getOccurredAt() != null
-                        ? request.getOccurredAt() : LocalDateTime.now())
+                .occurredAt(request.getOccurredAt() != null ? request.getOccurredAt() : LocalDateTime.now())
                 .status(TransactionStatus.DRAFT)
                 .notes(request.getNotes())
                 .createdByUserId(userId)
                 .build());
 
         log.info("Transaction {} created for farm {}", tx.getTransactionRef(), farmId);
-        return mapper.toResponse(tx, resolveUsername(tx.getCreatedByUserId()));
+        return enrichResponse(tx);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Page<TransactionResponse> list(UUID farmId, Pageable pageable) {
-        return txRepo.findByFarmIdLive(farmId, pageable)
-                .map(tx -> mapper.toResponse(tx, resolveUsername(tx.getCreatedByUserId())));
+        return txRepo.findByFarmIdLive(farmId, pageable).map(this::enrichResponse);
     }
 
     @Override
     @Transactional(readOnly = true)
     public TransactionResponse get(UUID id, UUID farmId) {
-        Transaction tx = load(id, farmId);
-        return mapper.toResponse(tx, resolveUsername(tx.getCreatedByUserId()));
+        return enrichResponse(load(id, farmId));
     }
 
     @Override
@@ -88,11 +85,9 @@ public class TransactionServiceImpl implements TransactionService {
     public TransactionResponse update(UUID id, TransactionRequest request, UUID farmId) {
         Transaction tx = load(id, farmId);
 
-        if (request.getTransactionRef() != null
-                && !request.getTransactionRef().equals(tx.getTransactionRef())) {
+        if (request.getTransactionRef() != null && !request.getTransactionRef().equals(tx.getTransactionRef())) {
             if (txRepo.existsByFarmIdAndTransactionRefLive(farmId, request.getTransactionRef())) {
-                throw new BusinessException("Transaction ref already exists on this farm: "
-                        + request.getTransactionRef());
+                throw new BusinessException("Transaction ref already exists on this farm: " + request.getTransactionRef());
             }
             tx.setTransactionRef(request.getTransactionRef());
         }
@@ -100,7 +95,7 @@ public class TransactionServiceImpl implements TransactionService {
         if (request.getNotes() != null) tx.setNotes(request.getNotes());
 
         Transaction saved = txRepo.save(tx);
-        return mapper.toResponse(saved, resolveUsername(saved.getCreatedByUserId()));
+        return enrichResponse(saved);
     }
 
     @Override
@@ -135,8 +130,7 @@ public class TransactionServiceImpl implements TransactionService {
         List<Income> orphans = incomeRepo.findByFarmIdAndTransactionIdIsNull(farmId);
         if (orphans.isEmpty()) return 0;
 
-        var byDate = orphans.stream()
-                .collect(java.util.stream.Collectors.groupingBy(Income::getIncomeDate));
+        var byDate = orphans.stream().collect(Collectors.groupingBy(Income::getIncomeDate));
 
         int created = 0;
         for (var entry : byDate.entrySet()) {
@@ -147,13 +141,9 @@ public class TransactionServiceImpl implements TransactionService {
                     + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
 
             Transaction tx = txRepo.save(Transaction.builder()
-                    .farmId(farmId)
-                    .transactionRef(ref)
-                    .occurredAt(date.atStartOfDay())
-                    .status(TransactionStatus.DRAFT)
-                    .notes("Backfilled from existing income on " + date)
-                    .createdByUserId(userId)
-                    .build());
+                    .farmId(farmId).transactionRef(ref).occurredAt(date.atStartOfDay())
+                    .status(TransactionStatus.DRAFT).notes("Backfilled from income on " + date)
+                    .createdByUserId(userId).build());
 
             group.forEach(inc -> inc.setTransactionId(tx.getId()));
             incomeRepo.saveAll(group);
@@ -162,31 +152,72 @@ public class TransactionServiceImpl implements TransactionService {
         return created;
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Long> getStats(UUID farmId) {
+        Map<String, Long> stats = new HashMap<>();
+        stats.put("total", txRepo.countByFarmId(farmId));
+        stats.put("draft", txRepo.countByFarmIdAndStatus(farmId, TransactionStatus.DRAFT));
+        stats.put("void", txRepo.countByFarmIdAndStatus(farmId, TransactionStatus.VOID));
+        stats.put("posted", txRepo.countByFarmIdAndStatus(farmId, TransactionStatus.POSTED));
+        return stats;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public void exportToCsv(UUID farmId, PrintWriter writer) {
+        List<Transaction> txs = txRepo.findByFarmIdLive(farmId, Pageable.unpaged()).getContent();
+        writer.println("Reference,Date,Status,Notes,Recorded By,Total Amount");
+
+        for (Transaction tx : txs) {
+            TransactionResponse dto = enrichResponse(tx);
+            writer.printf("%s,%s,%s,%s,%s,%s%n",
+                    dto.getTransactionRef(),
+                    dto.getOccurredAt(),
+                    dto.getStatus(),
+                    escapeCsv(dto.getNotes()),
+                    escapeCsv(dto.getCreatedByUsername()),
+                    dto.getTotalAmount()
+            );
+        }
+    }
+
+    private TransactionResponse enrichResponse(Transaction tx) {
+        User user = tx.getCreatedByUserId() != null ? authRepository.findById(tx.getCreatedByUserId()).orElse(null) : null;
+        String username = user != null ? user.getUsername() : "deleted-user";
+        String role = user != null ? user.getRole() : "N/A";
+
+        BigDecimal income = sumIncome(tx.getId());
+        BigDecimal expense = sumExpense(tx.getId());
+        BigDecimal investment = sumInvestment(tx.getId());
+
+        BigDecimal totalAmount = income.add(expense).add(investment);
+        String primaryType = "MIXED";
+        if (income.compareTo(BigDecimal.ZERO) > 0 && expense.compareTo(BigDecimal.ZERO) == 0 && investment.compareTo(BigDecimal.ZERO) == 0) primaryType = "INCOME";
+        else if (expense.compareTo(BigDecimal.ZERO) > 0 && income.compareTo(BigDecimal.ZERO) == 0 && investment.compareTo(BigDecimal.ZERO) == 0) primaryType = "EXPENSE";
+        else if (investment.compareTo(BigDecimal.ZERO) > 0 && income.compareTo(BigDecimal.ZERO) == 0 && expense.compareTo(BigDecimal.ZERO) == 0) primaryType = "INVESTMENT";
+
+        return mapper.toResponse(tx, username, role, totalAmount, primaryType);
+    }
+
     private Transaction load(UUID id, UUID farmId) {
         return txRepo.findByIdAndFarmIdLive(id, farmId)
-                .orElseThrow(() -> new TransactionNotFoundException(
-                        "Transaction not found with ID: " + id));
+                .orElseThrow(() -> new TransactionNotFoundException("Transaction not found with ID: " + id));
     }
 
     private BigDecimal sumIncome(UUID txId) {
-        return incomeRepo.findByTransactionIdLive(txId).stream()
-                .map(Income::getAmountReceived)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return incomeRepo.findByTransactionIdLive(txId).stream().map(Income::getAmountReceived)
+                .filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     private BigDecimal sumExpense(UUID txId) {
-        return expenseRepo.findByTransactionIdLive(txId).stream()
-                .map(Expense::getAmountPaid)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return expenseRepo.findByTransactionIdLive(txId).stream().map(Expense::getAmountPaid)
+                .filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     private BigDecimal sumInvestment(UUID txId) {
-        return investmentRepo.findByTransactionIdLive(txId).stream()
-                .map(Investment::getAmount)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return investmentRepo.findByTransactionIdLive(txId).stream().map(Investment::getAmount)
+                .filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     private String generateRef(UUID farmId) {
@@ -194,17 +225,14 @@ public class TransactionServiceImpl implements TransactionService {
         String candidate;
         int attempt = 0;
         do {
-            candidate = "TXN-" + date + "-"
-                    + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+            candidate = "TXN-" + date + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
             attempt++;
         } while (txRepo.existsByFarmIdAndTransactionRefLive(farmId, candidate) && attempt < 10);
         return candidate;
     }
 
-    private String resolveUsername(UUID userId) {
-        if (userId == null) return null;
-        return authRepository.findById(userId)
-                .map(User::getUsername)
-                .orElse("deleted-user");
+    private String escapeCsv(String val) {
+        if (val == null) return "";
+        return val.contains(",") ? "\"" + val.replace("\"", "\"\"") + "\"" : val;
     }
 }

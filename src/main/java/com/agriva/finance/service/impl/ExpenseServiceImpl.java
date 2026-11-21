@@ -4,6 +4,7 @@ import com.agriva.finance.model.dto.request.ExpenseRequest;
 import com.agriva.finance.model.dto.request.ExpenseSubmissionEvent;
 import com.agriva.finance.model.dto.response.ExpenseResponse;
 import com.agriva.finance.model.dto.response.ExpenseStagingResponse;
+import com.agriva.finance.model.dto.response.ExpenseStatsResponse;
 import com.agriva.finance.model.dto.response.ExpenseSubmissionAck;
 import com.agriva.shared.models.dto.BatchStatusResponse;
 import com.agriva.shared.models.dto.BatchUploadResponse;
@@ -39,6 +40,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.PrintWriter;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -314,7 +316,8 @@ public class ExpenseServiceImpl implements ExpenseService {
     @Override
     @Transactional(readOnly = true)
     public CursorPageResponse<ExpenseResponse> listExpensesByCursor(UUID farmId, String cursor, int size) {
-        int cappedSize = Math.clamp(size, 1, 100);
+        // RESTRICTED TO MAX 10 RECORDS PER PAGE
+        int cappedSize = Math.clamp(size, 1, 10);
         Pageable limit = PageRequest.of(0, cappedSize + 1);
 
         java.time.LocalDate cursorDate = null;
@@ -341,5 +344,64 @@ public class ExpenseServiceImpl implements ExpenseService {
                 : null;
 
         return new CursorPageResponse<>(dtos, nextCursor, hasNext, dtos.size());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ExpenseStatsResponse getStats(UUID farmId) {
+        BigDecimal paid = expenseRepo.sumAmountPaidByFarmId(farmId);
+        BigDecimal expected = expenseRepo.sumExpectedAmountByFarmId(farmId);
+        BigDecimal due = expenseRepo.sumDueBalanceByFarmId(farmId);
+        long records = expenseRepo.countByFarmId(farmId);
+
+        return new ExpenseStatsResponse(
+                paid != null ? paid : BigDecimal.ZERO,
+                expected != null ? expected : BigDecimal.ZERO,
+                due != null ? due : BigDecimal.ZERO,
+                records
+        );
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public void exportToCsv(UUID farmId, PrintWriter writer) {
+        // Fetch all live expenses for the farm (without pagination)
+        List<Expense> expenses = expenseRepo.findAll().stream()
+                .filter(e -> e.getFarmId().equals(farmId) && e.getDeletedAt() == null)
+                .toList();
+
+        writer.println("ID,Date,Reason,Category,Amount Paid,Expected Amount,Due Balance,Currency,Qty Purchased,Created By,Receipt URL");
+
+        Map<UUID, UserRef> userById = lookupUsers(expenses);
+
+        for (Expense e : expenses) {
+            String createdBy = "N/A";
+            if (e.getCreatedByUserId() != null) {
+                UserRef ref = userById.get(e.getCreatedByUserId());
+                createdBy = ref != null ? ref.username() : "deleted-user";
+            }
+
+            writer.printf("%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s%n",
+                    e.getId(),
+                    e.getExpenseDate(),
+                    escapeCsv(e.getReason()),
+                    e.getCategory(),
+                    e.getAmountPaid(),
+                    e.getExpectedAmount(),
+                    e.getDueBalance(),
+                    e.getCurrency(),
+                    e.getQtyPurchased(),
+                    escapeCsv(createdBy),
+                    escapeCsv(e.getReceipt())
+            );
+        }
+    }
+
+    private String escapeCsv(String value) {
+        if (value == null) return "";
+        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
     }
 }
