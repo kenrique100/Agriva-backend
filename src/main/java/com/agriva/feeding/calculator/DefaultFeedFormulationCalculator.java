@@ -23,12 +23,12 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
 
     private static final String ALGORITHM_VERSION = "agriva-default-v1";
     private static final String DEFAULT_TEMPLATE_NAME = "AGRIVA_DEFAULT_TILAPIA_GROWER";
-    private static final BigDecimal DEFAULT_LIQUID_DENSITY = new BigDecimal("0.90");
+    private static final BigDecimal FALLBACK_LIQUID_DENSITY = new BigDecimal("0.90");
     private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
     private static final int SCALE = 4;
-
     private final FormulationTemplateRepository templateRepository;
     private final FormulationTemplateLineRepository templateLineRepository;
+    private final FormulationCpCalculator cpCalculator;
 
     @Override
     public String algorithmVersion() {
@@ -69,9 +69,10 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
                         (a, b) -> a));
 
         List<FormulationLineResult> lines = new ArrayList<>(templateLines.size());
+        List<FormulationCpCalculator.Line> cpLines = new ArrayList<>(templateLines.size());
+
         BigDecimal totalKg = BigDecimal.ZERO;
         BigDecimal totalCost = BigDecimal.ZERO;
-        BigDecimal weightedCp = BigDecimal.ZERO;
 
         for (FormulationTemplateLine tl : templateLines) {
             AvailableIngredient ai = byLowerName.get(
@@ -87,7 +88,8 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
                     .multiply(percentage)
                     .divide(HUNDRED, SCALE, RoundingMode.HALF_UP);
 
-            BigDecimal requiredInStockUnit = toStockUnit(weightEquivalentKg, ai.unit());
+            BigDecimal requiredInStockUnit =
+                    toStockUnit(weightEquivalentKg, ai.unit(), ai.densityKgPerL());
 
             if (ai.quantityOnHand().compareTo(requiredInStockUnit) < 0) {
                 throw new InsufficientIngredientQuantityException(
@@ -105,9 +107,7 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
             BigDecimal unitCost = ai.costPerUnit();
             BigDecimal lineCost = unitCost.multiply(requiredInStockUnit);
 
-            BigDecimal cpPct = ai.crudeProteinPct() == null
-                    ? BigDecimal.ZERO : ai.crudeProteinPct();
-            weightedCp = weightedCp.add(cpPct.multiply(percentage));
+            cpLines.add(new FormulationCpCalculator.Line(percentage, ai.crudeProteinPct()));
 
             lines.add(new FormulationLineResult(
                     ai.ingredientId(),
@@ -119,7 +119,7 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
             totalCost = totalCost.add(lineCost);
         }
 
-        BigDecimal averageCp = weightedCp.divide(HUNDRED, 2, RoundingMode.HALF_UP);
+        BigDecimal averageCp = cpCalculator.weightedAverageCp(cpLines);
         Map<String, BigDecimal> nutrients = Map.of("crudeProteinPct", averageCp);
 
         log.info("ALGORITHM formulation computed: template={} lines={} totalKg={} avgCp={}%",
@@ -153,7 +153,6 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
                         ai -> ai,
                         (a, b) -> a));
 
-        // First pass: resolve, validate stock, validate cost, accumulate totalKg
         BigDecimal totalKg = BigDecimal.ZERO;
         List<ResolvedCustomLine> resolved = new ArrayList<>(input.manualLines().size());
 
@@ -170,7 +169,8 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
                         "Ingredient not found on this farm: " + ingId);
             }
 
-            BigDecimal requiredInStockUnit = toStockUnit(weightKg, ai.unit());
+            BigDecimal requiredInStockUnit =
+                    toStockUnit(weightKg, ai.unit(), ai.densityKgPerL());
 
             if (ai.quantityOnHand().compareTo(requiredInStockUnit) < 0) {
                 throw new InsufficientIngredientQuantityException(
@@ -191,10 +191,9 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
             throw new BusinessException("Total quantity must be greater than zero");
         }
 
-        // Second pass: compute percentages, line costs, and CP.
         List<FormulationLineResult> lines = new ArrayList<>(resolved.size());
+        List<FormulationCpCalculator.Line> cpLines = new ArrayList<>(resolved.size());
         BigDecimal totalCost = BigDecimal.ZERO;
-        BigDecimal weightedCp = BigDecimal.ZERO;
 
         for (ResolvedCustomLine r : resolved) {
             BigDecimal percentage = r.weightKg
@@ -210,14 +209,10 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
                     r.ai.costPerUnit()));
 
             totalCost = totalCost.add(lineCost);
-
-            // NEW: CP contribution — same formula as ALGORITHM (percentage × cpPct / 100).
-            BigDecimal cpPct = r.ai.crudeProteinPct() == null
-                    ? BigDecimal.ZERO : r.ai.crudeProteinPct();
-            weightedCp = weightedCp.add(percentage.multiply(cpPct));
+            cpLines.add(new FormulationCpCalculator.Line(percentage, r.ai.crudeProteinPct()));
         }
 
-        BigDecimal averageCp = weightedCp.divide(HUNDRED, 2, RoundingMode.HALF_UP);
+        BigDecimal averageCp = cpCalculator.weightedAverageCp(cpLines);
         Map<String, BigDecimal> nutrients = Map.of("crudeProteinPct", averageCp);
 
         log.info("CUSTOM formulation computed: lines={} totalKg={} totalCost={} avgCp={}%",
@@ -232,9 +227,14 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
             BigDecimal requiredInStockUnit
     ) {}
 
-    private BigDecimal toStockUnit(BigDecimal weightKg, String stockUnit) {
+    private BigDecimal toStockUnit(BigDecimal weightKg,
+                                   String stockUnit,
+                                   BigDecimal densityKgPerL) {
         if (stockUnit != null && "L".equalsIgnoreCase(stockUnit)) {
-            return weightKg.divide(DEFAULT_LIQUID_DENSITY, SCALE, RoundingMode.HALF_UP);
+            BigDecimal density = (densityKgPerL != null && densityKgPerL.signum() > 0)
+                    ? densityKgPerL
+                    : FALLBACK_LIQUID_DENSITY;
+            return weightKg.divide(density, SCALE, RoundingMode.HALF_UP);
         }
         return weightKg;
     }

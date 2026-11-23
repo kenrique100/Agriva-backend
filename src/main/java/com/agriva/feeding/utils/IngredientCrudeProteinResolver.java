@@ -14,14 +14,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Resolves effective crude protein per ingredient:
- *   1. user-defined ingredient.crude_protein_pct (if set)
- *   2. FeedCpProperties fallback (application.properties)
- * <p>
- * No template lookup required — templates store structure only;
- * reference CP values live in config.
- */
 @Component
 @RequiredArgsConstructor
 @Slf4j

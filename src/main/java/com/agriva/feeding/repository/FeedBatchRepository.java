@@ -20,7 +20,13 @@ public interface FeedBatchRepository extends JpaRepository<FeedBatch, UUID> {
     @Query("SELECT b FROM FeedBatch b WHERE b.id = :id AND b.farmId = :farmId")
     Optional<FeedBatch> findByIdAndFarmId(@Param("id") UUID id, @Param("farmId") UUID farmId);
 
-    long countByFarmId(UUID farmId);
+    @Query("SELECT COUNT(b) FROM FeedBatch b " +
+            "WHERE b.forecastId = :forecastId AND b.farmId = :farmId")
+    long countByForecastIdAndFarmId(
+            @Param("forecastId") UUID forecastId, @Param("farmId") UUID farmId);
 
-    Page<FeedBatch> findByFarmIdOrderByProductionDateDesc(UUID farmId, Pageable pageable);
+    @Query("SELECT b FROM FeedBatch b " +
+            "WHERE b.idempotencyKey = :key AND b.farmId = :farmId")
+    Optional<FeedBatch> findByIdempotencyKeyAndFarmId(
+            @Param("key") String idempotencyKey, @Param("farmId") UUID farmId);
 }

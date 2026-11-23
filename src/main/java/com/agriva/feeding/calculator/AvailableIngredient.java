@@ -9,5 +9,6 @@ public record AvailableIngredient(
         BigDecimal quantityOnHand,
         String unit,
         BigDecimal costPerUnit,
-        BigDecimal crudeProteinPct
+        BigDecimal crudeProteinPct,
+        BigDecimal densityKgPerL
 ) {}

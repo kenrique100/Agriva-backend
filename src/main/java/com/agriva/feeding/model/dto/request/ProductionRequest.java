@@ -23,4 +23,9 @@ public class ProductionRequest {
 
     @Size(max = 500)
     private String notes;
+
+    private UUID forecastId;
+
+    @Size(max = 100)
+    private String idempotencyKey;
 }

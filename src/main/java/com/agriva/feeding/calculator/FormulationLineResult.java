@@ -5,7 +5,7 @@ import java.util.UUID;
 
 public record FormulationLineResult(
         UUID ingredientId,
-        BigDecimal quantityKg,
+        BigDecimal quantityInStockUnit,
         BigDecimal percentage,
         BigDecimal unitCost
 ) {}

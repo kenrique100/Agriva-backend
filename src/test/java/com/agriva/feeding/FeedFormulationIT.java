@@ -222,7 +222,8 @@ class FeedFormulationIT {
         FormulationResponse created = formulationService.createFormulation(
                 customRequest("Delete test", "TILAPIA", line(maize, "10")), farmId, userId);
 
-        formulationService.deleteFormulation(created.getId(), farmId);
+        // userId is now required so the service can publish the expense reversal
+        formulationService.deleteFormulation(created.getId(), farmId, userId);
 
         assertThatThrownBy(() -> formulationService.getFormulation(created.getId(), farmId))
                 .isInstanceOf(com.agriva.shared.exception.ResourceNotFoundException.class);

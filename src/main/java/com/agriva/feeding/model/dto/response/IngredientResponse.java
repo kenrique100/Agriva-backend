@@ -38,5 +38,6 @@ public class IngredientResponse {
         private BigDecimal quantityOnHand;
         private IngredientUnit unit;
         private LocalDateTime lastReplenishedAt;
+        private Long version;
     }
 }

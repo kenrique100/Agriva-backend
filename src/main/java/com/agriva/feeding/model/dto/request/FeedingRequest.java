@@ -8,13 +8,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.UUID;
 
-/**
- * Records one physical feed delivery.
- * <p>
- * {@code feedBatchId} is optional: the farm store is a single fungible
- * balance, and the feeding can be recorded without batch traceability. When
- * supplied, the batch must exist on this farm (else 404).
- */
 @Data
 public class FeedingRequest {
 

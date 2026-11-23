@@ -9,11 +9,6 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Flat line-based request. CUSTOM requires {@code lines}; ALGORITHM ignores them
- * (it builds the recipe from the template). {@code targetQuantityKg} is required
- * only for ALGORITHM — for CUSTOM the request's lines drive the total.
- */
 @Data
 public class FormulationRequest {
 
@@ -36,6 +31,8 @@ public class FormulationRequest {
         private BigDecimal targetCpValue;
 
         private UUID formulaTemplateId;
+
+        private UUID forecastId;
 
         @Valid
         private List<Line> lines;

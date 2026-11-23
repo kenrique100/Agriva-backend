@@ -2,7 +2,6 @@ package com.agriva.feeding;
 
 import com.agriva.TestcontainersConfiguration;
 import com.agriva.farming.repository.FarmRepository;
-import com.agriva.feeding.calculator.ManualDemandForecaster;
 import com.agriva.feeding.model.dto.request.DemandForecastRequest;
 import com.agriva.feeding.repository.DemandForecastRepository;
 import com.agriva.feeding.repository.DemandForecastStageRepository;
@@ -43,8 +42,6 @@ class FeedForecastNotWiredIT {
     @Autowired AuthService authService;
     @Autowired AuthRepository authRepository;
     @Autowired FarmRepository farmRepository;
-    @Autowired ManualDemandForecaster manualForecaster;
-
     @Autowired FeedingEventRepository feedingEventRepo;
     @Autowired FeedBatchRepository feedBatchRepo;
     @Autowired FarmFeedStoreRepository farmFeedStoreRepo;

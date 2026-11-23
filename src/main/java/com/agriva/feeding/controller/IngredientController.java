@@ -1,9 +1,12 @@
 package com.agriva.feeding.controller;
 
+import com.agriva.feeding.model.dto.request.AdjustIngredientStockRequest;
 import com.agriva.feeding.model.dto.request.IngredientRequest;
 import com.agriva.feeding.model.dto.request.IngredientStockReplenishRequest;
+import com.agriva.feeding.model.dto.request.WriteOffIngredientStockRequest;
 import com.agriva.feeding.model.dto.response.IngredientResponse;
 import com.agriva.feeding.model.dto.response.IngredientStatsResponse;
+import com.agriva.feeding.model.dto.response.IngredientStockAdjustmentResponse;
 import com.agriva.feeding.service.IngredientService;
 import com.agriva.feeding.utils.IngredientCrudeProteinResolver;
 import com.agriva.shared.models.dto.BatchStatusResponse;
@@ -92,6 +95,38 @@ public class IngredientController {
             @Valid @RequestBody IngredientStockReplenishRequest request) {
         return ResponseEntity.ok(
                 ingredientService.replenishStock(id, request, u.farmId(), u.userId()));
+    }
+
+    @PutMapping("/{id}/stock")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<IngredientResponse> adjustStock(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID id,
+            @Valid @RequestBody AdjustIngredientStockRequest request) {
+        return ResponseEntity.ok(
+                ingredientService.adjustStock(id, request, u.farmId(), u.userId()));
+    }
+
+    @PostMapping("/{id}/stock/writeoff")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<IngredientResponse> writeOffStock(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID id,
+            @Valid @RequestBody WriteOffIngredientStockRequest request) {
+        return ResponseEntity.ok(
+                ingredientService.writeOffStock(id, request, u.farmId(), u.userId()));
+    }
+
+    @GetMapping("/{id}/stock/adjustments")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<PageResponse<IngredientStockAdjustmentResponse>> stockAdjustments(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID id,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(PageResponse.of(ingredientService.listStockAdjustments(
+                id, u.farmId(),
+                PageRequest.of(page, Math.min(size, 100)))));
     }
 
     @PostMapping(value = "/bulk", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

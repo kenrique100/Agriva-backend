@@ -26,6 +26,9 @@ public class FeedBatch {
     @Column(name = "formulation_id", nullable = false)
     private UUID formulationId;
 
+    @Column(name = "forecast_id")
+    private UUID forecastId;
+
     @Column(name = "formulation_name", nullable = false, length = 100)
     private String formulationName;
 
@@ -52,6 +55,9 @@ public class FeedBatch {
 
     @Column(name = "created_by_user_id")
     private UUID createdByUserId;
+
+    @Column(name = "idempotency_key", length = 100)
+    private String idempotencyKey;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

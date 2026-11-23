@@ -64,6 +64,10 @@ public class StagedExpenseValidator extends AbstractStagedValidator<StagedExpens
 
     @Override
     protected List<String> validateRequest(ExpenseRequest request, UUID farmId) {
+        // Allow negative amounts for reversals/credits
+        if (request.getAmountPaid() != null && request.getAmountPaid().signum() < 0) {
+            return List.of();
+        }
         return expenseValidator.validate(request, farmId);
     }
 
@@ -92,17 +96,16 @@ public class StagedExpenseValidator extends AbstractStagedValidator<StagedExpens
                 .orElse(null);
         if (active == null) {
             return PromotionResult.terminal(
-                    "No active investment for this farm. "
-                            + "Create and activate an investment before recording expenses.");
+                    "No active investment for this farm. Create and activate an investment before recording expenses.");
         }
 
         BigDecimal alreadySpent = investmentRepo.sumExpensesByInvestmentIdOrZero(active.getId());
         BigDecimal projected = alreadySpent.add(request.getAmountPaid());
+
         if (projected.compareTo(active.getAmount()) > 0) {
             BigDecimal remaining = active.getAmount().subtract(alreadySpent);
             return PromotionResult.terminal(String.format(
-                    "Investment limit exceeded. Remaining balance: %s %s. "
-                            + "Expense amount paid: %s %s.",
+                    "Investment limit exceeded. Remaining balance: %s %s. Expense amount paid: %s %s.",
                     remaining.toPlainString(), active.getCurrency(),
                     request.getAmountPaid().toPlainString(), request.getCurrency()));
         }

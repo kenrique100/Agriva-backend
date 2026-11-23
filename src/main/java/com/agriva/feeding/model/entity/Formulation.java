@@ -64,6 +64,9 @@ public class Formulation extends AuditableEntity {
     @Column(name = "computed_cp_value", precision = 6, scale = 2)
     private BigDecimal computedCpValue;
 
+    @Column(name = "forecast_id")
+    private UUID forecastId;
+
     @Version
     @Column(nullable = false)
     private Long version;

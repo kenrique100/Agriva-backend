@@ -2,15 +2,20 @@ package com.agriva.feeding.model.dto.request;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.UUID;
 
-/**
- * Business payload for the production bulk stream. Formulation is resolved by
- * NAME in the validator, so a production can be staged before its formulation
- * exists on the farm.
- */
 public record ProductionSubmissionPayload(
         String formulationName,
         BigDecimal producedKg,
         LocalDate productionDate,
-        String notes
-) {}
+        String notes,
+        UUID forecastId
+) {
+    /** Convenience constructor for callers that don't link a forecast. */
+    public ProductionSubmissionPayload(String formulationName,
+                                       BigDecimal producedKg,
+                                       LocalDate productionDate,
+                                       String notes) {
+        this(formulationName, producedKg, productionDate, notes, null);
+    }
+}

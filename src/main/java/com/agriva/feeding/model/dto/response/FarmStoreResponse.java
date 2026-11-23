@@ -23,4 +23,5 @@ public class FarmStoreResponse {
     private Integer fullBags;
     private BigDecimal remainderKg;
     private LocalDateTime lastUpdatedAt;
+    private Long version;
 }

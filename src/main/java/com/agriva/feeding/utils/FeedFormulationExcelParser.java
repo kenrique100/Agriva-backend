@@ -33,6 +33,7 @@ public class FeedFormulationExcelParser {
                 String h = fmt.formatCellValue(c).trim().toLowerCase();
                 if (!h.isEmpty()) colMap.put(h, c.getColumnIndex());
             }
+
             if (!colMap.containsKey("name")
                     || !colMap.containsKey("target_species")
                     || !colMap.containsKey("mode")
@@ -48,6 +49,7 @@ public class FeedFormulationExcelParser {
                 Row row = sheet.getRow(r);
                 if (row == null || ExcelCellReader.isEmptyRow(row, header.getLastCellNum())) continue;
                 int rowNum = r + 1;
+
                 try {
                     String name = ExcelCellReader.readString(getCell(row, colMap, "name"));
                     if (name == null || name.isBlank())
@@ -68,30 +70,36 @@ public class FeedFormulationExcelParser {
                     BigDecimal targetKg = ExcelCellReader.readBigDecimal(
                             getCell(row, colMap, "target_quantity_kg"), "target_quantity_kg");
 
-                    // Effectively-final: single assignment via helper.
                     BigDecimal cp = readOptionalDecimal(row, colMap, "target_cp_value");
 
                     String ingName = ExcelCellReader.readString(getCell(row, colMap, "ingredient_name"));
                     if (ingName == null || ingName.isBlank())
                         throw new ExcelProcessingException("ingredient_name is required");
+
                     BigDecimal qty = ExcelCellReader.readBigDecimal(
                             getCell(row, colMap, "quantity_kg"), "quantity_kg");
 
-                    Group g = groups.computeIfAbsent(name.trim(),
+                    // with the same name are NOT merged into one corrupted record.
+                    String groupKey = buildGroupKey(name, species);
+                    Group g = groups.computeIfAbsent(groupKey,
                             k -> new Group(name.trim(), species.trim(), mode, targetKg, cp));
                     g.lines.add(new FormulationSubmissionPayload.Line(ingName.trim(), qty));
                     g.firstRow = Math.min(g.firstRow, rowNum);
+
                 } catch (Exception ex) {
-                    // Attach the failure to the name if we have one, else stand alone
+                    log.warn("Feed-formulation Excel row {} failed: {}", rowNum, ex.getMessage());
                     String name = ExcelCellReader.readString(getCell(row, colMap, "name"));
+                    String species = ExcelCellReader.readString(getCell(row, colMap, "target_species"));
                     if (name != null && !name.isBlank()) {
-                        Group g = groups.computeIfAbsent(name.trim(),
-                                k -> new Group(name.trim(), null, null, null, null));
+                        String groupKey = buildGroupKey(name, species);
+                        Group g = groups.computeIfAbsent(groupKey,
+                                k -> new Group(name.trim(),
+                                        species == null ? null : species.trim(),
+                                        null, null, null));
                         g.error = ex.getMessage();
                         g.firstRow = Math.min(g.firstRow, rowNum);
                     } else {
-                        groups.put("__orphan_" + rowNum,
-                                orphan(rowNum, ex.getMessage()));
+                        groups.put("__orphan_" + rowNum, orphan(rowNum, ex.getMessage()));
                     }
                 }
             }
@@ -118,10 +126,15 @@ public class FeedFormulationExcelParser {
     }
 
     /**
-     * Reads an optional decimal cell. Returns null when the cell is missing or
-     * blank; throws NumberFormatException on garbage. Single-expression return
-     * makes any caller's local an effectively-final one-liner.
+     * Builds a composite grouping key so formulations with the same name
+     * but different target species are treated as distinct.
      */
+    private static String buildGroupKey(String name, String species) {
+        String n = name == null ? "" : name.trim();
+        String s = species == null ? "" : species.trim();
+        return n + "||" + s;
+    }
+
     private static BigDecimal readOptionalDecimal(Row row, Map<String, Integer> colMap, String key) {
         String s = ExcelCellReader.readString(getCell(row, colMap, key));
         if (s == null || s.isBlank()) return null;

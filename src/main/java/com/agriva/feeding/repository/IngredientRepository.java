@@ -1,6 +1,7 @@
 package com.agriva.feeding.repository;
 
 import com.agriva.feeding.model.entity.Ingredient;
+import com.agriva.shared.models.enums.Currency;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -37,6 +38,10 @@ public interface IngredientRepository extends JpaRepository<Ingredient, UUID> {
 
     @Query("SELECT COUNT(i) FROM Ingredient i WHERE i.farmId = :farmId AND i.deletedAt IS NULL")
     long countLiveByFarmId(@Param("farmId") UUID farmId);
+
+    @Query("SELECT i.currency FROM Ingredient i " +
+            "WHERE i.farmId = :farmId AND i.deletedAt IS NULL AND i.currency IS NOT NULL")
+    List<Currency> findDistinctCurrenciesByFarmIdLive(@Param("farmId") UUID farmId);
 
     @Modifying
     @Query("UPDATE Ingredient i SET i.deletedAt = :now " +

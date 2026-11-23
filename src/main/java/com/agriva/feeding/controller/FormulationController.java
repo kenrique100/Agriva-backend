@@ -55,12 +55,11 @@ public class FormulationController {
     }
 
     @DeleteMapping("/{id}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<Void> delete(
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id) {
-        formulationService.deleteFormulation(id, u.farmId());
+        formulationService.deleteFormulation(id, u.farmId(), u.userId());
         return ResponseEntity.noContent().build();
     }
 }

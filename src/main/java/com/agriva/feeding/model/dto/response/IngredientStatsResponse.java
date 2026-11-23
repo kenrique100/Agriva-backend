@@ -5,14 +5,6 @@ import lombok.*;
 
 import java.math.BigDecimal;
 
-/**
- * Dashboard stats for the ingredient page.
- * <p>
- * Note: currentStockValue sums qty × cost/unit across currencies.
- * Correct for single-currency farms. For multi-currency farms, this is
- * a known approximation — a per-currency breakdown can be added later
- * if needed.
- */
 @Data
 @Builder
 @NoArgsConstructor

@@ -30,7 +30,7 @@ public class FormulationMapper {
                   .map(l -> FormulationResponse.Line.builder()
                             .ingredientId(l.getIngredientId())
                             .ingredientName(l.getIngredientName())
-                            .quantityKg(l.getQuantityKg())
+                            .quantityInStockUnit(l.getQuantityKg())
                             .percentage(l.getPercentage())
                             .unitCost(l.getUnitCost())
                             .lineCost(l.getLineCost())
@@ -54,6 +54,7 @@ public class FormulationMapper {
                 .lines(lineDtos)
                 .computedCpValue(f.getComputedCpValue())
                 .expenseSubmissionId(f.getExpenseSubmissionId())
+                .forecastId(f.getForecastId())
                 .build();
     }
 

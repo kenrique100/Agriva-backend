@@ -43,6 +43,12 @@ public class StagedFeedingProduction {
     @Column(name = "submitted_by_email", length = 100)
     private String submittedByEmail;
 
+    @Column(name = "batch_id")
+    private UUID batchId;
+
+    @Column(name = "row_number")
+    private Integer rowNumber;
+
     @Column(name = "last_attempt_at")
     private LocalDateTime lastAttemptAt;
 

@@ -9,12 +9,6 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 
-/**
- * Reference crude-protein values per ingredient, sourced from
- * application.properties (agriva.feeding.cp.*). Change the property,
- * restart — no migration needed. User-set values on
- * ingredient.crude_protein_pct still override these defaults.
- */
 @Data
 @Component
 @ConfigurationProperties(prefix = "agriva.feeding.cp")
@@ -36,10 +30,6 @@ public class FeedCpProperties {
     private BigDecimal palmOil             = new BigDecimal("0");
     private BigDecimal antiToxin           = new BigDecimal("0");
 
-    /**
-     * Returns a name → CP lookup keyed by lowercase trimmed ingredient name.
-     * Includes common spelling variants so users' ingredient names match.
-     */
     public Map<String, BigDecimal> asNameMap() {
         Map<String, BigDecimal> out = new LinkedHashMap<>();
         put(out, "soya beans", soyaBeans);

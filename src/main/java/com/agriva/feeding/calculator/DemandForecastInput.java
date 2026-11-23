@@ -6,7 +6,7 @@ import java.util.UUID;
 public record DemandForecastInput(
         UUID farmId,
         String species,
-        long numberOfHead,
+        int numberOfHead,
         BigDecimal initialWeightKg,
         BigDecimal targetWeightKg,
         BigDecimal waterTemperatureC,

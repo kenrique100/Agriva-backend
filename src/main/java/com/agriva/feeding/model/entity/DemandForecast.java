@@ -23,6 +23,9 @@ public class DemandForecast extends AuditableEntity {
     @Column(name = "farm_id", nullable = false)
     private UUID farmId;
 
+    @Column(name = "fishery_batch_id")
+    private UUID fisheryBatchId;
+
     @Column(nullable = false, length = 50)
     private String species;
 

@@ -13,10 +13,6 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * Default implementation of {@link FeedingHistoryPort}. Backed by
- * {@link FeedingEventRepository}; read-only, farm-scoped, no locking.
- */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -47,9 +43,33 @@ public class FeedingHistoryAdapter implements FeedingHistoryPort {
                         farmId, consumerType, consumerId, from, to)
                 .stream()
                 .map(row -> new DailyFeedConsumption(
-                        (LocalDate) row[0],
-                        (BigDecimal) row[1],
-                        ((Number) row[2]).intValue()))
+                        toLocalDate(row[0]),
+                        toBigDecimal(row[1]),
+                        toInt(row[2])))
                 .toList();
+    }
+
+    private static LocalDate toLocalDate(Object o) {
+        if (o == null) return null;
+        if (o instanceof LocalDate ld) return ld;
+        if (o instanceof java.sql.Date sd) return sd.toLocalDate();
+        if (o instanceof java.util.Date ud) return new java.sql.Date(ud.getTime()).toLocalDate();
+        throw new IllegalStateException(
+                "Cannot convert value of type " + o.getClass().getName() + " to LocalDate");
+    }
+
+    private static BigDecimal toBigDecimal(Object o) {
+        if (o == null) return BigDecimal.ZERO;
+        if (o instanceof BigDecimal bd) return bd;
+        if (o instanceof Number n) return new BigDecimal(n.toString());
+        throw new IllegalStateException(
+                "Cannot convert value of type " + o.getClass().getName() + " to BigDecimal");
+    }
+
+    private static int toInt(Object o) {
+        if (o == null) return 0;
+        if (o instanceof Number n) return n.intValue();
+        throw new IllegalStateException(
+                "Cannot convert value of type " + o.getClass().getName() + " to int");
     }
 }
