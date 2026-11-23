@@ -8,9 +8,9 @@ import com.agriva.feeding.model.entity.FeedingEvent;
 import com.agriva.feeding.port.ConsumerSnapshot;
 import com.agriva.feeding.port.ConsumerType;
 import com.agriva.feeding.port.FeedConsumerPort;
-import com.agriva.feeding.repository.FarmFeedStoreRepository;
 import com.agriva.feeding.repository.FeedBatchRepository;
 import com.agriva.feeding.repository.FeedingEventRepository;
+import com.agriva.feeding.service.FarmStoreService;
 import com.agriva.feeding.service.FeedConsumptionService;
 import com.agriva.shared.exception.BusinessException;
 import com.agriva.shared.exception.ConsumerNotFoundInDomainException;
@@ -36,44 +36,43 @@ public class FeedConsumptionServiceImpl implements FeedConsumptionService {
     private final List<FeedConsumerPort> consumerPorts;
     private final FeedingEventRepository feedingEventRepository;
     private final FeedBatchRepository feedBatchRepository;
-    private final FarmFeedStoreRepository farmStoreRepository;
+    private final FarmStoreService farmStoreService;
     private final FeedFeedingMapper mapper;
 
     @Override
     @Transactional
     public FeedingEventResponse feed(FeedingRequest request, UUID farmId, UUID userId) {
-        // 1. Resolve the port by consumer type
+        if (request.getQuantityKg() == null || request.getQuantityKg().signum() <= 0) {
+            throw new BusinessException("quantityKg must be positive");
+        }
+        if (request.getFedAt() == null || request.getFedAt().isAfter(java.time.LocalDate.now())) {
+            throw new BusinessException("fedAt cannot be in the future");
+        }
+
         FeedConsumerPort port = resolvePort(request.getConsumerType());
 
-        // 2. Snapshot the consumer — 422 if the domain does not know it
         ConsumerSnapshot snapshot = port.snapshot(farmId, request.getConsumerId())
                 .orElseThrow(() -> new ConsumerNotFoundInDomainException(
                         request.getConsumerType().name(), request.getConsumerId()));
 
-        // 3. If a batch was referenced, it must exist on this farm (typo guard)
         if (request.getFeedBatchId() != null) {
             feedBatchRepository.findByIdAndFarmId(request.getFeedBatchId(), farmId)
                     .orElseThrow(() -> new ResourceNotFoundException(
                             "Feed batch not found with ID: " + request.getFeedBatchId()));
         }
 
-        // 4. Lock the farm store, check balance — 422 if insufficient
-        FarmFeedStore store = farmStoreRepository.findByFarmIdForUpdate(farmId)
-                .orElseThrow(() -> new InsufficientFeedStoreException(
-                        request.getQuantityKg(), BigDecimal.ZERO, "KG"));
+        FarmFeedStore store = farmStoreService.getOrCreateForUpdate(farmId);
 
         if (store.getQuantityOnHandKg().compareTo(request.getQuantityKg()) < 0) {
             throw new InsufficientFeedStoreException(
                     request.getQuantityKg(), store.getQuantityOnHandKg(), "KG");
         }
 
-        // 5. Decrement the store
         BigDecimal newBalance = store.getQuantityOnHandKg()
                 .subtract(request.getQuantityKg());
         store.setQuantityOnHandKg(newBalance);
-        farmStoreRepository.save(store);
+        farmStoreService.save(store);
 
-        // 6. Persist the immutable feeding event with the consumer snapshot
         FeedingEvent event = FeedingEvent.builder()
                 .farmId(farmId)
                 .consumerType(request.getConsumerType())
@@ -108,6 +107,7 @@ public class FeedConsumptionServiceImpl implements FeedConsumptionService {
             throw new BusinessException(
                     "consumerType is required when consumerId is provided");
         }
+
         Page<FeedingEvent> page;
         if (consumerType != null && consumerId != null) {
             page = feedingEventRepository.findByFarmIdAndConsumerTypeAndConsumerId(
@@ -118,6 +118,7 @@ public class FeedConsumptionServiceImpl implements FeedConsumptionService {
         } else {
             page = feedingEventRepository.findByFarmId(farmId, pageable);
         }
+
         return page.map(mapper::toResponse);
     }
 

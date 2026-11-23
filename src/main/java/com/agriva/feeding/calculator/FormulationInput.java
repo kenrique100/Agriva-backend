@@ -9,8 +9,8 @@ public record FormulationInput(
         FormulationMode mode,
         String targetSpecies,
         BigDecimal targetQuantityKg,
-        BigDecimal targetCpValue,            // nullable
+        BigDecimal targetCpValue,
         List<AvailableIngredient> availableIngredients,
-        List<ManualLine> manualLines,        // null/empty for ALGORITHM
-        UUID formulaTemplateId               // nullable
+        List<ManualLine> manualLines,
+        UUID formulaTemplateId
 ) {}

@@ -4,7 +4,6 @@ import com.agriva.feeding.model.dto.request.FeedFormulationSubmissionEvent;
 import com.agriva.feeding.model.entity.StagedFeedingFormulation;
 import com.agriva.feeding.repository.StagedFeedingFormulationRepository;
 import com.agriva.feeding.scheduler.StagedFeedingFormulationValidator;
-import com.agriva.shared.kafka.IdempotencyGuard;
 import com.agriva.shared.kafka.topics.FeedFormulationKafkaConfig;
 import com.agriva.shared.models.enums.StagedStatus;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +20,6 @@ import java.time.LocalDateTime;
 public class FeedFormulationStagingConsumer {
 
     private final StagedFeedingFormulationRepository stagedRepo;
-    private final IdempotencyGuard idempotencyGuard;
     private final StagedFeedingFormulationValidator validator;
 
     @KafkaListener(
@@ -30,15 +28,8 @@ public class FeedFormulationStagingConsumer {
             containerFactory = "feedFormulationKafkaListenerContainerFactory")
     @SuppressWarnings("unused")
     public void onEvent(FeedFormulationSubmissionEvent event) {
-        if (event == null || event.getSubmissionId() == null
-                || event.getPayloadJson() == null) {
+        if (event == null || event.getSubmissionId() == null || event.getPayloadJson() == null) {
             log.warn("Skipping malformed feeding-formulation event: {}", event);
-            return;
-        }
-        if (!idempotencyGuard.tryMarkProcessed(
-                event.getSubmissionId(), FeedFormulationKafkaConfig.STAGING_CONSUMER_GROUP)) {
-            log.info("Duplicate feeding-formulation event {} — skipping",
-                    event.getSubmissionId());
             return;
         }
 
@@ -49,18 +40,20 @@ public class FeedFormulationStagingConsumer {
                 .status(StagedStatus.PENDING)
                 .submittedByUserId(event.getSubmittedByUserId())
                 .submittedByEmail(event.getSubmittedByEmail())
-                .submittedAt(event.getSubmittedAt() != null
-                        ? event.getSubmittedAt() : LocalDateTime.now())
+                .submittedAt(event.getSubmittedAt() != null ? event.getSubmittedAt() : LocalDateTime.now())
+                .batchId(event.getBatchId())
+                .rowNumber(event.getRowNumber())
                 .retryCount(0)
                 .build();
 
         try {
             stagedRepo.saveAndFlush(staged);
-            log.info("Staged feeding-formulation {} persisted", staged.getId());
+            log.info("Staged feeding-formulation {} persisted (batch={}, row={})",
+                    staged.getId(), staged.getBatchId(), staged.getRowNumber());
         } catch (DataIntegrityViolationException e) {
-            log.error("Staged feeding-formulation {} FK violation, routing to DLQ: {}",
-                    staged.getId(), e.getMessage());
-            throw e;
+            log.info("Duplicate feeding-formulation event {} — skipping (already staged)",
+                    event.getSubmissionId());
+            return;
         }
 
         try {

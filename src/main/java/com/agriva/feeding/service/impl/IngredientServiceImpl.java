@@ -2,17 +2,23 @@ package com.agriva.feeding.service.impl;
 
 import com.agriva.feeding.kafka.producer.FeedIngredientProducer;
 import com.agriva.feeding.mapper.IngredientMapper;
+import com.agriva.feeding.model.dto.request.AdjustIngredientStockRequest;
 import com.agriva.feeding.model.dto.request.FeedIngredientSubmissionEvent;
 import com.agriva.feeding.model.dto.request.IngredientRequest;
 import com.agriva.feeding.model.dto.request.IngredientStockReplenishRequest;
 import com.agriva.feeding.model.dto.request.IngredientSubmissionPayload;
+import com.agriva.feeding.model.dto.request.WriteOffIngredientStockRequest;
 import com.agriva.feeding.model.dto.response.IngredientResponse;
 import com.agriva.feeding.model.dto.response.IngredientStatsResponse;
+import com.agriva.feeding.model.dto.response.IngredientStockAdjustmentResponse;
 import com.agriva.feeding.model.entity.Ingredient;
 import com.agriva.feeding.model.entity.IngredientStock;
+import com.agriva.feeding.model.entity.IngredientStockAdjustment;
 import com.agriva.feeding.model.entity.StagedFeedingIngredient;
 import com.agriva.feeding.model.enums.IngredientUnit;
+import com.agriva.feeding.model.enums.StockAdjustmentType;
 import com.agriva.feeding.repository.IngredientRepository;
+import com.agriva.feeding.repository.IngredientStockAdjustmentRepository;
 import com.agriva.feeding.repository.IngredientStockRepository;
 import com.agriva.feeding.repository.StagedFeedingIngredientRepository;
 import com.agriva.feeding.service.IngredientService;
@@ -38,6 +44,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -48,6 +55,7 @@ public class IngredientServiceImpl implements IngredientService {
 
     private final IngredientRepository ingredientRepository;
     private final IngredientStockRepository stockRepository;
+    private final IngredientStockAdjustmentRepository adjustmentRepo;
     private final StagedFeedingIngredientRepository stagedRepo;
     private final IngredientMapper mapper;
     private final IngredientExcelParser excelParser;
@@ -76,7 +84,79 @@ public class IngredientServiceImpl implements IngredientService {
         log.info("Ingredient {} created for farm {} (name='{}', cp={}, by={})",
                 saved.getId(), farmId, saved.getName(),
                 saved.getCrudeProteinPct(), userId);
+
         return mapper.toResponse(saved, null);
+    }
+
+    @Override
+    @Transactional
+    public IngredientResponse createWithInitialStock(IngredientRequest request,
+                                                     BigDecimal initialQuantity,
+                                                     UUID farmId, UUID userId) {
+        Optional<Ingredient> existing =
+                ingredientRepository.findByFarmIdAndNameLive(farmId, request.getName());
+        UUID ingredientId;
+
+        if (existing.isPresent()) {
+            Ingredient ing = existing.get();
+            ingredientId = ing.getId();
+
+            if (request.getUnit() != null && ing.getUnit() != request.getUnit()) {
+                log.warn("Ingredient '{}' already exists on farm {} with unit {}. "
+                                + "Bulk row requested unit {} — unit change is IGNORED here to "
+                                + "protect existing stock. Use PUT /ingredients/{} to change unit "
+                                + "(requires zero stock).",
+                        request.getName(), farmId, ing.getUnit(), request.getUnit(), ing.getId());
+            }
+
+            boolean changed = false;
+            if (request.getCostPerUnit() != null
+                    && !Objects.equals(request.getCostPerUnit(), ing.getCostPerUnit())) {
+                ing.setCostPerUnit(request.getCostPerUnit());
+                changed = true;
+            }
+            if (request.getCurrency() != null && request.getCurrency() != ing.getCurrency()) {
+                ing.setCurrency(request.getCurrency());
+                changed = true;
+            }
+            if (request.getSupplier() != null
+                    && !Objects.equals(request.getSupplier(), ing.getSupplier())) {
+                ing.setSupplier(request.getSupplier());
+                changed = true;
+            }
+            if (request.getDensityKgPerL() != null
+                    && !Objects.equals(request.getDensityKgPerL(), ing.getDensityKgPerL())) {
+                ing.setDensityKgPerL(request.getDensityKgPerL());
+                changed = true;
+            }
+            if (request.getCrudeProteinPct() != null
+                    && !Objects.equals(request.getCrudeProteinPct(), ing.getCrudeProteinPct())) {
+                ing.setCrudeProteinPct(request.getCrudeProteinPct());
+                changed = true;
+            }
+            if (changed) {
+                ingredientRepository.save(ing);
+                log.info("Bulk-merge updated ingredient {} ('{}') fields on farm {} (by={})",
+                        ing.getId(), ing.getName(), farmId, userId);
+            } else {
+                log.info("Ingredient '{}' already exists on farm {} — merging stock only",
+                        request.getName(), farmId);
+            }
+        } else {
+            IngredientResponse created = createIngredient(request, farmId, userId);
+            ingredientId = created.getId();
+        }
+
+        if (initialQuantity != null && initialQuantity.signum() > 0) {
+            IngredientStockReplenishRequest rep = new IngredientStockReplenishRequest();
+            rep.setQuantity(initialQuantity);
+            return replenishStock(ingredientId, rep, farmId, userId);
+        }
+
+        Ingredient ingredient = ingredientRepository.findByIdAndFarmIdLive(ingredientId, farmId)
+                .orElseThrow(() -> new ResourceNotFoundException("Ingredient not found after creation/merge"));
+        IngredientStock stock = stockRepository.findByFarmIdAndIngredientId(farmId, ingredientId).orElse(null);
+        return mapper.toResponse(ingredient, stock);
     }
 
     @Override
@@ -88,13 +168,10 @@ public class IngredientServiceImpl implements IngredientService {
         }
 
         List<UUID> ids = page.map(Ingredient::getId).getContent();
-        Map<UUID, IngredientStock> stockById = stockRepository.findAllByFarmId(farmId)
+        Map<UUID, IngredientStock> stockById = stockRepository
+                .findAllByFarmIdAndIngredientIdIn(farmId, ids)
                 .stream()
-                .filter(s -> ids.contains(s.getIngredientId()))
-                .collect(Collectors.toMap(
-                        IngredientStock::getIngredientId,
-                        s -> s,
-                        (a, b) -> a));
+                .collect(Collectors.toMap(IngredientStock::getIngredientId, s -> s, (a, b) -> a));
 
         return page.map(i -> mapper.toResponse(i, stockById.get(i.getId())));
     }
@@ -114,18 +191,16 @@ public class IngredientServiceImpl implements IngredientService {
                                                UUID farmId, UUID userId) {
         Ingredient ingredient = loadIngredient(id, farmId);
 
-        // Name uniqueness check — only when the new name actually differs case-insensitively.
         if (!ingredient.getName().equalsIgnoreCase(request.getName().trim())
                 && ingredientRepository.existsByFarmIdAndNameLive(farmId, request.getName())) {
             throw new BusinessException("Ingredient with this name already exists");
         }
 
-        // Guard: cannot change unit while stock is non-zero (stock is stored in the old unit).
         if (!ingredient.getUnit().equals(request.getUnit())) {
-            IngredientStock existing = stockRepository
+            IngredientStock existingStock = stockRepository
                     .findByFarmIdAndIngredientId(farmId, id).orElse(null);
-            if (existing != null && existing.getQuantityOnHand() != null
-                    && existing.getQuantityOnHand().signum() > 0) {
+            if (existingStock != null && existingStock.getQuantityOnHand() != null
+                    && existingStock.getQuantityOnHand().signum() > 0) {
                 throw new BusinessException(
                         "Cannot change unit while stock is non-zero. Zero the stock first.");
             }
@@ -142,6 +217,7 @@ public class IngredientServiceImpl implements IngredientService {
         Ingredient saved = ingredientRepository.save(ingredient);
         IngredientStock stock = stockRepository
                 .findByFarmIdAndIngredientId(farmId, id).orElse(null);
+
         log.info("Ingredient {} updated for farm {} (by={})", id, farmId, userId);
         return mapper.toResponse(saved, stock);
     }
@@ -166,13 +242,17 @@ public class IngredientServiceImpl implements IngredientService {
                         .quantityOnHand(BigDecimal.ZERO)
                         .build());
 
-        BigDecimal newQty = stock.getQuantityOnHand().add(request.getQuantity());
+        BigDecimal currentQty = stock.getQuantityOnHand() == null
+                ? BigDecimal.ZERO : stock.getQuantityOnHand();
+        BigDecimal newQty = currentQty.add(request.getQuantity());
+
         stock.setQuantityOnHand(newQty);
         stock.setLastReplenishedAt(LocalDateTime.now());
 
         IngredientStock saved = stockRepository.save(stock);
         log.info("Replenished {} {} of ingredient {} for farm {} (new total {}, by={})",
                 request.getQuantity(), ingredient.getUnit(), id, farmId, newQty, userId);
+
         return mapper.toResponse(ingredient, saved);
     }
 
@@ -180,17 +260,101 @@ public class IngredientServiceImpl implements IngredientService {
     @Transactional
     public void softDelete(UUID id, UUID farmId) {
         Ingredient ingredient = loadIngredient(id, farmId);
-        stockRepository.findByFarmIdAndIngredientId(farmId, id).ifPresent(stock -> {
-            if (stock.getQuantityOnHand() != null
-                    && stock.getQuantityOnHand().signum() != 0) {
-                stock.setQuantityOnHand(BigDecimal.ZERO);
-                stockRepository.save(stock);
-            }
-        });
+
+        IngredientStock stock = stockRepository.findByFarmIdAndIngredientId(farmId, id).orElse(null);
+        if (stock != null && stock.getQuantityOnHand() != null
+                && stock.getQuantityOnHand().signum() > 0) {
+            throw new BusinessException(
+                    "Cannot delete ingredient '" + ingredient.getName() + "' with existing stock ("
+                            + stock.getQuantityOnHand() + " " + ingredient.getUnit() + "). "
+                            + "Please deplete or write off the stock first.");
+        }
 
         ingredient.setDeletedAt(LocalDateTime.now());
         ingredientRepository.save(ingredient);
         log.info("Soft-deleted ingredient {} from farm {}", id, farmId);
+    }
+
+    @Override
+    @Transactional
+    public IngredientResponse adjustStock(UUID id, AdjustIngredientStockRequest request,
+                                          UUID farmId, UUID userId) {
+        Ingredient ingredient = loadIngredient(id, farmId);
+
+        IngredientStock stock = stockRepository
+                .findByFarmIdAndIngredientIdForUpdate(farmId, id)
+                .orElseGet(() -> IngredientStock.builder()
+                        .farmId(farmId)
+                        .ingredientId(id)
+                        .unit(ingredient.getUnit())
+                        .quantityOnHand(BigDecimal.ZERO)
+                        .build());
+
+        assertVersionMatches(stock.getVersion(), request.getExpectedVersion(), "stock");
+
+        BigDecimal previous = stock.getQuantityOnHand() == null
+                ? BigDecimal.ZERO : stock.getQuantityOnHand();
+        BigDecimal target = request.getQuantityOnHand();
+
+        stock.setQuantityOnHand(target);
+        stock.setLastReplenishedAt(LocalDateTime.now());
+        IngredientStock saved = stockRepository.save(stock);
+
+        recordAdjustment(farmId, ingredient, previous, target,
+                StockAdjustmentType.ABSOLUTE_SET, request.getReason(), userId);
+
+        log.info("Ingredient {} stock SET {} -> {} {} on farm {} (reason='{}', by={})",
+                id, previous, target, ingredient.getUnit(),
+                farmId, request.getReason(), userId);
+
+        return mapper.toResponse(ingredient, saved);
+    }
+
+    @Override
+    @Transactional
+    public IngredientResponse writeOffStock(UUID id, WriteOffIngredientStockRequest request,
+                                            UUID farmId, UUID userId) {
+        Ingredient ingredient = loadIngredient(id, farmId);
+
+        IngredientStock stock = stockRepository
+                .findByFarmIdAndIngredientIdForUpdate(farmId, id)
+                .orElseThrow(() -> new BusinessException(
+                        "Cannot write off: ingredient '" + ingredient.getName()
+                                + "' has no stock record on this farm"));
+
+        assertVersionMatches(stock.getVersion(), request.getExpectedVersion(), "stock");
+
+        BigDecimal previous = stock.getQuantityOnHand() == null
+                ? BigDecimal.ZERO : stock.getQuantityOnHand();
+        if (previous.compareTo(request.getQuantity()) < 0) {
+            throw new BusinessException(
+                    "Cannot write off " + request.getQuantity() + " " + ingredient.getUnit()
+                            + " — only " + previous + " " + ingredient.getUnit()
+                            + " on hand for ingredient '" + ingredient.getName() + "'");
+        }
+        BigDecimal target = previous.subtract(request.getQuantity());
+
+        stock.setQuantityOnHand(target);
+        IngredientStock saved = stockRepository.save(stock);
+
+        recordAdjustment(farmId, ingredient, previous, target,
+                StockAdjustmentType.WRITEOFF, request.getReason(), userId);
+
+        log.info("Ingredient {} stock WRITE-OFF {} -> {} {} on farm {} (reason='{}', by={})",
+                id, previous, target, ingredient.getUnit(),
+                farmId, request.getReason(), userId);
+
+        return mapper.toResponse(ingredient, saved);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<IngredientStockAdjustmentResponse> listStockAdjustments(
+            UUID id, UUID farmId, Pageable pageable) {
+        loadIngredient(id, farmId);
+        return adjustmentRepo
+                .findByFarmIdAndIngredientIdOrderByPerformedAtDesc(farmId, id, pageable)
+                .map(this::toAdjustmentResponse);
     }
 
     @Override
@@ -222,19 +386,29 @@ public class IngredientServiceImpl implements IngredientService {
             }
 
             UUID submissionId = UUID.randomUUID();
-            producer.publish(new FeedIngredientSubmissionEvent(
-                    submissionId, farmId, userId, email,
-                    serialize(row.request()), LocalDateTime.now(),
-                    batchId, row.rowNumber()));
+            try {
+                String payloadJson = serialize(row.request());
+                producer.publish(new FeedIngredientSubmissionEvent(
+                        submissionId, farmId, userId, email,
+                        payloadJson, LocalDateTime.now(),
+                        batchId, row.rowNumber()));
 
-            response.setQueued(response.getQueued() + 1);
-            response.getResults().add(new BatchUploadResponse.RowResult(
-                    row.rowNumber(), submissionId, "QUEUED", null));
+                response.setQueued(response.getQueued() + 1);
+                response.getResults().add(new BatchUploadResponse.RowResult(
+                        row.rowNumber(), submissionId, "QUEUED", null));
+            } catch (Exception e) {
+                response.setFailed(response.getFailed() + 1);
+                response.getResults().add(new BatchUploadResponse.RowResult(
+                        row.rowNumber(), null, "FAILED", e.getMessage()));
+                log.warn("Bulk ingredient upload {} row {} failed: {}",
+                        batchId, row.rowNumber(), e.getMessage());
+            }
         }
 
         log.info("Bulk ingredient upload {} for farm {}: total={}, queued={}, failed={}",
                 batchId, farmId, response.getTotalRows(),
                 response.getQueued(), response.getFailed());
+
         return response;
     }
 
@@ -254,7 +428,7 @@ public class IngredientServiceImpl implements IngredientService {
         for (StagedFeedingIngredient s : staged) {
             switch (s.getStatus()) {
                 case PENDING, RETRYING -> pending++;
-                case MOVED  -> moved++;
+                case MOVED -> moved++;
                 case FAILED -> {
                     failed++;
                     failedRows.add(new BatchStatusResponse.FailedRow(
@@ -281,10 +455,8 @@ public class IngredientServiceImpl implements IngredientService {
                 .sumQuantityByFarmIdAndUnit(farmId, IngredientUnit.KG);
         BigDecimal currentStockValue = stockRepository.sumStockValueByFarmId(farmId);
 
-        // First non-null currency for display purposes only.
-        String currency = ingredientRepository.findAllByFarmIdLive(farmId).stream()
-                .map(Ingredient::getCurrency)
-                .filter(Objects::nonNull)
+        String currency = ingredientRepository.findDistinctCurrenciesByFarmIdLive(farmId)
+                .stream()
                 .findFirst()
                 .map(Enum::name)
                 .orElse(null);
@@ -294,6 +466,46 @@ public class IngredientServiceImpl implements IngredientService {
                 .totalStockKg(round(totalStockKg))
                 .currentStockValue(round(currentStockValue))
                 .currency(currency)
+                .build();
+    }
+
+    private static void assertVersionMatches(Long actual, Long expected, String label) {
+        if (expected != null && !expected.equals(actual)) {
+            throw new BusinessException(
+                    "The " + label + " was modified by someone else (expected version "
+                            + expected + ", current " + actual + "). Reload and try again.");
+        }
+    }
+
+    private void recordAdjustment(UUID farmId, Ingredient ingredient,
+                                  BigDecimal previous, BigDecimal target,
+                                  StockAdjustmentType type, String reason, UUID userId) {
+        adjustmentRepo.save(IngredientStockAdjustment.builder()
+                .farmId(farmId)
+                .ingredientId(ingredient.getId())
+                .previousQuantity(previous)
+                .newQuantity(target)
+                .delta(target.subtract(previous))
+                .unit(ingredient.getUnit())
+                .reason(reason)
+                .adjustmentType(type)
+                .performedByUserId(userId)
+                .build());
+    }
+
+    private IngredientStockAdjustmentResponse toAdjustmentResponse(IngredientStockAdjustment a) {
+        return IngredientStockAdjustmentResponse.builder()
+                .id(a.getId())
+                .farmId(a.getFarmId())
+                .ingredientId(a.getIngredientId())
+                .previousQuantity(a.getPreviousQuantity())
+                .newQuantity(a.getNewQuantity())
+                .delta(a.getDelta())
+                .unit(a.getUnit())
+                .reason(a.getReason())
+                .adjustmentType(a.getAdjustmentType())
+                .performedByUserId(a.getPerformedByUserId())
+                .performedAt(a.getPerformedAt())
                 .build();
     }
 

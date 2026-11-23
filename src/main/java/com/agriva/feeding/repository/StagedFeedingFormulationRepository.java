@@ -20,18 +20,15 @@ public interface StagedFeedingFormulationRepository
         extends JpaRepository<StagedFeedingFormulation, StagedFeedingFormulationId> {
 
     Page<StagedFeedingFormulation> findByFarmId(UUID farmId, Pageable pageable);
-
-    Page<StagedFeedingFormulation> findByFarmIdAndStatus(UUID farmId,
-                                                         StagedStatus status,
-                                                         Pageable pageable);
-
+    Page<StagedFeedingFormulation> findByFarmIdAndStatus(UUID farmId, StagedStatus status, Pageable pageable);
     long countByFarmIdAndStatus(UUID farmId, StagedStatus status);
+
+    List<StagedFeedingFormulation> findByFarmIdAndBatchIdOrderByRowNumberAsc(UUID farmId, UUID batchId);
 
     @Query("""
             SELECT s FROM StagedFeedingFormulation s
             WHERE s.status = :pending
-               OR (s.status = :retrying
-                   AND (s.nextRetryAt IS NULL OR s.nextRetryAt <= :now))
+            OR (s.status = :retrying AND (s.nextRetryAt IS NULL OR s.nextRetryAt <= :now))
             ORDER BY s.submittedAt ASC
             """)
     List<StagedFeedingFormulation> findDueForProcessing(
@@ -39,6 +36,31 @@ public interface StagedFeedingFormulationRepository
             @Param("pending") StagedStatus pending,
             @Param("retrying") StagedStatus retrying,
             Pageable pageable);
+
+    @Query("""
+            SELECT s FROM StagedFeedingFormulation s
+            WHERE s.farmId = :farmId
+              AND (s.status = :pending
+                   OR (s.status = :retrying
+                       AND (s.nextRetryAt IS NULL OR s.nextRetryAt <= :now)))
+            ORDER BY s.submittedAt ASC
+            """)
+    List<StagedFeedingFormulation> findDueForProcessing(
+            @Param("farmId") UUID farmId,
+            @Param("now") LocalDateTime now,
+            @Param("pending") StagedStatus pending,
+            @Param("retrying") StagedStatus retrying,
+            Pageable pageable);
+
+    @Query("""
+            SELECT DISTINCT s.farmId FROM StagedFeedingFormulation s
+            WHERE s.status = :pending
+            OR (s.status = :retrying AND (s.nextRetryAt IS NULL OR s.nextRetryAt <= :now))
+            """)
+    List<UUID> findDistinctFarmIdsWithDueRows(
+            @Param("now") LocalDateTime now,
+            @Param("pending") StagedStatus pending,
+            @Param("retrying") StagedStatus retrying);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT s FROM StagedFeedingFormulation s WHERE s.id = :id")
