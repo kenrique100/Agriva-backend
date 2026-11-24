@@ -19,15 +19,6 @@ WHERE (id, submitted_at) NOT IN (
     SELECT id, MAX(submitted_at) FROM staged_feeding_ingredient GROUP BY id
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS ux_staged_feeding_event_id
-    ON staged_feeding_event(id);
-CREATE UNIQUE INDEX IF NOT EXISTS ux_staged_feeding_formulation_id
-    ON staged_feeding_formulation(id);
-CREATE UNIQUE INDEX IF NOT EXISTS ux_staged_feeding_production_id
-    ON staged_feeding_production(id);
-CREATE UNIQUE INDEX IF NOT EXISTS ux_staged_feeding_ingredient_id
-    ON staged_feeding_ingredient(id);
-
 ALTER TABLE staged_feeding_event
     ADD COLUMN IF NOT EXISTS batch_id   UUID NULL,
     ADD COLUMN IF NOT EXISTS row_number INTEGER NULL;

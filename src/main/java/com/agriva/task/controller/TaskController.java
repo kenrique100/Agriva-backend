@@ -1,6 +1,7 @@
 package com.agriva.task.controller;
 
 import com.agriva.shared.models.dto.PageResponse;
+import com.agriva.shared.exception.BusinessException;
 import com.agriva.shared.exception.PersonnelAccessDeniedException;
 import com.agriva.shared.security.AuthenticatedUser;
 import com.agriva.personnel.service.PersonnelService;
@@ -33,8 +34,18 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class TaskController {
 
+    private static final int MAX_PAGE_SIZE = 500;
     private final TaskService taskService;
     private final PersonnelService personnelService;
+    private static int safePage(int page)  { return Math.max(page, 0); }
+    private static int safeSize(int size)  { return Math.min(Math.max(size, 1), MAX_PAGE_SIZE); }
+    private UUID resolveOwnPersonnelId(AuthenticatedUser u) {
+        var own = personnelService.getOwnProfile(u.userId());
+        if (own == null || own.getPersonnel() == null) {
+            throw new BusinessException("No personnel profile linked to this account");
+        }
+        return own.getPersonnel().getId();
+    }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -60,16 +71,17 @@ public class TaskController {
     public ResponseEntity<PageResponse<TaskResponse>> list(
             @AuthenticationPrincipal AuthenticatedUser u,
             @RequestParam(required = false) UUID personnelId,
+            @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
+
         UUID filter = personnelId;
         if (!u.isMasterOrAdmin()) {
-            var own = personnelService.getOwnProfile(u.userId());
-            filter = own.getPersonnel().getId();
+            filter = resolveOwnPersonnelId(u);
         }
         return ResponseEntity.ok(PageResponse.of(taskService.list(
-                u.farmId(), filter,
-                PageRequest.of(page, Math.min(size, 10),
+                u.farmId(), filter, status,
+                PageRequest.of(safePage(page), safeSize(size),
                         Sort.by(Sort.Direction.DESC, "createdAt")))));
     }
 
@@ -77,7 +89,14 @@ public class TaskController {
     public ResponseEntity<TaskResponse> get(
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id) {
-        return ResponseEntity.ok(taskService.get(id, u.farmId()));
+        TaskResponse t = taskService.get(id, u.farmId());
+        if (!u.isMasterOrAdmin()) {
+            UUID own = resolveOwnPersonnelId(u);
+            if (!own.equals(t.getPersonnelId())) {
+                throw new PersonnelAccessDeniedException("You can only view your own tasks");
+            }
+        }
+        return ResponseEntity.ok(t);
     }
 
     @PutMapping("/{id}/action")
@@ -123,8 +142,8 @@ public class TaskController {
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID personnelId) {
         if (!u.isMasterOrAdmin()) {
-            var own = personnelService.getOwnProfile(u.userId());
-            if (!own.getPersonnel().getId().equals(personnelId)) {
+            UUID own = resolveOwnPersonnelId(u);
+            if (!own.equals(personnelId)) {
                 throw new PersonnelAccessDeniedException("Access denied");
             }
         }
@@ -140,7 +159,7 @@ public class TaskController {
             @RequestParam(defaultValue = "10") int size) {
         return ResponseEntity.ok(PageResponse.of(taskService.listStaging(
                 u.farmId(), status,
-                PageRequest.of(page, Math.min(size, 10),
+                PageRequest.of(safePage(page), safeSize(size),
                         Sort.by(Sort.Direction.DESC, "submittedAt")))));
     }
 

@@ -168,11 +168,11 @@ class FeedFormulationIT {
 
         FormulationResponse.Line maizeLine = resp.getLines().stream()
                 .filter(l -> "Maize".equals(l.getIngredientName())).findFirst().orElseThrow();
-        assertThat(maizeLine.getQuantityKg()).isEqualByComparingTo("70");
+        assertThat(maizeLine.getQuantityInStockUnit()).isEqualByComparingTo("70");
 
         FormulationResponse.Line palmOilLine = resp.getLines().stream()
                 .filter(l -> "Palm Oil".equals(l.getIngredientName())).findFirst().orElseThrow();
-        assertThat(palmOilLine.getQuantityKg()).isEqualByComparingTo("7.7778");
+        assertThat(palmOilLine.getQuantityInStockUnit()).isEqualByComparingTo("7.7778");
     }
 
     @Test
@@ -222,7 +222,6 @@ class FeedFormulationIT {
         FormulationResponse created = formulationService.createFormulation(
                 customRequest("Delete test", "TILAPIA", line(maize, "10")), farmId, userId);
 
-        // userId is now required so the service can publish the expense reversal
         formulationService.deleteFormulation(created.getId(), farmId, userId);
 
         assertThatThrownBy(() -> formulationService.getFormulation(created.getId(), farmId))

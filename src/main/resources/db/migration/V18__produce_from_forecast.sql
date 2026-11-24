@@ -1,4 +1,5 @@
 
+
 -- Link a formulation back to the forecast that generated it.
 ALTER TABLE formulation
     ADD COLUMN IF NOT EXISTS forecast_id UUID NULL;

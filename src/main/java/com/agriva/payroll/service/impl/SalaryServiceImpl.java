@@ -171,11 +171,14 @@ public class SalaryServiceImpl implements SalaryService {
             if (masterPersonnel != null) managerName = masterPersonnel.getName();
         }
 
+        LocalDate periodEnd   = sp.getPaymentDate();
+        LocalDate periodStart = periodEnd.minusDays(30);
+
         List<Task> tasks = taskRepository.findByPersonnelIdAndStatusAndValidationTimeBetween(
                 p.getId(),
                 TaskStatus.COMPLETED,
-                sp.getPaymentDate().atStartOfDay().minusDays(30),
-                sp.getPaymentDate().atTime(23, 59, 59));
+                periodStart.atStartOfDay(),
+                periodEnd.atTime(23, 59, 59));
 
         BigDecimal expected = tasks.stream()
                 .map(t -> t.getExpectedHours() != null
@@ -228,6 +231,8 @@ public class SalaryServiceImpl implements SalaryService {
                 .totalActualHours(actual)
                 .overallProductivity(rate)
                 .workingDays(p.getWorkingDaysCount())
+                .periodStartDate(periodStart)
+                .periodEndDate(periodEnd)
                 .build();
     }
 

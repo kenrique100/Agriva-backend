@@ -37,10 +37,14 @@ import org.springframework.web.multipart.MultipartFile;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -63,7 +67,6 @@ public class TaskServiceImpl implements TaskService {
                 .orElseThrow(() -> new PersonnelNotFoundException(
                         "Personnel not found with ID: " + req.getPersonnelId()));
 
-        // FIX: Prevent assigning tasks to inactive/suspended personnel
         if (p.getStatus() != PersonnelStatus.ACTIVE) {
             throw new BusinessException("Cannot assign tasks to personnel who are not ACTIVE.");
         }
@@ -83,11 +86,48 @@ public class TaskServiceImpl implements TaskService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<TaskResponse> list(UUID farmId, UUID personnelId, Pageable pageable) {
-        Page<Task> page = personnelId != null
-                ? taskRepository.findByFarmIdAndPersonnelIdLive(farmId, personnelId, pageable)
-                : taskRepository.findByFarmIdLive(farmId, pageable);
-        return page.map(mapper::toResponse);
+    public Page<TaskResponse> list(UUID farmId, UUID personnelId, String status, Pageable pageable) {
+        TaskStatus statusEnum = parseStatus(status);
+
+        Page<Task> page;
+        if (personnelId != null && statusEnum != null) {
+            page = taskRepository.findByFarmIdAndPersonnelIdAndStatusLive(
+                    farmId, personnelId, statusEnum, pageable);
+        } else if (personnelId != null) {
+            page = taskRepository.findByFarmIdAndPersonnelIdLive(farmId, personnelId, pageable);
+        } else if (statusEnum != null) {
+            page = taskRepository.findByFarmIdAndStatusLive(farmId, statusEnum, pageable);
+        } else {
+            page = taskRepository.findByFarmIdLive(farmId, pageable);
+        }
+
+        List<UUID> personnelIds = page.getContent().stream()
+                .map(Task::getPersonnelId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        // FIX — Collectors.toMap throws NPE on a null value, so coalesce the name.
+        Map<UUID, String> nameById = personnelIds.isEmpty()
+                ? Map.of()
+                : personnelRepository.findAllById(personnelIds).stream()
+                  .filter(p -> farmId.equals(p.getFarmId()))
+                  .filter(p -> p.getDeletedAt() == null)
+                  .collect(Collectors.toMap(
+                          Personnel::getId,
+                          p -> p.getName() != null ? p.getName() : "Unknown",
+                          (a, b) -> a));
+
+        return page.map(t -> mapper.toResponse(t, nameById));
+    }
+
+    private TaskStatus parseStatus(String status) {
+        if (status == null || status.isBlank()) return null;
+        try {
+            return TaskStatus.valueOf(status.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException("Invalid status filter: " + status);
+        }
     }
 
     @Override
@@ -100,6 +140,18 @@ public class TaskServiceImpl implements TaskService {
     @Transactional
     public TaskResponse update(UUID id, TaskUpdateRequest req, UUID farmId) {
         Task t = load(id, farmId);
+
+        // on the old assignee; a CANCELLED task is an audit record and must stay
+        // frozen. Title/description/deadline corrections on live tasks still work.
+        if (t.getStatus() == TaskStatus.CANCELLED) {
+            throw new BusinessException("Cannot edit a cancelled task");
+        }
+        if (t.getStatus() == TaskStatus.COMPLETED
+                && req.getPersonnelId() != null
+                && !req.getPersonnelId().equals(t.getPersonnelId())) {
+            throw new BusinessException("Cannot reassign a completed task");
+        }
+
         if (req.getTitle() != null) t.setTitle(req.getTitle());
         if (req.getDescription() != null) t.setDescription(req.getDescription());
         if (req.getDeadline() != null) t.setDeadline(req.getDeadline());
@@ -121,6 +173,11 @@ public class TaskServiceImpl implements TaskService {
     @Override
     @Transactional
     public TaskResponse action(UUID id, UUID farmId, UUID actorUserId, boolean isMaster, String action) {
+        // inside validator.validateAction.
+        if (action == null || action.isBlank()) {
+            throw new BusinessException("Action is required");
+        }
+
         Task t = load(id, farmId);
 
         if (!isMaster) {
@@ -128,6 +185,11 @@ public class TaskServiceImpl implements TaskService {
                     .orElseThrow(() -> new PersonnelAccessDeniedException("Personnel not found"));
             if (own.getUserId() == null || !actorUserId.equals(own.getUserId())) {
                 throw new PersonnelAccessDeniedException("You can only act on your own tasks");
+            }
+            // Cancel now destroys the row — sub-users can PAUSE or STOP instead.
+            if ("CANCEL".equalsIgnoreCase(action)) {
+                throw new PersonnelAccessDeniedException(
+                        "Only the farm master can cancel and remove tasks");
             }
         }
 
@@ -165,8 +227,20 @@ public class TaskServiceImpl implements TaskService {
                 t.setStatus(TaskStatus.SUBMITTED);
             }
             case "CANCEL" -> {
+                // HARD DELETE. Snapshot the response first so the client still
+                // gets a well-formed body. The only FK pointing at `tasks` is
+                // staged_task.moved_task_id — we clear it defensively below in
+                // addition to relying on DELETE SET NULL.
                 t.setStatus(TaskStatus.CANCELLED);
                 t.setStopTime(now);
+                TaskResponse snapshot = mapper.toResponse(t);
+
+                stagedRepo.clearMovedTaskId(t.getId());   // FIX — defensive FK clear
+                taskRepository.delete(t);
+
+                log.info("Task {} action=CANCEL — hard deleted by user={} isMaster={}",
+                        id, actorUserId, isMaster);
+                return snapshot;
             }
         }
         log.info("Task {} action={} by user={} isMaster={}", id, a, actorUserId, isMaster);
@@ -200,6 +274,7 @@ public class TaskServiceImpl implements TaskService {
             personnelRepository.findById(t.getPersonnelId())
                     .ifPresent(p -> rollProductivity(p, t.getActualHours()));
         } else {
+            // Rejection keeps the row — distinct from user-initiated CANCEL.
             t.setIsValidated(false);
             t.setStatus(TaskStatus.CANCELLED);
         }
@@ -211,10 +286,10 @@ public class TaskServiceImpl implements TaskService {
         if (hours == null || hours <= 0) return;
         LocalDate today = LocalDate.now();
         if (!today.equals(p.getLastProductivityUpdate())) {
-            p.setWorkingDaysCount(p.getWorkingDaysCount() + 1);
+            int days = p.getWorkingDaysCount() == null ? 0 : p.getWorkingDaysCount();
+            p.setWorkingDaysCount(days + 1);
             p.setLastProductivityUpdate(today);
         }
-        // Always add the hours, regardless of whether it's a new day or not
         p.setTotalHoursWorkedLast30Days(
                 (p.getTotalHoursWorkedLast30Days() == null ? 0.0 : p.getTotalHoursWorkedLast30Days()) + hours);
         personnelRepository.save(p);
@@ -248,12 +323,16 @@ public class TaskServiceImpl implements TaskService {
                 .sum();
         double pct = expectedHours > 0 ? (hours / expectedHours) * 100.0 : 0.0;
 
+        LocalDate periodStart = p.getCurrentPeriodStartDate() != null
+                ? p.getCurrentPeriodStartDate()
+                : LocalDate.now();
+
         return ProductivityStatsResponse.builder()
                 .totalHoursWorked(hours)
                 .dailyAverage(dailyAvg)
                 .workingDays(days)
-                .periodStartDate(p.getCurrentPeriodStartDate())
-                .periodEndDate(p.getCurrentPeriodStartDate().plusDays(29))
+                .periodStartDate(periodStart)
+                .periodEndDate(LocalDate.now())
                 .productivityPercentage(pct)
                 .build();
     }
@@ -273,12 +352,9 @@ public class TaskServiceImpl implements TaskService {
     @Override
     @Transactional
     public void processUnvalidatedTasks() {
-        // FIX: Look for tasks that were submitted *yesterday* to give admins a full day to validate
-        LocalDateTime startOfYesterday = LocalDate.now().minusDays(1).atStartOfDay();
-        LocalDateTime endOfYesterday = LocalDate.now().minusDays(1).atTime(23, 59, 59);
-
-        List<Task> unvalidated = taskRepository.findSubmittedTasksWithStopTimeBetween(
-                TaskStatus.SUBMITTED, startOfYesterday, endOfYesterday);
+        LocalDateTime cutoff = LocalDate.now().minusDays(1).atStartOfDay();
+        List<Task> unvalidated = taskRepository.findSubmittedTasksWithStopTimeBefore(
+                TaskStatus.SUBMITTED, cutoff);
         unvalidated.forEach(t -> {
             t.setStatus(TaskStatus.UNCOMPLETED);
             t.setIsValidated(false);
@@ -286,14 +362,48 @@ public class TaskServiceImpl implements TaskService {
         });
         if (!unvalidated.isEmpty()) {
             taskRepository.saveAll(unvalidated);
-            log.info("Marked {} unvalidated tasks UNCOMPLETED", unvalidated.size());
+            log.info("Marked {} stale unvalidated tasks UNCOMPLETED (cutoff {})",
+                    unvalidated.size(), cutoff);
         }
     }
 
     @Override
     @Transactional
     public void updateDailyProductivity() {
+        LocalDateTime since = LocalDate.now().minusDays(30).atStartOfDay();
+        List<Personnel> all = personnelRepository.findAll().stream()
+                .filter(p -> p.getDeletedAt() == null)
+                .toList();
 
+        int updated = 0;
+        for (Personnel p : all) {
+            List<Task> validated = taskRepository.findValidatedSince(p.getId(), since);
+            double hours = 0.0;
+            Set<LocalDate> days = new HashSet<>();
+            for (Task t : validated) {
+                if (t.getValidationTime() == null) continue;
+                hours += (t.getActualHours() != null ? t.getActualHours() : 0.0);
+                days.add(t.getValidationTime().toLocalDate());
+            }
+
+            boolean changed = false;
+            if (p.getTotalHoursWorkedLast30Days() == null
+                    || Math.abs(p.getTotalHoursWorkedLast30Days() - hours) > 0.001) {
+                p.setTotalHoursWorkedLast30Days(hours);
+                changed = true;
+            }
+            int dayCount = days.size();
+            if (p.getTotalProductiveDays() == null || p.getTotalProductiveDays() != dayCount) {
+                p.setTotalProductiveDays(dayCount);
+                changed = true;
+            }
+            if (changed) {
+                p.setLastProductivityUpdate(LocalDate.now());
+                personnelRepository.save(p);
+                updated++;
+            }
+        }
+        log.info("Daily productivity updated — {} personnel scanned, {} changed", all.size(), updated);
     }
 
     @Override

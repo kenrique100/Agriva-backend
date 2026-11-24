@@ -28,14 +28,20 @@ public class TaskAutoStopScheduler {
         LocalDateTime now = LocalDateTime.now();
         for (Task t : running) {
             long accumulated = t.getTotalWorkedMinutes() != null ? t.getTotalWorkedMinutes() : 0L;
+            long expectedMinutes = (t.getExpectedHours() != null ? t.getExpectedHours() : 0) * 60L;
 
-            long expectedHours = t.getExpectedHours() != null ? t.getExpectedHours() : 0;
-            long expectedMinutes = expectedHours * 60L;
+            long remaining = expectedMinutes - accumulated;
+            LocalDateTime stopAt;
+            if (remaining <= 0) {
+                stopAt = now;
+            } else {
+                stopAt = t.getLastResumeTime().plusMinutes(remaining);
+                if (stopAt.isAfter(now)) stopAt = now;
+            }
 
-            LocalDateTime stopAt = t.getLastResumeTime().plusMinutes(expectedMinutes - accumulated);
-            if (stopAt.isAfter(now)) stopAt = now;
-            t.setTotalWorkedMinutes(expectedMinutes);
-            t.setActualHours(expectedMinutes / 60.0);
+            long newTotal = Math.max(accumulated, expectedMinutes);
+            t.setTotalWorkedMinutes(newTotal);
+            t.setActualHours(newTotal / 60.0);
             t.setStopTime(stopAt);
             t.setStatus(TaskStatus.SUBMITTED);
             t.setIsSubmitted(true);

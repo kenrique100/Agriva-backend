@@ -21,11 +21,24 @@ public interface TaskRepository extends JpaRepository<Task, UUID> {
     @Query("SELECT t FROM Task t WHERE t.farmId = :farmId AND t.deletedAt IS NULL")
     Page<Task> findByFarmIdLive(@Param("farmId") UUID farmId, Pageable pageable);
 
+    @Query("SELECT t FROM Task t WHERE t.farmId = :farmId AND t.status = :status " +
+            "AND t.deletedAt IS NULL")
+    Page<Task> findByFarmIdAndStatusLive(@Param("farmId") UUID farmId,
+                                         @Param("status") TaskStatus status,
+                                         Pageable pageable);
+
     @Query("SELECT t FROM Task t WHERE t.farmId = :farmId AND t.personnelId = :personnelId " +
             "AND t.deletedAt IS NULL")
     Page<Task> findByFarmIdAndPersonnelIdLive(@Param("farmId") UUID farmId,
                                               @Param("personnelId") UUID personnelId,
                                               Pageable pageable);
+
+    @Query("SELECT t FROM Task t WHERE t.farmId = :farmId AND t.personnelId = :personnelId " +
+            "AND t.status = :status AND t.deletedAt IS NULL")
+    Page<Task> findByFarmIdAndPersonnelIdAndStatusLive(@Param("farmId") UUID farmId,
+                                                       @Param("personnelId") UUID personnelId,
+                                                       @Param("status") TaskStatus status,
+                                                       Pageable pageable);
 
     @Query("SELECT t FROM Task t WHERE t.id = :id AND t.farmId = :farmId AND t.deletedAt IS NULL")
     Optional<Task> findByIdAndFarmIdLive(@Param("id") UUID id, @Param("farmId") UUID farmId);
@@ -38,6 +51,12 @@ public interface TaskRepository extends JpaRepository<Task, UUID> {
     List<Task> findByPersonnelIdAndIsValidatedLive(@Param("personnelId") UUID personnelId,
                                                    @Param("validated") Boolean validated);
 
+    @Query("SELECT t FROM Task t WHERE t.personnelId = :personnelId " +
+            "AND t.isValidated = true AND t.deletedAt IS NULL " +
+            "AND t.validationTime >= :since")
+    List<Task> findValidatedSince(@Param("personnelId") UUID personnelId,
+                                  @Param("since") LocalDateTime since);
+
     @Query("SELECT t FROM Task t WHERE t.deadline < :deadline AND t.status = :status " +
             "AND t.deletedAt IS NULL")
     List<Task> findByDeadlineBeforeAndStatus(@Param("deadline") LocalDate deadline,
@@ -49,6 +68,12 @@ public interface TaskRepository extends JpaRepository<Task, UUID> {
             @Param("status") TaskStatus status,
             @Param("start") LocalDateTime start,
             @Param("end") LocalDateTime end);
+
+    @Query("SELECT t FROM Task t WHERE t.status = :status AND t.isSubmitted = true " +
+            "AND t.stopTime < :before AND t.deletedAt IS NULL")
+    List<Task> findSubmittedTasksWithStopTimeBefore(
+            @Param("status") TaskStatus status,
+            @Param("before") LocalDateTime before);
 
     @Query("SELECT t FROM Task t WHERE t.personnelId = :personnelId " +
             "AND t.status = :status AND t.validationTime BETWEEN :start AND :end " +

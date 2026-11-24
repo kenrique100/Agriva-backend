@@ -37,4 +37,6 @@ public class SalaryReceiptResponse {
     private BigDecimal totalActualHours;
     private BigDecimal overallProductivity;
     private Integer workingDays;
+    private LocalDate periodStartDate;
+    private LocalDate periodEndDate;
 }
