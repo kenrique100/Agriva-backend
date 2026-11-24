@@ -13,9 +13,6 @@ public class PoultryBatchRequest {
     @NotNull(message = "Species is required")
     private PoultrySpecies species;
 
-    @Size(max = 50)
-    private String batchCode;
-
     @NotNull(message = "Initial count is required")
     @Positive(message = "Initial count must be greater than zero")
     private Long initialCount;

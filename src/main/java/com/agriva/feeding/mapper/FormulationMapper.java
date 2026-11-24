@@ -22,16 +22,20 @@ public class FormulationMapper {
     private final ObjectMapper objectMapper;
 
     public FormulationResponse toResponse(Formulation f, List<FormulationLine> lines) {
-        List<FormulationResponse.Line> lineDtos = lines.stream()
-                .map(l -> FormulationResponse.Line.builder()
-                        .ingredientId(l.getIngredientId())
-                        .ingredientName(l.getIngredientName())
-                        .quantityKg(l.getQuantityKg())
-                        .percentage(l.getPercentage())
-                        .unitCost(l.getUnitCost())
-                        .lineCost(l.getLineCost())
-                        .build())
-                .toList();
+        if (f == null) return null;
+
+        List<FormulationResponse.Line> lineDtos = lines == null
+                ? List.of()
+                : lines.stream()
+                  .map(l -> FormulationResponse.Line.builder()
+                            .ingredientId(l.getIngredientId())
+                            .ingredientName(l.getIngredientName())
+                            .quantityInStockUnit(l.getQuantityKg())
+                            .percentage(l.getPercentage())
+                            .unitCost(l.getUnitCost())
+                            .lineCost(l.getLineCost())
+                            .build())
+                  .toList();
 
         return FormulationResponse.builder()
                 .id(f.getId())
@@ -48,6 +52,9 @@ public class FormulationMapper {
                 .nutrientSummary(parseSummary(f.getNutrientSummaryJson()))
                 .createdAt(f.getCreatedAt())
                 .lines(lineDtos)
+                .computedCpValue(f.getComputedCpValue())
+                .expenseSubmissionId(f.getExpenseSubmissionId())
+                .forecastId(f.getForecastId())
                 .build();
     }
 

@@ -28,14 +28,15 @@ public class PoultryBatchController {
 
     private final PoultryBatchService batchService;
 
-    @PostMapping("/houses/{houseId}/batches")
+    @PostMapping
     @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<PoultryBatchResponse> create(
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID houseId,
-            @Valid @RequestBody PoultryBatchRequest request) {
+            @Valid @RequestBody PoultryBatchRequest req) {
+        if (u == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(batchService.createBatch(houseId, request, u.farmId(), u.userId()));
+                .body(batchService.createBatch(houseId, req, u.farmId(), u.userId()));
     }
 
     @GetMapping("/houses/{houseId}/batches")

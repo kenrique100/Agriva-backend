@@ -54,8 +54,9 @@ public class FeedProductionExcelParser {
                     LocalDate date = ExcelCellReader.readDate(
                             getCell(row, colMap, "production_date"), "production_date");
                     String notes = ExcelCellReader.readString(getCell(row, colMap, "notes"));
+
                     rows.add(new ParsedRow(rowNum, new ProductionSubmissionPayload(
-                            fname.trim(), kg, date, notes), null));
+                            fname.trim(), kg, date, notes, null), null));
                 } catch (Exception ex) {
                     log.warn("Feed-production Excel row {} failed: {}", rowNum, ex.getMessage());
                     rows.add(new ParsedRow(rowNum, null, ex.getMessage()));

@@ -22,21 +22,6 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Abstract contract that every {@link FeedConsumerPort} implementation must
- * pass. A concrete subclass supplies three things:
- *
- * <ol>
- *   <li>{@link #port()} — the adapter bean under test</li>
- *   <li>{@link #createLiveConsumer(UUID, UUID)} — creates a domain entity that
- *       this adapter can snapshoot, returns a fixture</li>
- *   <li>{@link #softDeleteConsumer(UUID, UUID)} — makes the previously-created
- *       consumer invisible to the adapter</li>
- * </ol>
- *
- * The base class bootstraps a MASTER user + farm for each test, so subclasses
- * do not need to repeat that boilerplate.
- */
 @SpringBootTest
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
@@ -55,12 +40,6 @@ public abstract class FeedConsumerPortContract {
 
     protected abstract void softDeleteConsumer(UUID consumerId, UUID farmId);
 
-    /**
-     * Public so concrete subclasses in other packages can construct fixtures.
-     * (A {@code protected} record's canonical constructor is {@code protected},
-     * which blocks instantiation from a subclass whose type is not itself a
-     * subtype of this record.)
-     */
     public record ConsumerFixture(UUID consumerId, String displayName, long expectedHeadcount) {}
 
     @BeforeEach

@@ -18,6 +18,7 @@ public class FeedBatchMapper {
                 .id(b.getId())
                 .farmId(b.getFarmId())
                 .formulationId(b.getFormulationId())
+                .forecastId(b.getForecastId())
                 .formulationName(b.getFormulationName())
                 .producedKg(b.getProducedKg())
                 .bagSizeKg(b.getBagSizeKg())
@@ -31,15 +32,12 @@ public class FeedBatchMapper {
                 .build();
     }
 
-    /**
-     * Builds a store view. {@code store} may be null when the farm has never
-     * produced anything — we return a zero-balance response in that case.
-     */
     public FarmStoreResponse toStoreResponse(UUID farmId, FarmFeedStore store, int bagSizeKg) {
         BigDecimal qty = store == null || store.getQuantityOnHandKg() == null
                 ? BigDecimal.ZERO
                 : store.getQuantityOnHandKg();
         LocalDateTime updatedAt = store == null ? null : store.getUpdatedAt();
+        Long version = store == null ? null : store.getVersion();
 
         BigDecimal bagSize = BigDecimal.valueOf(bagSizeKg);
         int fullBags = qty.divideToIntegralValue(bagSize).intValue();
@@ -53,6 +51,7 @@ public class FeedBatchMapper {
                 .fullBags(fullBags)
                 .remainderKg(remainder)
                 .lastUpdatedAt(updatedAt)
+                .version(version)
                 .build();
     }
 }

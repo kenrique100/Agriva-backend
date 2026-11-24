@@ -2,7 +2,6 @@ package com.agriva.feeding;
 
 import com.agriva.TestcontainersConfiguration;
 import com.agriva.farming.repository.FarmRepository;
-import com.agriva.feeding.model.enums.StagedFeedingStatus;
 import com.agriva.feeding.repository.*;
 import com.agriva.feeding.scheduler.*;
 import com.agriva.feeding.service.FeedBulkService;
@@ -11,6 +10,7 @@ import com.agriva.identity.models.dto.response.AuthResponse;
 import com.agriva.identity.repository.AuthRepository;
 import com.agriva.identity.service.AuthService;
 import com.agriva.personnel.models.enums.Gender;
+import com.agriva.shared.models.enums.StagedStatus;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -134,7 +134,7 @@ class FeedBulkValidationFailureIT {
 
         var staged = stagedFormulationRepo.findByFarmId(farmId, PageRequest.of(0, 10))
                 .getContent().get(0);
-        assertThat(staged.getStatus()).isEqualTo(StagedFeedingStatus.FAILED);
+        assertThat(staged.getStatus()).isEqualTo(StagedStatus.FAILED);
         assertThat(staged.getValidationErrors()).contains("Ingredient not found");
     }
 
@@ -155,7 +155,7 @@ class FeedBulkValidationFailureIT {
 
         var staged = stagedEventRepo.findByFarmId(farmId, PageRequest.of(0, 10))
                 .getContent().get(0);
-        assertThat(staged.getStatus()).isEqualTo(StagedFeedingStatus.FAILED);
+        assertThat(staged.getStatus()).isEqualTo(StagedStatus.FAILED);
         assertThat(staged.getValidationErrors()).contains("POULTRY");
     }
 

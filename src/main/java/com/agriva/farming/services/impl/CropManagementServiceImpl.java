@@ -102,10 +102,12 @@ public class CropManagementServiceImpl implements CropManagementService {
             throw new IllegalArgumentException("Excel file is required");
         }
         List<FieldExcelParser.ParsedRow> rows;
-        try { rows = fieldExcelParser.parse(file.getInputStream()); }
-        catch (Exception e) {
+        try {
+            rows = fieldExcelParser.parse(file.getInputStream());
+        } catch (Exception e) {
             throw new IllegalArgumentException("Failed to read Excel file: " + e.getMessage(), e);
         }
+
         CropBulkUploadResponse response = new CropBulkUploadResponse();
         response.setTotalRows(rows.size());
         for (FieldExcelParser.ParsedRow row : rows) {
@@ -116,10 +118,19 @@ public class CropManagementServiceImpl implements CropManagementService {
                 continue;
             }
             try {
-                FieldResponse created = createField(row.request(), farmId);
+                // FIX: Direct repository access avoids bypassing the @Transactional proxy
+                if (fieldRepo.existsByFarmIdAndName(farmId, row.request().getName())) {
+                    throw new BusinessException("Field with this name already exists");
+                }
+                Field f = Field.builder()
+                        .farmId(farmId).name(row.request().getName())
+                        .sizeHectares(row.request().getSizeHectares()).soilType(row.request().getSoilType())
+                        .build();
+                Field saved = fieldRepo.save(f);
+
                 response.setCreated(response.getCreated() + 1);
                 response.getResults().add(new CropBulkUploadResponse.RowResult(
-                        row.rowNumber(), created.getId().toString(), "CREATED", null));
+                        row.rowNumber(), saved.getId().toString(), "CREATED", null));
             } catch (Exception e) {
                 response.setFailed(response.getFailed() + 1);
                 response.getResults().add(new CropBulkUploadResponse.RowResult(
@@ -173,10 +184,12 @@ public class CropManagementServiceImpl implements CropManagementService {
             throw new IllegalArgumentException("Excel file is required");
         }
         List<CropExcelParser.ParsedRow> rows;
-        try { rows = cropExcelParser.parse(file.getInputStream()); }
-        catch (Exception e) {
+        try {
+            rows = cropExcelParser.parse(file.getInputStream());
+        } catch (Exception e) {
             throw new IllegalArgumentException("Failed to read Excel file: " + e.getMessage(), e);
         }
+
         CropBulkUploadResponse response = new CropBulkUploadResponse();
         response.setTotalRows(rows.size());
         for (CropExcelParser.ParsedRow row : rows) {
@@ -187,10 +200,16 @@ public class CropManagementServiceImpl implements CropManagementService {
                 continue;
             }
             try {
-                CropResponse created = createCrop(row.request(), farmId);
+                Crop c = Crop.builder()
+                        .farmId(farmId).name(row.request().getName())
+                        .variety(row.request().getVariety())
+                        .expectedDaysToHarvest(row.request().getExpectedDaysToHarvest())
+                        .build();
+                Crop saved = cropRepo.save(c);
+
                 response.setCreated(response.getCreated() + 1);
                 response.getResults().add(new CropBulkUploadResponse.RowResult(
-                        row.rowNumber(), created.getId().toString(), "CREATED", null));
+                        row.rowNumber(), saved.getId().toString(), "CREATED", null));
             } catch (Exception e) {
                 response.setFailed(response.getFailed() + 1);
                 response.getResults().add(new CropBulkUploadResponse.RowResult(
@@ -237,8 +256,9 @@ public class CropManagementServiceImpl implements CropManagementService {
         CropCycle cycle = loadCycle(id, farmId);
 
         CropCycleStatus target;
-        try { target = CropCycleStatus.valueOf(status.toUpperCase()); }
-        catch (IllegalArgumentException e) {
+        try {
+            target = CropCycleStatus.valueOf(status.toUpperCase());
+        } catch (IllegalArgumentException e) {
             throw new BusinessException("Invalid cycle status: " + status);
         }
 
@@ -260,17 +280,15 @@ public class CropManagementServiceImpl implements CropManagementService {
         log.info("Soft-deleted crop cycle {} from farm {}", id, farmId);
     }
 
-    // ---------- Bulk / Staging ----------
-
     @Override
-    public CropBulkUploadResponse bulkUploadCycles(MultipartFile file, UUID farmId,
-                                                   UUID userId, String email) {
+    public CropBulkUploadResponse bulkUploadCycles(MultipartFile file, UUID farmId, UUID userId, String email) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("Excel file is required");
         }
         List<CropCycleExcelParser.ParsedRow> rows;
-        try { rows = cropCycleExcelParser.parse(file.getInputStream(), farmId); }
-        catch (Exception e) {
+        try {
+            rows = cropCycleExcelParser.parse(file.getInputStream(), farmId);
+        } catch (Exception e) {
             throw new IllegalArgumentException("Failed to read Excel file: " + e.getMessage(), e);
         }
 
@@ -289,6 +307,8 @@ public class CropManagementServiceImpl implements CropManagementService {
                 String payload = objectMapper.writeValueAsString(row.request());
                 cropCycleProducer.publish(new CropCycleSubmissionEvent(
                         submissionId, farmId, userId, email, payload, LocalDateTime.now()));
+
+                // FIX: Only increment queued. The Kafka consumer will handle creation.
                 response.setQueued(response.getQueued() + 1);
                 response.getResults().add(new CropBulkUploadResponse.RowResult(
                         row.rowNumber(), submissionId.toString(), "QUEUED", null));
@@ -384,8 +404,6 @@ public class CropManagementServiceImpl implements CropManagementService {
         }
         activityRepo.delete(activity);
     }
-
-    // ---------- Harvests ----------
 
     @Override
     @Transactional(readOnly = true)

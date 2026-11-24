@@ -2,10 +2,7 @@ package com.agriva.feeding.model.dto.request;
 
 import com.agriva.feeding.model.enums.IngredientUnit;
 import com.agriva.shared.models.enums.Currency;
-import jakarta.validation.constraints.DecimalMin;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.*;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -30,4 +27,8 @@ public class IngredientRequest {
 
     @DecimalMin(value = "0.0001", message = "Density must be positive")
     private BigDecimal densityKgPerL;
+
+    @DecimalMin(value = "0.0", message = "Crude protein cannot be negative")
+    @DecimalMax(value = "100.0", message = "Crude protein cannot exceed 100")
+    private BigDecimal crudeProteinPct;
 }

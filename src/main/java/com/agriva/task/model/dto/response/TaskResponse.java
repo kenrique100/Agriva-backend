@@ -34,4 +34,5 @@ public class TaskResponse {
     private UUID validatedByUserId;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private Long remainingSeconds;
 }

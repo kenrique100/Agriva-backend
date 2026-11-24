@@ -1,6 +1,7 @@
 package com.agriva.feeding.service;
 
 import com.agriva.feeding.model.dto.response.*;
+import com.agriva.shared.models.dto.BatchStatusResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.web.multipart.MultipartFile;
@@ -19,6 +20,11 @@ public interface FeedBulkService {
     Page<StagedFeedingFormulationResponse> listStagedFormulations(UUID farmId, String status, Pageable pageable);
     Page<StagedFeedingProductionResponse> listStagedProductions(UUID farmId, String status, Pageable pageable);
     Page<StagedFeedingEventResponse> listStagedFeedings(UUID farmId, String status, Pageable pageable);
+
+    BatchStatusResponse bulkStatusIngredients(UUID batchId, UUID farmId);
+    BatchStatusResponse bulkStatusFormulations(UUID batchId, UUID farmId);
+    BatchStatusResponse bulkStatusProductions(UUID batchId, UUID farmId);
+    BatchStatusResponse bulkStatusFeedings(UUID batchId, UUID farmId);
 
     Map<String, Long> ingredientsStats(UUID farmId);
     Map<String, Long> formulationsStats(UUID farmId);

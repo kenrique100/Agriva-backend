@@ -10,7 +10,6 @@ import com.agriva.shared.models.enums.Currency;
 import com.agriva.finance.model.entity.Income;
 import com.agriva.finance.model.enums.IncomeCategory;
 import com.agriva.finance.model.entity.StagedIncome;
-import com.agriva.finance.model.enums.StagedIncomeStatus;
 import com.agriva.identity.repository.AuthRepository;
 import com.agriva.farming.repository.FarmRepository;
 import com.agriva.finance.repository.IncomeRepository;
@@ -18,6 +17,7 @@ import com.agriva.finance.repository.StagedIncomeRepository;
 import com.agriva.finance.scheduler.StagedIncomeValidator;
 import com.agriva.identity.service.AuthService;
 import com.agriva.finance.service.IncomeService;
+import com.agriva.shared.models.enums.StagedStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,7 +43,6 @@ import static org.awaitility.Awaitility.await;
         "agriva.income.validator.retry-delay-minutes=0",
         "agriva.income.validator.max-attempts=4"
 })
-
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class IncomePipelineIT {
 
@@ -104,14 +103,14 @@ class IncomePipelineIT {
         await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
             StagedIncome staged = stagedRepo.findByIdOnly(ack.getSubmissionId()).orElse(null);
             assertThat(staged).isNotNull();
-            assertThat(staged.getStatus()).isEqualTo(StagedIncomeStatus.PENDING);
+            assertThat(staged.getStatus()).isEqualTo(StagedStatus.PENDING);
         });
 
         validator.processStagedIncomes();
 
         await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
             StagedIncome staged = stagedRepo.findByIdOnly(ack.getSubmissionId()).orElseThrow();
-            assertThat(staged.getStatus()).isEqualTo(StagedIncomeStatus.MOVED);
+            assertThat(staged.getStatus()).isEqualTo(StagedStatus.MOVED);
             assertThat(staged.getMovedIncomeId()).isNotNull();
 
             List<Income> incomes = incomeRepo.findAll();
@@ -141,13 +140,12 @@ class IncomePipelineIT {
             assertThat(staged.getRetryCount()).isGreaterThanOrEqualTo(1);
         });
 
-        // Drive the retry budget to exhaustion.
         for (int i = 0; i < 3; i++) {
             validator.processStagedIncomes();
         }
 
         StagedIncome staged = stagedRepo.findByIdOnly(ack.getSubmissionId()).orElseThrow();
-        assertThat(staged.getStatus()).isEqualTo(StagedIncomeStatus.FAILED);
+        assertThat(staged.getStatus()).isEqualTo(StagedStatus.FAILED);
         assertThat(staged.getRetryCount()).isEqualTo(4);
         assertThat(incomeRepo.countByFarmId(farmId)).isZero();
     }

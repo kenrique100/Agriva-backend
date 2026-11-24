@@ -11,7 +11,6 @@ import com.agriva.shared.models.enums.Currency;
 import com.agriva.finance.model.entity.Expense;
 import com.agriva.finance.model.enums.ExpenseCategory;
 import com.agriva.finance.model.entity.StagedExpense;
-import com.agriva.finance.model.enums.StagedExpenseStatus;
 import com.agriva.identity.repository.AuthRepository;
 import com.agriva.finance.repository.ExpenseRepository;
 import com.agriva.farming.repository.FarmRepository;
@@ -21,6 +20,7 @@ import com.agriva.finance.scheduler.StagedExpenseValidator;
 import com.agriva.identity.service.AuthService;
 import com.agriva.finance.service.ExpenseService;
 import com.agriva.finance.service.InvestmentService;
+import com.agriva.shared.models.enums.StagedStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,7 +57,7 @@ class ExpenseServiceIT {
     void setUp() {
         stagedRepo.deleteAll();
         expenseRepo.deleteAll();
-        investmentRepo.deleteAll();       // ← isolate state between tests
+        investmentRepo.deleteAll();
         authRepository.deleteAll();
         farmRepository.deleteAll();
 
@@ -79,12 +79,8 @@ class ExpenseServiceIT {
         AuthResponse master = authService.registerMaster(reg);
         farmId = master.getFarmId();
 
-        // ── REQUIRED ─────────────────────────────────────────────────────
-        // ExpenseServiceImpl.createDirect() and StagedExpenseValidator both
-        // require an ACTIVE investment before they will move an expense into
-        // the `expense` table. Create one here for every test.
         InvestmentRequest inv = new InvestmentRequest();
-        inv.setAmount(new BigDecimal("1000000.00"));   // 1,000,000 XAF
+        inv.setAmount(new BigDecimal("1000000.00"));
         inv.setCurrency(Currency.XAF);
         inv.setInvestorName("Test Investor");
         inv.setInvestmentDate(LocalDate.now());
@@ -117,7 +113,7 @@ class ExpenseServiceIT {
         validator.processStagedExpenses();
 
         StagedExpense staged = stagedRepo.findByIdOnly(ack.getSubmissionId()).orElseThrow();
-        assertThat(staged.getStatus()).isEqualTo(StagedExpenseStatus.MOVED);
+        assertThat(staged.getStatus()).isEqualTo(StagedStatus.MOVED);
 
         Expense saved = expenseRepo.findAll().get(0);
         assertThat(saved.getAmountPaid()).isEqualByComparingTo("250.00");

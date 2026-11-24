@@ -1,6 +1,7 @@
 package com.agriva.task.scheduler;
 
 import com.agriva.personnel.models.entity.Personnel;
+import com.agriva.personnel.models.enums.PersonnelStatus;
 import com.agriva.personnel.repository.PersonnelRepository;
 import com.agriva.task.model.dto.requests.TaskCreateRequest;
 import com.agriva.task.model.entity.StagedTask;
@@ -60,8 +61,9 @@ public class StagedTaskValidator {
     }
 
     private void processOne(UUID stagedId) {
-        StagedTask staged = stagedRepo.findByIdForUpdate(stagedId).orElse(null);
-        if (staged == null) return;
+        List<StagedTask> found = stagedRepo.findByIdForUpdate(stagedId);
+        if (found.isEmpty()) return;
+        StagedTask staged = found.get(0);
 
         LocalDateTime now = LocalDateTime.now();
         if (!isDueForProcessing(staged, now)) return;
@@ -111,8 +113,13 @@ public class StagedTaskValidator {
         if (req.getDeadline().isBefore(LocalDate.now())) return "Deadline cannot be in the past";
         if (req.getExpectedHours() == null || req.getExpectedHours() <= 0)
             return "Expected hours must be positive";
-        if (personnelRepo.findByIdAndFarmIdLive(req.getPersonnelId(), farmId).isEmpty())
-            return "Personnel not found in farm";
+
+        Personnel p = personnelRepo.findByIdAndFarmIdLive(req.getPersonnelId(), farmId)
+                .orElse(null);
+        if (p == null) return "Personnel not found in farm";
+        if (p.getStatus() != PersonnelStatus.ACTIVE)
+            return "Cannot assign tasks to personnel who are not ACTIVE (current: "
+                    + p.getStatus() + ")";
         return null;
     }
 

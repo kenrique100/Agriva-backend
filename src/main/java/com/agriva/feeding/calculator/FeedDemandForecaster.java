@@ -1,22 +1,28 @@
 package com.agriva.feeding.calculator;
 
 /**
- * Reserved slot for the user's Calculator A.
+ * Strategy interface for feed-demand forecasting algorithms.
  * <p>
- * Answers: "how much feed will N heads consume from initialWeight to
- * targetWeight at the given temperature?"
+ * Implementations:
+ *   - FishDemandForecaster    (@Primary) — handles CATFISH and TILAPIA
+ *   - TilapiaDemandForecaster (secondary) — strict TILAPIA-only, opt-in
  * <p>
- * PURE PLANNING. Implementations MUST NOT touch ingredient stock or the
- * farm feed store. Side effects belong to the production layer.
- * <p>
- * Ship-safe default: {@code ManualDemandForecaster} throws
- * {@link UnsupportedOperationException} (mapped to 501) until the user
- * provides their implementation with {@code @Primary}.
+ * The single bean injected into ForecastServiceImpl is FishDemandForecaster
+ * because it is @Primary and covers both supported species.
  */
 public interface FeedDemandForecaster {
 
+    /**
+     * Calculate growth stages + total feed demand for the given input.
+     *
+     * @throws com.agriva.shared.exception.BusinessException
+     *         if the species is unsupported or inputs are invalid
+     */
     DemandForecastResult calculate(DemandForecastInput input);
 
-    /** Short, stable identifier persisted on every DemandForecast. */
+    /**
+     * Version string stamped on every DemandForecast row so we can trace
+     * which algorithm produced it. Used for reproducibility.
+     */
     String algorithmVersion();
 }

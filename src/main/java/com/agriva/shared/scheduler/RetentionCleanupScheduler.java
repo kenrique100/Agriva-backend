@@ -20,9 +20,15 @@ public class RetentionCleanupScheduler {
     private static final int CREATE_MONTHS_AHEAD = 3;
 
     private static final List<String> STAGING_TABLES = List.of(
-            "staged_income", "staged_expense", "staged_task",
-            "staged_salary", "staged_crop_cycle",
-            "consumer_processed_events"
+            "staged_income",
+            "staged_expense",
+            "staged_task",
+            "staged_salary",
+            "staged_crop_cycle",
+            "staged_feeding_ingredient",
+            "staged_feeding_formulation",
+            "staged_feeding_production",
+            "staged_feeding_event"
     );
 
     private final JdbcTemplate jdbc;
@@ -37,7 +43,6 @@ public class RetentionCleanupScheduler {
             pruneIdempotency(failures);
 
             if (!failures.isEmpty()) {
-                // Bubble up so @Scheduled turns this into a metric / log alert.
                 throw new IllegalStateException(
                         "Retention cleanup finished with " + failures.size()
                                 + " failure(s); first: " + failures.get(0).getMessage(),

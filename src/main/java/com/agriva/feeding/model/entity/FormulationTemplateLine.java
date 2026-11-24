@@ -24,9 +24,9 @@ public class FormulationTemplateLine {
     @Column(name = "ingredient_name", nullable = false, length = 100)
     private String ingredientName;
 
-    @Column(nullable = false, precision = 6, scale = 4)
+    @Column(nullable = false, precision = 7, scale = 4)
     private BigDecimal percentage;
 
-    @Column(name = "crude_protein_pct", precision = 6, scale = 4)
+    @Column(name = "crude_protein_pct", precision = 7, scale = 4)
     private BigDecimal crudeProteinPct;
 }

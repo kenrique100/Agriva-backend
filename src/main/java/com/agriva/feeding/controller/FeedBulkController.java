@@ -2,6 +2,7 @@ package com.agriva.feeding.controller;
 
 import com.agriva.feeding.model.dto.response.*;
 import com.agriva.feeding.service.FeedBulkService;
+import com.agriva.shared.models.dto.BatchStatusResponse;
 import com.agriva.shared.models.dto.PageResponse;
 import com.agriva.shared.security.AuthenticatedUser;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/feeding")
@@ -67,6 +69,38 @@ public class FeedBulkController {
                 file, u.farmId(), u.userId(), u.email()));
     }
 
+    @GetMapping("/bulk/ingredients/{batchId}")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<BatchStatusResponse> ingredientBatchStatus(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID batchId) {
+        return ResponseEntity.ok(bulkService.bulkStatusIngredients(batchId, u.farmId()));
+    }
+
+    @GetMapping("/bulk/formulations/{batchId}")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<BatchStatusResponse> formulationBatchStatus(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID batchId) {
+        return ResponseEntity.ok(bulkService.bulkStatusFormulations(batchId, u.farmId()));
+    }
+
+    @GetMapping("/bulk/productions/{batchId}")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<BatchStatusResponse> productionBatchStatus(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID batchId) {
+        return ResponseEntity.ok(bulkService.bulkStatusProductions(batchId, u.farmId()));
+    }
+
+    @GetMapping("/bulk/feedings/{batchId}")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<BatchStatusResponse> feedingBatchStatus(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID batchId) {
+        return ResponseEntity.ok(bulkService.bulkStatusFeedings(batchId, u.farmId()));
+    }
+
     @GetMapping("/staging/ingredients")
     @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<PageResponse<StagedFeedingIngredientResponse>> listStagedIngredients(
@@ -113,29 +147,25 @@ public class FeedBulkController {
 
     @GetMapping("/staging/ingredients/stats")
     @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
-    public ResponseEntity<Map<String, Long>> ingredientsStats(
-            @AuthenticationPrincipal AuthenticatedUser u) {
+    public ResponseEntity<Map<String, Long>> ingredientsStats(@AuthenticationPrincipal AuthenticatedUser u) {
         return ResponseEntity.ok(bulkService.ingredientsStats(u.farmId()));
     }
 
     @GetMapping("/staging/formulations/stats")
     @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
-    public ResponseEntity<Map<String, Long>> formulationsStats(
-            @AuthenticationPrincipal AuthenticatedUser u) {
+    public ResponseEntity<Map<String, Long>> formulationsStats(@AuthenticationPrincipal AuthenticatedUser u) {
         return ResponseEntity.ok(bulkService.formulationsStats(u.farmId()));
     }
 
     @GetMapping("/staging/productions/stats")
     @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
-    public ResponseEntity<Map<String, Long>> productionsStats(
-            @AuthenticationPrincipal AuthenticatedUser u) {
+    public ResponseEntity<Map<String, Long>> productionsStats(@AuthenticationPrincipal AuthenticatedUser u) {
         return ResponseEntity.ok(bulkService.productionsStats(u.farmId()));
     }
 
     @GetMapping("/staging/feedings/stats")
     @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
-    public ResponseEntity<Map<String, Long>> feedingsStats(
-            @AuthenticationPrincipal AuthenticatedUser u) {
+    public ResponseEntity<Map<String, Long>> feedingsStats(@AuthenticationPrincipal AuthenticatedUser u) {
         return ResponseEntity.ok(bulkService.feedingsStats(u.farmId()));
     }
 

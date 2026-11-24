@@ -37,4 +37,9 @@ public interface PoultryBatchRepository extends JpaRepository<PoultryBatch, UUID
     @Query("SELECT b FROM PoultryBatch b WHERE b.id = :id AND b.farmId = :farmId")
     Optional<PoultryBatch> findByIdAndFarmIdForUpdate(
             @Param("id") UUID id, @Param("farmId") UUID farmId);
+
+    Optional<PoultryBatch> findFirstByFarmIdAndBatchCodeStartingWithOrderByBatchCodeDesc(
+            UUID farmId, String prefix);
+
+    Optional<PoultryBatch> findByFarmIdAndBatchCode(UUID farmId, String batchCode);
 }

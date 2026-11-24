@@ -2,49 +2,33 @@ package com.agriva.finance.utils;
 
 import com.agriva.finance.model.dto.request.IncomeRequest;
 import com.agriva.finance.repository.IncomeRepository;
+import com.agriva.shared.utils.AbstractBatchValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
-public class IncomeValidator {
+public class IncomeValidator extends AbstractBatchValidator<IncomeRequest> {
 
     private final IncomeRepository incomeRepository;
 
-    public List<String> validate(IncomeRequest request, UUID farmId) {
-        List<String> errors = new ArrayList<>();
-        if (request == null) return List.of("Request payload is empty");
+    @Override protected int getQuantity(IncomeRequest r)          { return r.getQuantity(); }
+    @Override protected BigDecimal getAmount(IncomeRequest r)     { return r.getAmountReceived(); }
+    @Override protected BigDecimal getExpectedAmount(IncomeRequest r) { return r.getExpectedAmount(); }
+    @Override protected LocalDate getDate(IncomeRequest r)        { return r.getIncomeDate(); }
+    @Override protected String getReason(IncomeRequest r)         { return r.getReason(); }
 
-        if (request.getQuantity() < 1) {
-            errors.add("Quantity must be at least 1");
-        }
-        if (request.getExpectedAmount() == null
-                || request.getExpectedAmount().compareTo(BigDecimal.ZERO) <= 0) {
-            errors.add("Expected amount must be positive");
-        }
-        if (request.getAmountReceived() == null
-                || request.getAmountReceived().compareTo(BigDecimal.ZERO) <= 0) {
-            errors.add("Amount received must be positive");
-        }
-        if (request.getIncomeDate() == null
-                || request.getIncomeDate().isAfter(LocalDate.now())) {
-            errors.add("Income date cannot be in the future");
-        }
-
-        if (farmId != null && request.getAmountReceived() != null
-                && request.getIncomeDate() != null && request.getReason() != null) {
-            boolean exists = incomeRepository.existsByFarmIdAndAmountReceivedAndIncomeDateAndReasonLive(
-                    farmId, request.getAmountReceived(), request.getIncomeDate(), request.getReason());
-            if (exists) {
-                errors.add("Duplicate income: same amount, date and reason already exists for this farm");
-            }
-        }
-        return errors;
+    @Override
+    protected boolean duplicateExists(UUID farmId, BigDecimal amount, LocalDate date, String reason) {
+        return incomeRepository.existsByFarmIdAndAmountReceivedAndIncomeDateAndReasonLive(
+                farmId, amount, date, reason);
     }
+
+    @Override protected String amountLabel() { return "Amount received"; }
+    @Override protected String dateLabel()   { return "Income date"; }
+    @Override protected String domainLabel() { return "income"; }
 }

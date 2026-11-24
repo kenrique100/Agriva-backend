@@ -28,6 +28,7 @@ import com.agriva.personnel.models.enums.PersonnelStatus;
 import com.agriva.shared.models.ref.UserRef;
 import com.agriva.shared.security.AuthenticatedUser;
 import com.agriva.shared.security.JwtUtil;
+import com.agriva.shared.security.LoginAttemptTracker;
 import com.agriva.shared.security.RoleConstants;
 import com.agriva.identity.service.AuthService;
 import com.agriva.file.service.FileStorageService;
@@ -39,6 +40,7 @@ import com.agriva.task.repository.StagedTaskRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -58,6 +60,12 @@ public class AuthServiceImpl implements AuthService {
 
     private static final String LOGIN_FAIL_KEY_PREFIX = "agriva:auth:loginfail:";
     private static final Duration LOCKOUT_WINDOW = Duration.ofMinutes(15);
+
+    /**
+     * A valid BCrypt hash used to equalize timing when the user does not exist.
+     * This prevents attackers from guessing valid usernames based on response times.
+     */
+    private static final String DUMMY_HASH = "$2a$12$C6UzMDM.H6dfI/f/IKcEeO7ZBvnpCL6VgIi89oBW3eZ6y2r6WJZWi";
 
     private final AuthRepository authRepository;
     private final FarmRepository farmRepository;
@@ -84,6 +92,7 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordValidator passwordValidator;
     private final FileStorageService fileStorageService;
     private final StringRedisTemplate redis;
+    private final LoginAttemptTracker loginAttemptTracker;
 
     @Value("${agriva.security.password-reset.expose-token:false}")
     private boolean exposeResetToken;
@@ -107,30 +116,38 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public AuthResponse login(LoginRequest request) {
-        String identity = request.getEmailOrUsername() == null
-                ? "" : request.getEmailOrUsername().toLowerCase().trim();
-        String lockKey = LOGIN_FAIL_KEY_PREFIX + identity;
+        // Canonicalize once. The repository compares LOWER(col) = LOWER(:p).
+        String identity = request.getEmailOrUsername().toLowerCase(Locale.ROOT).trim();
+        String lockKey  = LOGIN_FAIL_KEY_PREFIX + identity;
 
+        // Per-identity lockout (complements per-IP blacklist)
         if (isLocked(lockKey)) {
-            log.warn("Login attempt for locked account: {}", identity);
+            loginAttemptTracker.recordFailure(); // still counts towards IP
+            log.warn("Login attempt for locked identity: {}", identity);
             throw new RateLimitExceededException(
                     "Too many failed login attempts. Try again later.",
                     LOCKOUT_WINDOW.getSeconds());
         }
 
-        Optional<User> userOpt = authRepository.findByEmailOrUsernameLive(identity, identity);
+        Optional<User> userOpt = authRepository.findByEmailOrUsernameLive(identity);
 
-        String storedHash = userOpt.map(User::getPassword).orElse(
-                "$2a$12$C6UzMDM.H6dfI/f/IKcEeO7ZBvnpCL6VgIi89oBW3eZ6y2r6WJZWi");
+        // Always call matches() so the timing of a missing user and a bad
+        // password are indistinguishable (prevents username enumeration via
+        // response time).
+        String storedHash = userOpt.map(User::getPassword).orElse(DUMMY_HASH);
         boolean matches = passwordEncoder.matches(request.getPassword(), storedHash);
 
         if (userOpt.isEmpty() || !matches) {
             recordLoginFailure(lockKey);
-            log.warn("Failed login attempt for {}", identity);
-            throw new InvalidCredentialsException("Invalid credentials");
+            loginAttemptTracker.recordFailure();
+            log.warn("Failed login for {}", identity);
+            // Generic message — never reveal whether the user or the password was wrong.
+            throw new InvalidCredentialsException("Invalid username or password");
         }
 
+        // Success — clear both counters
         try { redis.delete(lockKey); } catch (Exception ignored) { }
+        loginAttemptTracker.clear();
 
         User user = userOpt.get();
         String farmName = user.getFarmId() != null
@@ -138,7 +155,7 @@ public class AuthServiceImpl implements AuthService {
                 : null;
 
         String jti = UUID.randomUUID().toString();
-        String accessToken = jwtUtil.generateToken(toRef(user), jti);
+        String accessToken  = jwtUtil.generateToken(toRef(user), jti);
         String refreshToken = refreshTokenService.issue(user.getId());
 
         log.info("Successful login for {} role={}", user.getEmail(), user.getRole());
@@ -220,8 +237,10 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     public AuthResponse registerMaster(MasterRegisterRequest request) {
         passwordValidator.validatePasswordStrength(request.getPassword());
-        validateEmailNotExists(request.getEmail());
-        validateUsernameNotExists(request.getUsername());
+        String email    = request.getEmail().trim().toLowerCase(Locale.ROOT);
+        String username = trimToNull(request.getUsername());
+        validateEmailNotExists(email);
+        validateUsernameNotExists(username);
 
         if (request.getDateOfBirth().plusYears(18).isAfter(LocalDate.now())) {
             throw new BusinessException("Master user must be at least 18 years old.");
@@ -230,42 +249,48 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException("Farm name already taken");
         }
 
-        Farm farm = farmRepository.save(Farm.builder()
-                .name(request.getFarmName())
-                .masterId(null)
-                .build());
+        try {
+            Farm farm = farmRepository.save(Farm.builder()
+                    .name(request.getFarmName())
+                    .masterId(null)
+                    .build());
 
-        User master = authRepository.save(User.builder()
-                .email(request.getEmail())
-                .username(trimToNull(request.getUsername()))
-                .password(passwordEncoder.encode(request.getPassword()))
-                .role(RoleConstants.MASTER)
-                .farmId(farm.getId())
-                .gender(request.getGender())
-                .dateOfBirth(request.getDateOfBirth())
-                .phoneNumber(request.getPhoneNumber())
-                .address(request.getAddress())
-                .city(request.getCity())
-                .state(request.getState())
-                .country(request.getCountry())
-                .postalCode(request.getPostalCode())
-                .preferredCurrency(request.getCurrency())
-                .build());
+            User master = authRepository.save(User.builder()
+                    .email(email)
+                    .username(username)
+                    .password(passwordEncoder.encode(request.getPassword()))
+                    .role(RoleConstants.MASTER)
+                    .farmId(farm.getId())
+                    .gender(request.getGender())
+                    .dateOfBirth(request.getDateOfBirth())
+                    .phoneNumber(request.getPhoneNumber())
+                    .address(request.getAddress())
+                    .city(request.getCity())
+                    .state(request.getState())
+                    .country(request.getCountry())
+                    .postalCode(request.getPostalCode())
+                    .preferredCurrency(request.getCurrency())
+                    .build());
 
-        farm.setMasterId(master.getId());
-        farmRepository.save(farm);
+            farm.setMasterId(master.getId());
+            farmRepository.save(farm);
 
-        createPersonnelForUser(master, request.getName(), Department.ADMINISTRATION);
-        log.info("Master registered: {} for farm {}", master.getEmail(), farm.getName());
+            createPersonnelForUser(master, request.getName(),
+                    Department.ADMINISTRATION, request.getNationalId());
 
-        String jti = UUID.randomUUID().toString();
-        return new AuthResponse(
-                master.getId(),
-                jwtUtil.generateToken(toRef(master), jti),
-                refreshTokenService.issue(master.getId()),
-                jwtUtil.getAccessTtlSeconds(),
-                master.getEmail(), master.getUsername(), master.getRole(),
-                master.getFarmId(), farm.getName(), master.getPreferredCurrency());
+            log.info("Master registered: {} for farm {}", master.getEmail(), farm.getName());
+
+            String jti = UUID.randomUUID().toString();
+            return new AuthResponse(
+                    master.getId(),
+                    jwtUtil.generateToken(toRef(master), jti),
+                    refreshTokenService.issue(master.getId()),
+                    jwtUtil.getAccessTtlSeconds(),
+                    master.getEmail(), master.getUsername(), master.getRole(),
+                    master.getFarmId(), farm.getName(), master.getPreferredCurrency());
+        } catch (DataIntegrityViolationException e) {
+            throw new BusinessException("Email, username or farm name is already taken");
+        }
     }
 
     @Override
@@ -281,35 +306,50 @@ public class AuthServiceImpl implements AuthService {
         }
 
         passwordValidator.validatePasswordStrength(request.getPassword());
-        validateEmailNotExists(request.getEmail());
-        validateUsernameNotExists(request.getUsername());
+        String email    = request.getEmail().trim().toLowerCase(Locale.ROOT);
+        String username = trimToNull(request.getUsername());
+        validateEmailNotExists(email);
+        validateUsernameNotExists(username);
 
         if (request.getDateOfBirth() == null ||
                 request.getDateOfBirth().plusYears(18).isAfter(LocalDate.now())) {
             throw new BusinessException("Sub-user must be at least 18 years old.");
         }
 
-        User subUser = authRepository.save(User.builder()
-                .email(request.getEmail())
-                .username(trimToNull(request.getUsername()))
-                .password(passwordEncoder.encode(request.getPassword()))
-                .role(RoleConstants.SUB_USER)
-                .farmId(masterFarmId)
-                .gender(request.getGender())
-                .dateOfBirth(request.getDateOfBirth())
-                .phoneNumber(request.getPhoneNumber())
-                .address(request.getAddress())
-                .build());
+        try {
+            User subUser = authRepository.save(User.builder()
+                    .email(email)
+                    .username(username)
+                    .password(passwordEncoder.encode(request.getPassword()))
+                    .role(RoleConstants.SUB_USER)
+                    .farmId(masterFarmId)
+                    .gender(request.getGender())
+                    .dateOfBirth(request.getDateOfBirth())
+                    .phoneNumber(request.getPhoneNumber())
+                    .address(request.getAddress())
+                    .build());
 
-        createPersonnelForUser(
-                subUser, request.getName(),
-                request.getDepartment() != null ? request.getDepartment() : Department.ADMINISTRATION);
+            createPersonnelForUser(
+                    subUser, request.getName(),
+                    request.getDepartment() != null
+                            ? request.getDepartment() : Department.ADMINISTRATION,
+                    request.getNationalId());
 
-        log.info("Sub-user registered: {} for farm {}", subUser.getEmail(), subUser.getFarmId());
-        return new SubUserRegisteredResponse(subUser.getId(), subUser.getEmail(), masterFarmId);
+            log.info("Sub-user registered: {} for farm {}", subUser.getEmail(), subUser.getFarmId());
+            return new SubUserRegisteredResponse(subUser.getId(), subUser.getEmail(), masterFarmId);
+        } catch (DataIntegrityViolationException e) {
+            throw new BusinessException("Email, username or national ID is already in use");
+        }
     }
 
-    private Personnel createPersonnelForUser(User user, String preferredName, Department department) {
+    private Personnel createPersonnelForUser(User user, String preferredName,
+                                             Department department, String nationalId) {
+        String trimmedNationalId = trimToNull(nationalId);
+        if (trimmedNationalId != null &&
+                personnelRepository.existsByFarmIdAndNationalId(user.getFarmId(), trimmedNationalId)) {
+            throw new BusinessException("National ID already in use for this farm");
+        }
+
         String name = preferredName != null && !preferredName.isBlank()
                 ? preferredName.trim()
                 : (user.getUsername() != null && !user.getUsername().isBlank()
@@ -320,6 +360,7 @@ public class AuthServiceImpl implements AuthService {
                 .farmId(user.getFarmId())
                 .userId(user.getId())
                 .name(name)
+                .nationalId(trimmedNationalId)
                 .gender(user.getGender())
                 .dateOfBirth(user.getDateOfBirth())
                 .email(user.getEmail())

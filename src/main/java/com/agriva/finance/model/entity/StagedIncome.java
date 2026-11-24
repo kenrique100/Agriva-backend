@@ -1,6 +1,7 @@
 package com.agriva.finance.model.entity;
 
-import com.agriva.finance.model.enums.StagedIncomeStatus;
+import com.agriva.shared.models.entity.StagedSubmission;
+import com.agriva.shared.models.enums.StagedStatus;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -14,7 +15,7 @@ import java.util.UUID;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class StagedIncome {
+public class StagedIncome implements StagedSubmission {
 
     @Id
     @Column(name = "id", nullable = false, updatable = false)
@@ -32,7 +33,7 @@ public class StagedIncome {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
-    private StagedIncomeStatus status;
+    private StagedStatus status;
 
     @Column(name = "validation_errors", length = 2000)
     private String validationErrors;
@@ -42,6 +43,12 @@ public class StagedIncome {
 
     @Column(name = "submitted_by_email", length = 100)
     private String submittedByEmail;
+
+    @Column(name = "batch_id")
+    private UUID batchId;
+
+    @Column(name = "row_number")
+    private Integer rowNumber;
 
     @Column(name = "last_attempt_at")
     private LocalDateTime lastAttemptAt;

@@ -32,13 +32,8 @@ public class CropManagementController {
 
     public record CycleStatusUpdate(@NotNull CropCycleStatus status) {}
 
-    private static <T> ResponseEntity<T> unauthorized() {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-    }
-
     @GetMapping("/fields")
     public ResponseEntity<List<FieldResponse>> getFields(@AuthenticationPrincipal AuthenticatedUser u) {
-        if (u == null) return unauthorized();
         return ResponseEntity.ok(cropService.getFields(u.farmId()));
     }
 
@@ -47,7 +42,6 @@ public class CropManagementController {
     public ResponseEntity<FieldResponse> createField(
             @AuthenticationPrincipal AuthenticatedUser u,
             @Valid @RequestBody FieldRequest req) {
-        if (u == null) return unauthorized();
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(cropService.createField(req, u.farmId()));
     }
@@ -58,7 +52,6 @@ public class CropManagementController {
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id,
             @Valid @RequestBody FieldRequest req) {
-        if (u == null) return unauthorized();
         return ResponseEntity.ok(cropService.updateField(id, req, u.farmId()));
     }
 
@@ -67,7 +60,6 @@ public class CropManagementController {
     public ResponseEntity<Void> deleteField(
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id) {
-        if (u == null) return unauthorized();
         cropService.deleteField(id, u.farmId());
         return ResponseEntity.noContent().build();
     }
@@ -77,14 +69,13 @@ public class CropManagementController {
     public ResponseEntity<CropBulkUploadResponse> bulkUploadFields(
             @AuthenticationPrincipal AuthenticatedUser u,
             @RequestPart("file") MultipartFile file) {
-        if (u == null) return unauthorized();
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(cropService.bulkUploadFields(file, u.farmId()));
     }
 
+    // --- Crops ---
     @GetMapping("/catalog")
     public ResponseEntity<List<CropResponse>> getCrops(@AuthenticationPrincipal AuthenticatedUser u) {
-        if (u == null) return unauthorized();
         return ResponseEntity.ok(cropService.getCrops(u.farmId()));
     }
 
@@ -93,7 +84,6 @@ public class CropManagementController {
     public ResponseEntity<CropResponse> createCrop(
             @AuthenticationPrincipal AuthenticatedUser u,
             @Valid @RequestBody CropRequest req) {
-        if (u == null) return unauthorized();
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(cropService.createCrop(req, u.farmId()));
     }
@@ -104,7 +94,6 @@ public class CropManagementController {
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id,
             @Valid @RequestBody CropRequest req) {
-        if (u == null) return unauthorized();
         return ResponseEntity.ok(cropService.updateCrop(id, req, u.farmId()));
     }
 
@@ -113,7 +102,6 @@ public class CropManagementController {
     public ResponseEntity<Void> deleteCrop(
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id) {
-        if (u == null) return unauthorized();
         cropService.deleteCrop(id, u.farmId());
         return ResponseEntity.noContent().build();
     }
@@ -123,14 +111,13 @@ public class CropManagementController {
     public ResponseEntity<CropBulkUploadResponse> bulkUploadCrops(
             @AuthenticationPrincipal AuthenticatedUser u,
             @RequestPart("file") MultipartFile file) {
-        if (u == null) return unauthorized();
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(cropService.bulkUploadCrops(file, u.farmId()));
     }
 
+    // --- Cycles ---
     @GetMapping("/cycles")
     public ResponseEntity<List<CropCycleResponse>> getCycles(@AuthenticationPrincipal AuthenticatedUser u) {
-        if (u == null) return unauthorized();
         return ResponseEntity.ok(cropService.getCycles(u.farmId()));
     }
 
@@ -138,7 +125,6 @@ public class CropManagementController {
     public ResponseEntity<CropCycleResponse> getCycle(
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id) {
-        if (u == null) return unauthorized();
         return ResponseEntity.ok(cropService.getCycle(id, u.farmId()));
     }
 
@@ -147,7 +133,6 @@ public class CropManagementController {
     public ResponseEntity<CropCycleResponse> createCycle(
             @AuthenticationPrincipal AuthenticatedUser u,
             @Valid @RequestBody CropCycleRequest req) {
-        if (u == null) return unauthorized();
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(cropService.createCycle(req, u.farmId()));
     }
@@ -158,7 +143,6 @@ public class CropManagementController {
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id,
             @Valid @RequestBody CycleStatusUpdate req) {
-        if (u == null) return unauthorized();
         return ResponseEntity.ok(cropService.updateCycleStatus(
                 id, req.status().name(), u.farmId()));
     }
@@ -168,7 +152,6 @@ public class CropManagementController {
     public ResponseEntity<CropBulkUploadResponse> bulkUploadCycles(
             @AuthenticationPrincipal AuthenticatedUser u,
             @RequestPart("file") MultipartFile file) {
-        if (u == null) return unauthorized();
         return ResponseEntity.accepted().body(cropService.bulkUploadCycles(
                 file, u.farmId(), u.userId(), u.email()));
     }
@@ -179,74 +162,79 @@ public class CropManagementController {
             @AuthenticationPrincipal AuthenticatedUser u,
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        if (u == null) return unauthorized();
+            @RequestParam(defaultValue = "10") int size) {
         return ResponseEntity.ok(PageResponse.of(cropService.listStaging(
                 u.farmId(), status,
-                PageRequest.of(page, Math.min(size, 100),
+                PageRequest.of(page, Math.min(size, 10),
                         Sort.by(Sort.Direction.DESC, "submittedAt")))));
     }
 
     @GetMapping("/cycles/staging/stats")
     @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<Map<String, Long>> stagingStats(@AuthenticationPrincipal AuthenticatedUser u) {
-        if (u == null) return unauthorized();
         return ResponseEntity.ok(cropService.stagingStats(u.farmId()));
+    }
+
+    @DeleteMapping("/cycles/{id}")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
+    public ResponseEntity<Void> deleteCycle(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID id) {
+        cropService.deleteCycle(id, u.farmId());
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/cycles/{id}/activities")
     public ResponseEntity<List<CropActivityResponse>> getActivities(
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id) {
-        if (u == null) return unauthorized();
         return ResponseEntity.ok(cropService.getActivities(id, u.farmId()));
     }
 
     @PostMapping("/cycles/{id}/activities")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN','SUB_USER')")
     public ResponseEntity<CropActivityResponse> logActivity(
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id,
             @Valid @RequestBody CropActivityRequest req) {
-        if (u == null) return unauthorized();
         return ResponseEntity.status(HttpStatus.CREATED).body(
                 cropService.logActivity(id, req, u.farmId(), u.userId()));
     }
 
     @PutMapping("/cycles/{cycleId}/activities/{activityId}")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<CropActivityResponse> updateActivity(
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID cycleId,
             @PathVariable UUID activityId,
             @Valid @RequestBody CropActivityRequest req) {
-        if (u == null) return unauthorized();
         return ResponseEntity.ok(cropService.updateActivity(cycleId, activityId, req, u.farmId()));
     }
 
     @DeleteMapping("/cycles/{cycleId}/activities/{activityId}")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<Void> deleteActivity(
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID cycleId,
             @PathVariable UUID activityId) {
-        if (u == null) return unauthorized();
         cropService.deleteActivity(cycleId, activityId, u.farmId());
         return ResponseEntity.noContent().build();
     }
 
+    // --- Harvests ---
     @GetMapping("/cycles/{cycleId}/harvests")
     public ResponseEntity<List<HarvestResponse>> getHarvests(
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID cycleId) {
-        if (u == null) return unauthorized();
         return ResponseEntity.ok(cropService.getHarvests(cycleId, u.farmId()));
     }
 
-    @PostMapping("/cycles/{id}/harvest")
+    @PostMapping({"/cycles/{id}/harvest", "/cycles/{id}/harvests"})
     @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<HarvestResponse> logHarvest(
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id,
             @Valid @RequestBody HarvestRequest req) {
-        if (u == null) return unauthorized();
         return ResponseEntity.status(HttpStatus.CREATED).body(
                 cropService.logHarvest(id, req, u.farmId()));
     }
@@ -258,7 +246,6 @@ public class CropManagementController {
             @PathVariable UUID cycleId,
             @PathVariable UUID harvestId,
             @Valid @RequestBody HarvestRequest req) {
-        if (u == null) return unauthorized();
         return ResponseEntity.ok(cropService.updateHarvest(cycleId, harvestId, req, u.farmId()));
     }
 
@@ -268,18 +255,7 @@ public class CropManagementController {
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID cycleId,
             @PathVariable UUID harvestId) {
-        if (u == null) return unauthorized();
         cropService.deleteHarvest(cycleId, harvestId, u.farmId());
-        return ResponseEntity.noContent().build();
-    }
-
-    @DeleteMapping("/cycles/{id}")
-    @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
-    public ResponseEntity<Void> deleteCycle(
-            @AuthenticationPrincipal AuthenticatedUser u,
-            @PathVariable UUID id) {
-        if (u == null) return unauthorized();
-        cropService.deleteCycle(id, u.farmId());
         return ResponseEntity.noContent().build();
     }
 }

@@ -77,8 +77,6 @@ public class AuthController {
         return ResponseEntity.noContent().build();
     }
 
-    // NOTE: /me/reset-password has been removed — see /change-password above.
-
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(@RequestHeader(value = "Authorization", required = false) String authHeader) {
         authService.logout(authHeader);
@@ -91,7 +89,6 @@ public class AuthController {
             @AuthenticationPrincipal AuthenticatedUser principal,
             @PathVariable UUID userId) {
 
-        // Load once — see audit B8.
         UserResponse target = authService.getUserById(userId);
 
         boolean isAdmin         = principal.isAdmin();
@@ -110,16 +107,29 @@ public class AuthController {
     @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<SubUserRegisteredResponse> registerSubUser(
             @AuthenticationPrincipal AuthenticatedUser principal,
+            @RequestParam(name = "farmId", required = false) UUID farmId,
             @Valid @RequestBody SubUserRegisterRequest request) {
+
+        UUID targetFarm = principal.isAdmin() ? farmId : principal.farmId();
+        if (targetFarm == null) {
+            return ResponseEntity.badRequest().build();
+        }
+
         return ResponseEntity.status(201)
-                .body(authService.registerSubUser(request, principal.farmId(), principal.role()));
+                .body(authService.registerSubUser(request, targetFarm, principal.role()));
     }
 
     @GetMapping("/farm/users")
     @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<List<UserListResponse>> getFarmUsers(
-            @AuthenticationPrincipal AuthenticatedUser principal) {
-        return ResponseEntity.ok(authService.getUsersByFarmId(principal.farmId()));
+            @AuthenticationPrincipal AuthenticatedUser principal,
+            @RequestParam(name = "farmId", required = false) UUID farmId) {
+
+        UUID targetFarm = principal.isAdmin() ? farmId : principal.farmId();
+        if (targetFarm == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        return ResponseEntity.ok(authService.getUsersByFarmId(targetFarm));
     }
 
     @GetMapping("/farm/details")
@@ -151,8 +161,8 @@ public class AuthController {
     @DeleteMapping("/me")
     public ResponseEntity<MessageResponse> deleteMyAccount(
             @AuthenticationPrincipal AuthenticatedUser principal,
-            @RequestParam(name = "confirmation") String confirmation) {
-        authService.deleteOwnAccount(principal.userId(), confirmation);
+            @Valid @RequestBody DeleteAccountRequest request) {
+        authService.deleteOwnAccount(principal.userId(), request.getConfirmation());
         return ResponseEntity.ok(new MessageResponse("Your account and all related farm data have been deleted"));
     }
 

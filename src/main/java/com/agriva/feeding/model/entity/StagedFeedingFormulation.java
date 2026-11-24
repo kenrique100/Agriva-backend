@@ -1,6 +1,6 @@
 package com.agriva.feeding.model.entity;
 
-import com.agriva.feeding.model.enums.StagedFeedingStatus;
+import com.agriva.shared.models.enums.StagedStatus;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -32,7 +32,7 @@ public class StagedFeedingFormulation {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
-    private StagedFeedingStatus status;
+    private StagedStatus status;
 
     @Column(name = "validation_errors", length = 2000)
     private String validationErrors;
@@ -42,6 +42,12 @@ public class StagedFeedingFormulation {
 
     @Column(name = "submitted_by_email", length = 100)
     private String submittedByEmail;
+
+    @Column(name = "batch_id")
+    private UUID batchId;
+
+    @Column(name = "row_number")
+    private Integer rowNumber;
 
     @Column(name = "last_attempt_at")
     private LocalDateTime lastAttemptAt;

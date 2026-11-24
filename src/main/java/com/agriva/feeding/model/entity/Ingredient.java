@@ -47,6 +47,10 @@ public class Ingredient extends AuditableEntity {
     @DecimalMin(value = "0.0001", message = "Density must be positive")
     private BigDecimal densityKgPerL;
 
+    @Column(name = "crude_protein_pct", precision = 7, scale = 4)
+    @DecimalMin(value = "0", message = "Crude protein cannot be negative")
+    private BigDecimal crudeProteinPct;
+
     @Version
     @Column(nullable = false)
     private Long version;

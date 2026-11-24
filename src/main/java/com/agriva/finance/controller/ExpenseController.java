@@ -1,15 +1,18 @@
 package com.agriva.finance.controller;
 
 import com.agriva.finance.model.dto.request.ExpenseRequest;
-import com.agriva.finance.model.dto.response.ExpenseBulkUploadResponse;
 import com.agriva.finance.model.dto.response.ExpenseResponse;
 import com.agriva.finance.model.dto.response.ExpenseStagingResponse;
+import com.agriva.finance.model.dto.response.ExpenseStatsResponse;
 import com.agriva.finance.model.dto.response.ExpenseSubmissionAck;
+import com.agriva.shared.models.dto.BatchStatusResponse;
+import com.agriva.shared.models.dto.BatchUploadResponse;
 import com.agriva.shared.models.dto.CursorPageResponse;
 import com.agriva.shared.models.dto.PageResponse;
 import com.agriva.shared.security.AuthenticatedUser;
 import com.agriva.finance.service.ExpenseService;
 import com.agriva.file.service.FileStorageService;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -22,6 +25,8 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.io.PrintWriter;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -51,22 +56,30 @@ public class ExpenseController {
 
     @PostMapping(value = "/bulk", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public ResponseEntity<ExpenseBulkUploadResponse> bulkUpload(
+    public ResponseEntity<BatchUploadResponse> bulkUpload(
             @AuthenticationPrincipal AuthenticatedUser u,
             @RequestPart("file") MultipartFile file) {
         return ResponseEntity.accepted().body(expenseService.bulkUpload(
                 file, u.farmId(), u.userId(), u.email()));
     }
 
+    @GetMapping("/bulk/{batchId}")
+    public ResponseEntity<BatchStatusResponse> bulkStatus(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID batchId) {
+        return ResponseEntity.ok(expenseService.bulkStatus(batchId, u.farmId()));
+    }
+
     @GetMapping
     public ResponseEntity<PageResponse<ExpenseResponse>> list(
             @AuthenticationPrincipal AuthenticatedUser u,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "10") int size, // Default size is now 10
             @RequestParam(defaultValue = "expenseDate,desc") String sort) {
         return ResponseEntity.ok(PageResponse.of(expenseService.listExpenses(
                 u.farmId(),
-                PageRequest.of(page, Math.min(size, 100), parseSort(sort)))));
+                // RESTRICTED TO MAX 10 RECORDS PER PAGE
+                PageRequest.of(page, Math.min(size, 10), parseSort(sort)))));
     }
 
     @GetMapping("/{id}")
@@ -109,10 +122,10 @@ public class ExpenseController {
             @AuthenticationPrincipal AuthenticatedUser u,
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "10") int size) { // Default size 10
         return ResponseEntity.ok(PageResponse.of(expenseService.listStaging(
                 u.farmId(), status,
-                PageRequest.of(page, Math.min(size, 100),
+                PageRequest.of(page, Math.min(size, 10), // RESTRICTED TO MAX 10
                         Sort.by(Sort.Direction.DESC, "submittedAt")))));
     }
 
@@ -120,9 +133,21 @@ public class ExpenseController {
     public ResponseEntity<CursorPageResponse<ExpenseResponse>> listByCursor(
             @AuthenticationPrincipal AuthenticatedUser u,
             @RequestParam(required = false) String cursor,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "10") int size) {
         return ResponseEntity.ok(
                 expenseService.listExpensesByCursor(u.farmId(), cursor, size));
+    }
+
+    @GetMapping("/export")
+    public void exportToCsv(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            HttpServletResponse response) throws IOException {
+        response.setContentType("text/csv");
+        response.setHeader("Content-Disposition", "attachment; filename=\"expenses.csv\"");
+
+        try (PrintWriter writer = response.getWriter()) {
+            expenseService.exportToCsv(u.farmId(), writer);
+        }
     }
 
     private Sort parseSort(String sort) {
@@ -133,5 +158,10 @@ public class ExpenseController {
         Sort.Direction dir = (parts.length > 1 && parts[1].equalsIgnoreCase("asc"))
                 ? Sort.Direction.ASC : Sort.Direction.DESC;
         return Sort.by(dir, parts[0]);
+    }
+
+    @GetMapping("/stats")
+    public ResponseEntity<ExpenseStatsResponse> getStats(@AuthenticationPrincipal AuthenticatedUser u) {
+        return ResponseEntity.ok(expenseService.getStats(u.farmId()));
     }
 }

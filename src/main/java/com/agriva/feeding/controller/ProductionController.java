@@ -1,7 +1,6 @@
 package com.agriva.feeding.controller;
 
 import com.agriva.feeding.model.dto.request.ProductionRequest;
-import com.agriva.feeding.model.dto.response.FarmStoreResponse;
 import com.agriva.feeding.model.dto.response.FeedBatchResponse;
 import com.agriva.feeding.service.ProductionService;
 import com.agriva.shared.models.dto.PageResponse;
@@ -44,11 +43,5 @@ public class ProductionController {
                 u.farmId(),
                 PageRequest.of(page, Math.min(size, 100),
                         Sort.by(Sort.Direction.DESC, "productionDate", "createdAt")))));
-    }
-
-    @GetMapping("/store")
-    public ResponseEntity<FarmStoreResponse> store(
-            @AuthenticationPrincipal AuthenticatedUser u) {
-        return ResponseEntity.ok(productionService.getStore(u.farmId()));
     }
 }

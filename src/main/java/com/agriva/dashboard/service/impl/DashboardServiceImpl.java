@@ -29,6 +29,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.PrintWriter;
 import java.math.BigDecimal;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -38,7 +39,8 @@ import java.util.stream.Collectors;
 @Slf4j
 public class DashboardServiceImpl implements DashboardService {
 
-    private static final int DASHBOARD_TX_LIMIT = 50;
+    // Reduced from 50 to 10 to match the new pagination limit rules
+    private static final int DASHBOARD_TX_LIMIT = 10;
 
     private final DashboardQueryRepository dashboardQueryRepo;
     private final FarmRepository farmRepository;
@@ -163,6 +165,50 @@ public class DashboardServiceImpl implements DashboardService {
             });
         }
         return DashboardProductivityResponse.builder().users(rows).build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public void exportFarmToCsv(UUID farmId, PrintWriter writer) {
+        DashboardResponse dashboard = farmDashboard(farmId, null);
+
+        writer.println("AGRIVA FARM EXPORT");
+        writer.println("Farm Name," + escapeCsv(dashboard.getFarmName()));
+        writer.println("Export Date," + java.time.LocalDateTime.now());
+        writer.println();
+
+        if (dashboard.getFarm() != null) {
+            writer.println("FARM TOTALS");
+            writer.println("Total Transactions,Total Incomes,Total Expenses,Total Investments,Total Income,Total Expense,Total Investment,Net Position");
+            DashboardResponse.Totals t = dashboard.getFarm();
+            writer.printf("%s,%s,%s,%s,%s,%s,%s,%s%n",
+                    t.getTotalTransactions(), t.getTotalIncomes(), t.getTotalExpenses(),
+                    t.getTotalInvestments(), t.getTotalIncome(), t.getTotalExpense(),
+                    t.getTotalInvestment(), t.getNetPosition());
+            writer.println();
+        }
+
+        writer.println("RECENT TRANSACTIONS");
+        writer.println("Reference,Date,Status,Recorded By,Income,Expense,Investment,Net Position,Notes");
+        if (dashboard.getTransactions() != null) {
+            for (DashboardResponse.TransactionSummary tx : dashboard.getTransactions()) {
+                writer.printf("%s,%s,%s,%s,%s,%s,%s,%s,%s%n",
+                        escapeCsv(tx.getTransactionRef()),
+                        tx.getOccurredAt(),
+                        tx.getStatus(),
+                        escapeCsv(tx.getRecordedByUsername()),
+                        tx.getIncome(), tx.getExpense(), tx.getInvestment(), tx.getNetPosition(),
+                        escapeCsv(tx.getNotes()));
+            }
+        }
+    }
+
+    private String escapeCsv(String value) {
+        if (value == null) return "";
+        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
     }
 
     private DashboardProductivityResponse.UserProductivity toProductivity(

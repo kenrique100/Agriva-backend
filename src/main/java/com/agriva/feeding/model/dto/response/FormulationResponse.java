@@ -2,6 +2,7 @@ package com.agriva.feeding.model.dto.response;
 
 import com.agriva.feeding.calculator.FormulationMode;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -34,6 +35,9 @@ public class FormulationResponse {
     private Map<String, BigDecimal> nutrientSummary;
     private LocalDateTime createdAt;
     private List<Line> lines;
+    private BigDecimal computedCpValue;
+    private UUID expenseSubmissionId;
+    private UUID forecastId;
 
     @Data
     @Builder
@@ -42,7 +46,8 @@ public class FormulationResponse {
     public static class Line {
         private UUID ingredientId;
         private String ingredientName;
-        private BigDecimal quantityKg;
+        @JsonProperty("quantityKg")
+        private BigDecimal quantityInStockUnit;
         private BigDecimal percentage;
         private BigDecimal unitCost;
         private BigDecimal lineCost;

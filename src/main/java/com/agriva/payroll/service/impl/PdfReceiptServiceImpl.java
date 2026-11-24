@@ -12,32 +12,52 @@ import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.font.PDFont;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
-import java.awt.*;
+import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Locale;
 
 @Service
 @Slf4j
 public class PdfReceiptServiceImpl implements PdfReceiptService {
 
-    private static final float MARGIN = 50;
-    private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd MMM yyyy");
-
-    // Brand Colors
-    private static final Color PRIMARY_GREEN = new Color(22, 163, 74); // #16a34a
-    private static final Color DARK_TEXT = new Color(30, 41, 59);      // #1e293b
-    private static final Color LIGHT_TEXT = new Color(100, 116, 139);  // #64748b
-    private static final Color BG_GRAY = new Color(248, 250, 252);     // #f8fafc
-    private static final Color LINE_GRAY = new Color(226, 232, 240);   // #e2e8f0
+    private static final float PAGE_W = 595f;
+    private static final float PAGE_H = 842f;
+    private static final float MARGIN = 40f;
+    private static final float CONTENT_W = PAGE_W - 2 * MARGIN;   // 515
+    private static final float RIGHT = PAGE_W - MARGIN;           // 555
+    private static final Color BRAND_DARK  = new Color(14, 59, 44);     // #0E3B2C
+    private static final Color BRAND_GREEN = new Color(31, 143, 95);    // #1F8F5F
+    private static final Color ACCENT_GOLD = new Color(232, 163, 61);   // #E8A33D
+    private static final Color GREEN_SOFT  = new Color(230, 244, 236);  // #E6F4EC
+    private static final Color TEXT        = new Color(20, 32, 27);     // #14201B
+    private static final Color MUTED       = new Color(101, 117, 108);  // #65756C
+    private static final Color LINE        = new Color(227, 234, 228);  // #E3EAE4
+    private static final Color BG_SOFT     = new Color(244, 247, 243);  // #F4F7F3
+    private static final Color MINT        = new Color(191, 227, 208);  // #BFE3D0
+    private static final Color DANGER      = new Color(229, 72, 77);    // #E5484D
+    private static final PDFont REGULAR = PDType1Font.HELVETICA;
+    private static final PDFont BOLD    = PDType1Font.HELVETICA_BOLD;
+    private static final PDFont OBLIQUE = PDType1Font.HELVETICA_OBLIQUE;
+    private static final PDFont SIGN    = PDType1Font.TIMES_ITALIC;
+    private static final String CURRENCY = "XAF";
+    private static final float ROW_H = 22f;
+    private static final int MAX_FULL_ROWS = 5;
+    private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH);
 
     @Override
     public byte[] generate(SalaryReceiptResponse r) {
@@ -45,239 +65,22 @@ public class PdfReceiptServiceImpl implements PdfReceiptService {
             PDPage page = new PDPage(PDRectangle.A4);
             doc.addPage(page);
             try (PDPageContentStream c = new PDPageContentStream(doc, page)) {
-
-                // 1. Header Banner
-                c.setNonStrokingColor(PRIMARY_GREEN);
-                c.addRect(0, 792 - 80, 595, 80); // A4 width is 595, height is 842
-                c.fill();
-
-                // Logo (Ensure you have /static/images/agriva_emblem.png in your resources)
-                try {
-                    InputStream logoStream = new ClassPathResource("static/images/agriva_emblem.png").getInputStream();
-                    BufferedImage logoImg = javax.imageio.ImageIO.read(logoStream);
-                    if (logoImg != null) {
-                        PDImageXObject logo = LosslessFactory.createFromImage(doc, logoImg);
-                        c.drawImage(logo, MARGIN, 792 - 65, 40, 40);
-                    }
-                } catch (Exception e) {
-                    log.warn("Agriva logo not found, skipping. {}", e.getMessage());
-                }
-
-                // Header Text
-                c.beginText();
-                c.setFont(PDType1Font.HELVETICA_BOLD, 22);
-                c.setNonStrokingColor(Color.WHITE);
-                c.newLineAtOffset(MARGIN + 50, 792 - 45);
-                c.showText("SALARY RECEIPT");
-                c.endText();
-
-                c.beginText();
-                c.setFont(PDType1Font.HELVETICA, 10);
-                c.setNonStrokingColor(new Color(220, 252, 231)); // Light green
-                c.newLineAtOffset(MARGIN + 50, 792 - 60);
-                c.showText(r.getFarmName());
-                c.endText();
-
-                // 2. Meta Info (Top Right)
-                c.beginText();
-                c.setFont(PDType1Font.HELVETICA_BOLD, 9);
-                c.setNonStrokingColor(Color.WHITE);
-                c.newLineAtOffset(450, 792 - 30);
-                c.showText("Receipt No: " + r.getReceiptNumber());
-                c.endText();
-
-                c.beginText();
-                c.setFont(PDType1Font.HELVETICA, 9);
-                c.setNonStrokingColor(Color.WHITE);
-                c.newLineAtOffset(450, 792 - 45);
-                c.showText("Date: " + (r.getIssueDate() != null ? r.getIssueDate().format(DATE) : "-"));
-                c.endText();
-
-                // 3. Details Section (Two Columns)
-                float y = 792 - 120;
-
-                // Left: Employee Details
-                drawSectionTitle(c, "EMPLOYEE DETAILS", MARGIN, y);
-                y -= 20;
-                drawLabelValue(c, "Name:", safe(r.getPersonnelName()), MARGIN, y); y -= 18;
-                drawLabelValue(c, "Employee ID:", safe(r.getPersonnelNationalId()), MARGIN, y); y -= 18;
-                drawLabelValue(c, "Department:", safe(r.getDepartment()), MARGIN, y); y -= 18;
-                drawLabelValue(c, "Employment:", r.getEmploymentDate() != null ? r.getEmploymentDate().format(DATE) : "-", MARGIN, y);
-
-                // Right: Payment Details
-                float rightColX = 320;
-                float yRight = 792 - 120;
-                drawSectionTitle(c, "PAYMENT DETAILS", rightColX, yRight);
-                yRight -= 20;
-                drawLabelValue(c, "Payment Date:", r.getPaymentDate() != null ? r.getPaymentDate().format(DATE) : "-", rightColX, yRight); yRight -= 18;
-                drawLabelValue(c, "Reference:", safe(r.getPaymentReference()), rightColX, yRight); yRight -= 18;
-                drawLabelValue(c, "Status:", safe(r.getStatus()), rightColX, yRight); yRight -= 18;
-
-                // Highlighted Amount
-                c.beginText();
-                c.setFont(PDType1Font.HELVETICA_BOLD, 11);
-                c.setNonStrokingColor(DARK_TEXT);
-                c.newLineAtOffset(rightColX, yRight);
-                c.showText("Amount:  ");
-                c.setNonStrokingColor(PRIMARY_GREEN);
-                c.setFont(PDType1Font.HELVETICA_BOLD, 14);
-                c.showText(String.format("%,.2f %s", r.getAmount(), "XAF")); // Or dynamic currency
-                c.endText();
-
-                // 4. Divider
-                y -= 40;
-                c.setStrokingColor(LINE_GRAY);
-                c.setLineWidth(1f);
-                c.moveTo(MARGIN, y);
-                c.lineTo(595 - MARGIN, y);
-                c.stroke();
-
-                // 5. Productivity Summary
-                y -= 25;
-                drawSectionTitle(c, "PRODUCTIVITY SUMMARY", MARGIN, y);
-                y -= 20;
-
-                float boxWidth = (595 - (MARGIN * 2) - 30) / 4;
-                drawSummaryBox(c, "Total Hours", safeBig(r.getTotalActualHours()) + " h", MARGIN, y, boxWidth);
-                drawSummaryBox(c, "Expected", safeBig(r.getTotalExpectedHours()) + " h", MARGIN + boxWidth + 10, y, boxWidth);
-                drawSummaryBox(c, "Productivity", (r.getOverallProductivity() != null ? r.getOverallProductivity().setScale(1, RoundingMode.HALF_UP) + "%" : "-"), MARGIN + (boxWidth * 2) + 20, y, boxWidth);
-                drawSummaryBox(c, "Days Worked", String.valueOf(r.getWorkingDays()), MARGIN + (boxWidth * 3) + 30, y, boxWidth);
-
-                // 6. Task Table
-                y -= 60;
-                drawSectionTitle(c, "VALIDATED TASKS", MARGIN, y);
-                y -= 20;
-
-                // Table Header Background
-                c.setNonStrokingColor(BG_GRAY);
-                c.addRect(MARGIN, y - 5, 595 - (MARGIN * 2), 20);
-                c.fill();
-
-                // Table Headers
-                c.beginText();
-                c.setFont(PDType1Font.HELVETICA_BOLD, 9);
-                c.setNonStrokingColor(LIGHT_TEXT);
-                c.newLineAtOffset(MARGIN + 5, y);
-                c.showText("Task Description");
-                c.newLineAtOffset(250, 0);
-                c.showText("Expected Hrs");
-                c.newLineAtOffset(70, 0);
-                c.showText("Actual Hrs");
-                c.newLineAtOffset(70, 0);
-                c.showText("Completion");
-                c.endText();
-
-                y -= 20;
-                boolean alternate = false;
-
-                if (r.getTasks() != null && !r.getTasks().isEmpty()) {
-                    for (SalaryReceiptLineItem li : r.getTasks()) {
-                        if (y < 150) break; // Prevent overlapping footer
-
-                        if (alternate) {
-                            c.setNonStrokingColor(BG_GRAY);
-                            c.addRect(MARGIN, y - 5, 595 - (MARGIN * 2), 18);
-                            c.fill();
-                        }
-
-                        c.beginText();
-                        c.setFont(PDType1Font.HELVETICA, 9);
-                        c.setNonStrokingColor(DARK_TEXT);
-                        c.newLineAtOffset(MARGIN + 5, y);
-                        c.showText(truncate(li.getTitle(), 45));
-
-                        c.newLineAtOffset(250, 0);
-                        c.showText(li.getExpectedHours() != null ? li.getExpectedHours().stripTrailingZeros().toPlainString() : "0");
-
-                        c.newLineAtOffset(70, 0);
-                        c.showText(li.getActualHours() != null ? li.getActualHours().stripTrailingZeros().toPlainString() : "0");
-
-                        c.newLineAtOffset(70, 0);
-                        c.showText(li.getCompletionRate() != null ? li.getCompletionRate().setScale(1, RoundingMode.HALF_UP) + "%" : "0%");
-                        c.endText();
-
-                        // Bottom border for row
-                        c.setStrokingColor(LINE_GRAY);
-                        c.setLineWidth(0.5f);
-                        c.moveTo(MARGIN, y - 5);
-                        c.lineTo(595 - MARGIN, y - 5);
-                        c.stroke();
-
-                        y -= 18;
-                        alternate = !alternate;
-                    }
-                } else {
-                    c.beginText();
-                    c.setFont(PDType1Font.HELVETICA_OBLIQUE, 9);
-                    c.setNonStrokingColor(LIGHT_TEXT);
-                    c.newLineAtOffset(MARGIN + 5, y);
-                    c.showText("No validated tasks in this period.");
-                    c.endText();
-                }
-
-                // 7. Footer (QR Code & Signature)
-                float footerY = 80;
-
-                // QR Code
-                try {
-                    BitMatrix matrix = new QRCodeWriter().encode(
-                            "RECEIPT:" + r.getReceiptNumber(), BarcodeFormat.QR_CODE, 80, 80);
-                    BufferedImage qr = MatrixToImageWriter.toBufferedImage(matrix);
-                    PDImageXObject qrImg = LosslessFactory.createFromImage(doc, qr);
-                    c.drawImage(qrImg, MARGIN, footerY, 60, 60);
-                } catch (Exception e) {
-                    log.warn("QR generation failed: {}", e.getMessage());
-                }
-
-                c.beginText();
-                c.setFont(PDType1Font.HELVETICA, 7);
-                c.setNonStrokingColor(LIGHT_TEXT);
-                c.newLineAtOffset(MARGIN, footerY - 10);
-                c.showText("Scan to verify authenticity");
-                c.endText();
-
-                // Signature Area
-                float sigX = 350;
-                float sigY = footerY + 20;
-
-                // Draw a smooth signature line
-                c.setStrokingColor(DARK_TEXT);
-                c.setLineWidth(1f);
-                c.moveTo(sigX, sigY);
-                c.lineTo(595 - MARGIN, sigY);
-                c.stroke();
-
-                // Optional: Draw a cursive signature placeholder
-                c.beginText();
-                c.setFont(PDType1Font.TIMES_ITALIC, 18);
-                c.setNonStrokingColor(new Color(15, 23, 42));
-                c.newLineAtOffset(sigX + 10, sigY + 5);
-                c.showText(r.getManagerName());
-                c.endText();
-
-                c.beginText();
-                c.setFont(PDType1Font.HELVETICA_BOLD, 9);
-                c.setNonStrokingColor(DARK_TEXT);
-                c.newLineAtOffset(sigX, sigY - 12);
-                c.showText("Authorized Signature");
-                c.endText();
-
-                c.beginText();
-                c.setFont(PDType1Font.HELVETICA, 8);
-                c.setNonStrokingColor(LIGHT_TEXT);
-                c.newLineAtOffset(sigX, sigY - 24);
-                c.showText("Manager: " + r.getManagerName() + " | " + r.getFarmName());
-                c.endText();
-
-                // Footer disclaimer
-                c.beginText();
-                c.setFont(PDType1Font.HELVETICA_OBLIQUE, 7);
-                c.setNonStrokingColor(LIGHT_TEXT);
-                c.newLineAtOffset(MARGIN, 30);
-                c.showText("This is a computer-generated document. No physical signature is required.");
-                c.endText();
+                drawHeader(doc, c, r);
+                drawNetPayCard(c, r);
+                drawInfoCard(c, 40f, "EMPLOYEE", new String[][]{
+                        {"Name", safe(r.getPersonnelName())},
+                        {"Employee ID", safe(r.getPersonnelNationalId())},
+                        {"Department", safe(r.getDepartment())},
+                        {"Employed since", date(r.getEmploymentDate())}});
+                drawInfoCard(c, 305f, "PAYMENT", new String[][]{
+                        {"Payment date", date(r.getPaymentDate())},
+                        {"Reference", safe(r.getPaymentReference())},
+                        {"Status", capitalize(safe(r.getStatus()))},
+                        {"Receipt no.", safe(r.getReceiptNumber())}});
+                drawProductivitySection(c, r);
+                drawTasksTable(c, r);
+                drawFooter(doc, c, r);
             }
-
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             doc.save(out);
             return out.toByteArray();
@@ -287,61 +90,405 @@ public class PdfReceiptServiceImpl implements PdfReceiptService {
         }
     }
 
-    // --- Helper Methods for UI Layout ---
+    /** Header band 0,0 595x112 + gold stripe 112..116. */
+    private void drawHeader(PDDocument doc, PDPageContentStream c, SalaryReceiptResponse r) throws IOException {
+        rect(c, 0, 0, PAGE_W, 112, BRAND_DARK);
+        rect(c, 0, 112, PAGE_W, 4, ACCENT_GOLD);
 
-    private void drawSectionTitle(PDPageContentStream c, String title, float x, float y) throws Exception {
-        c.beginText();
-        c.setFont(PDType1Font.HELVETICA_BOLD, 10);
-        c.setNonStrokingColor(PRIMARY_GREEN);
-        c.newLineAtOffset(x, y);
-        c.showText(title);
-        c.endText();
+        roundRect(c, 40, 32, 48, 48, 10, ACCENT_GOLD, null);
+        try (InputStream in = new ClassPathResource("static/images/agriva_emblem.png").getInputStream()) {
+            BufferedImage img = javax.imageio.ImageIO.read(in);
+            if (img != null) {
+                PDImageXObject logo = LosslessFactory.createFromImage(doc, img);
+                c.drawImage(logo, 48, PAGE_H - 40 - 32, 32, 32);
+            }
+        } catch (Exception e) {
+            log.warn("Agriva logo not found, skipping. {}", e.getMessage());
+        }
+
+        text(c, "SALARY RECEIPT", 104, 34, BOLD, 22, Color.WHITE, 0.6f);
+        text(c, safe(r.getFarmName()), 104, 62, REGULAR, 10, MINT, 0);
+        text(c, "Official payment receipt", 104, 77, REGULAR, 8, MINT, 0);
+
+        textRight(c, "RECEIPT NO.", RIGHT, 26, BOLD, 7.5f, MINT);
+        textRight(c, safe(r.getReceiptNumber()), RIGHT, 38, BOLD, 12, Color.WHITE);
+        textRight(c, "ISSUED", RIGHT, 62, BOLD, 7.5f, MINT);
+        textRight(c, date(r.getIssueDate()), RIGHT, 74, REGULAR, 10, Color.WHITE);
     }
 
-    private void drawLabelValue(PDPageContentStream c, String label, String value, float x, float y) throws Exception {
-        c.beginText();
-        c.setFont(PDType1Font.HELVETICA_BOLD, 9);
-        c.setNonStrokingColor(LIGHT_TEXT);
-        c.newLineAtOffset(x, y);
-        c.showText(label);
-        c.endText();
+    /** Net pay card 40,136 515x84 + status pill. */
+    private void drawNetPayCard(PDPageContentStream c, SalaryReceiptResponse r) throws IOException {
+        roundRect(c, 40, 136, CONTENT_W, 84, 12, GREEN_SOFT, LINE);
+        text(c, "NET PAY", 60, 152, BOLD, 8, MUTED, 1f);
+        String amount = r.getAmount() == null ? "0.00" : String.format(Locale.US, "%,.2f", r.getAmount());
+        text(c, CURRENCY + " " + amount, 60, 166, BOLD, 30, BRAND_GREEN, 0);
 
-        c.beginText();
-        c.setFont(PDType1Font.HELVETICA, 9);
-        c.setNonStrokingColor(DARK_TEXT);
-        c.newLineAtOffset(x + 70, y);
-        c.showText(value);
-        c.endText();
+        String status = safe(r.getStatus()).toUpperCase(Locale.ROOT);
+        float pillW = width(BOLD, 8.5f, status) + 24;
+        float pillX = 535 - pillW;
+        roundRect(c, pillX, 152, pillW, 22, 11, statusColor(status), null);
+        text(c, status, pillX + 12, 157, BOLD, 8.5f, Color.WHITE, 0.5f);
+
+        textRight(c, "Paid on " + date(r.getPaymentDate()), 535, 184, BOLD, 9, TEXT);
+        textRight(c, "Ref: " + safe(r.getPaymentReference()), 535, 198, REGULAR, 8, MUTED);
     }
 
-    private void drawSummaryBox(PDPageContentStream c, String label, String value, float x, float y, float width) throws Exception {
-        c.setNonStrokingColor(BG_GRAY);
-        c.addRect(x, y - 10, width, 40);
+    /** Info card at (x,240) 250x118. */
+    private void drawInfoCard(PDPageContentStream c, float x, String title, String[][] rows) throws IOException {
+        roundRect(c, x, 240, 250, 118, 10, Color.WHITE, LINE);
+        rect(c, x + 16, 253, 3, 10, BRAND_GREEN);
+        text(c, title, x + 26, 253, BOLD, 8.5f, BRAND_GREEN, 1f);
+        rect(c, x + 16, 266, 218, 1, LINE);
+        for (int i = 0; i < rows.length; i++) {
+            float y = 278 + i * 18f;
+            text(c, rows[i][0], x + 16, y, BOLD, 8.5f, MUTED, 0);
+            text(c, fit(REGULAR, 9, rows[i][1], 138), x + 96, y, REGULAR, 9, TEXT, 0);
+        }
+    }
+
+    private void drawProductivitySection(PDPageContentStream c, SalaryReceiptResponse r) throws IOException {
+        // ---- Title
+        rect(c, 40, 368, 3, 10, BRAND_GREEN);
+        text(c, "PERFORMANCE & PRODUCTIVITY", 50, 368, BOLD, 8.5f, BRAND_GREEN, 1f);
+        textRight(c, "Last 30 days · as of " + date(LocalDate.now()), RIGHT, 368, REGULAR, 8, MUTED);
+
+        // ---- Derived labels
+        String avgLabel = "no work recorded";
+        if (r.getWorkingDays() != null && r.getWorkingDays() > 0 && r.getTotalActualHours() != null) {
+            double avg = r.getTotalActualHours().doubleValue() / r.getWorkingDays();
+            avgLabel = String.format(Locale.US, "%.1f h / day avg", avg);
+        }
+
+        String varianceLabel = "no target";
+        if (r.getTotalActualHours() != null && r.getTotalExpectedHours() != null) {
+            BigDecimal v = r.getTotalActualHours().subtract(r.getTotalExpectedHours());
+            double dv = v.doubleValue();
+            if (Math.abs(dv) < 0.5) {
+                varianceLabel = "matches target";
+            } else if (dv > 0) {
+                varianceLabel = String.format(Locale.US, "%.1f h above target", dv);
+            } else {
+                varianceLabel = String.format(Locale.US, "%.1f h below target", Math.abs(dv));
+            }
+        }
+
+        String tier = productivityTier(r.getOverallProductivity());
+        Color tierCol = tierColor(r.getOverallProductivity());
+
+        // ---- 4 rich KPI cards
+        drawRichKpiCard(c, 40,      "HOURS WORKED",  hours(r.getTotalActualHours()) + " h",
+                avgLabel, BRAND_GREEN, false);
+        drawRichKpiCard(c, 171.25f, "TARGET HOURS",  hours(r.getTotalExpectedHours()) + " h",
+                varianceLabel, TEXT, false);
+        drawRichKpiCard(c, 302.5f,  "PRODUCTIVITY",  pct(r.getOverallProductivity()),
+                tier, tierCol, true);
+        drawRichKpiCard(c, 433.75f, "DAYS WORKED",
+                String.valueOf(r.getWorkingDays() == null ? 0 : r.getWorkingDays()),
+                "of last 30 days", MUTED, false);
+
+        // ---- Reporting period + tier badge
+        LocalDate pStart = r.getPeriodStartDate() != null
+                ? r.getPeriodStartDate()
+                : (r.getPaymentDate() != null ? r.getPaymentDate().minusDays(30) : null);
+        LocalDate pEnd = r.getPeriodEndDate() != null
+                ? r.getPeriodEndDate()
+                : r.getPaymentDate();
+
+        text(c, "REPORTING PERIOD", 40, 468, BOLD, 7.5f, MUTED, 0.5f);
+        text(c, (pStart != null ? date(pStart) : "-") + "  to  " + (pEnd != null ? date(pEnd) : "-"),
+                40, 480, REGULAR, 9, TEXT, 0);
+
+        float pillW = width(BOLD, 9, tier) + 28;
+        float pillX = RIGHT - pillW;
+        roundRect(c, pillX, 468, pillW, 24, 12, tierCol, null);
+        text(c, tier, pillX + 14, 474, BOLD, 9, Color.WHITE, 0.5f);
+
+        // ---- Progress bar + scale
+        text(c, "Overall productivity", 40, 494, BOLD, 7.5f, MUTED, 0.5f);
+        textRight(c, pct(r.getOverallProductivity()), RIGHT, 494, BOLD, 9, tierCol);
+
+        float barY = 500;
+        float barH = 10;
+        roundRect(c, 40, barY, CONTENT_W, barH, 5, LINE, null);
+        double p = ratio(r.getOverallProductivity());
+        if (p > 0) {
+            roundRect(c, 40, barY, (float) (CONTENT_W * p), barH, 5, tierCol, null);
+        }
+
+        String[] scale = {"0%", "25%", "50%", "75%", "100%"};
+        for (int i = 0; i < scale.length; i++) {
+            float x = 40 + (CONTENT_W * i / 4f);
+            float w = width(REGULAR, 7, scale[i]);
+            float tx = x - w / 2;
+            if (i == 0) tx = x;
+            if (i == scale.length - 1) tx = RIGHT - w;
+            text(c, scale[i], tx, barY + barH + 4, REGULAR, 7, MUTED, 0);
+        }
+
+        // ---- Task breakdown chips
+        TaskBreakdown tb = breakdown(r.getTasks());
+        drawBreakdownChip(c, 40,      String.valueOf(tb.total),    "TASKS VALIDATED",       MUTED);
+        drawBreakdownChip(c, 171.25f, String.valueOf(tb.onTarget), "ON TARGET · 90-100%",   BRAND_GREEN);
+        drawBreakdownChip(c, 302.5f,  String.valueOf(tb.overtime), "OVERTIME · >100%",      ACCENT_GOLD);
+        drawBreakdownChip(c, 433.75f, String.valueOf(tb.under),    "UNDER BUDGET · <90%",   DANGER);
+    }
+
+    /** Rich KPI card — label + big value + separator + subtext. */
+    private void drawRichKpiCard(PDPageContentStream c, float x, String label, String value,
+                                 String subtitle, Color valueColor, boolean highlight) throws IOException {
+        float w = 121.25f;
+        float h = 76;
+        Color bg = highlight ? GREEN_SOFT : BG_SOFT;
+        rect(c, x, 384, w, h, bg);
+        rect(c, x, 384, 3, h, highlight ? BRAND_DARK : BRAND_GREEN);
+
+        text(c, label, x + 14, 394, BOLD, 7.5f, MUTED, 0.6f);
+        text(c, fit(BOLD, 20, value, w - 24), x + 14, 408, BOLD, 20, valueColor, 0);
+
+        rect(c, x + 14, 436, w - 28, 0.5f, LINE);
+
+        text(c, fit(REGULAR, 7.5f, subtitle, w - 24), x + 14, 444, REGULAR, 7.5f, MUTED, 0);
+    }
+
+    /** Task breakdown chip — big count on top, small caption below. */
+    private void drawBreakdownChip(PDPageContentStream c, float x, String value,
+                                   String label, Color color) throws IOException {
+        float w = 121.25f;
+        float h = 30;
+        rect(c, x, 524, w, h, Color.WHITE);
+        c.setStrokingColor(LINE);
+        c.setLineWidth(0.5f);
+        c.addRect(x, PAGE_H - 524 - h, w, h);
+        c.stroke();
+        rect(c, x, 524, 3, h, color);
+
+        text(c, value, x + 14, 528, BOLD, 16, color, 0);
+        text(c, fit(BOLD, 7, label, w - 20), x + 14, 546, BOLD, 7, MUTED, 0.3f);
+    }
+
+    /** Mutually-exclusive classification of all validated tasks. */
+    private record TaskBreakdown(int total, int onTarget, int overtime, int under) {}
+
+    private static TaskBreakdown breakdown(List<SalaryReceiptLineItem> tasks) {
+        if (tasks == null || tasks.isEmpty()) return new TaskBreakdown(0, 0, 0, 0);
+        int on = 0, over = 0, under = 0;
+        for (SalaryReceiptLineItem t : tasks) {
+            BigDecimal rate = t.getCompletionRate();
+            if (rate == null) { under++; continue; }
+            double d = rate.doubleValue();
+            if (d > 100) over++;
+            else if (d >= 90) on++;
+            else under++;
+        }
+        return new TaskBreakdown(tasks.size(), on, over, under);
+    }
+
+    private static String productivityTier(BigDecimal pct) {
+        if (pct == null) return "NOT RATED";
+        double d = pct.doubleValue();
+        if (d >= 95) return "OUTSTANDING";
+        if (d >= 85) return "EXCELLENT";
+        if (d >= 70) return "GOOD";
+        if (d >= 50) return "SATISFACTORY";
+        return "NEEDS IMPROVEMENT";
+    }
+
+    private static Color tierColor(BigDecimal pct) {
+        if (pct == null) return MUTED;
+        double d = pct.doubleValue();
+        if (d >= 95) return BRAND_DARK;
+        if (d >= 85) return BRAND_GREEN;
+        if (d >= 70) return ACCENT_GOLD;
+        if (d >= 50) return MUTED;
+        return DANGER;
+    }
+
+    /** Validated tasks table — header y=580, rows from y=604, totals after the rows. */
+    private void drawTasksTable(PDPageContentStream c, SalaryReceiptResponse r) throws IOException {
+        List<SalaryReceiptLineItem> tasks = r.getTasks() == null ? List.of() : r.getTasks();
+
+        rect(c, 40, 562, 3, 10, BRAND_GREEN);
+        text(c, "VALIDATED TASKS", 50, 562, BOLD, 8.5f, BRAND_GREEN, 1f);
+        textRight(c, tasks.size() + " tasks validated this period", RIGHT, 562, REGULAR, 8, MUTED);
+
+        roundRect(c, 40, 580, CONTENT_W, 24, 4, BRAND_DARK, null);
+        text(c, "#", 50, 588, BOLD, 8, Color.WHITE, 0);
+        text(c, "TASK DESCRIPTION", 72, 588, BOLD, 8, Color.WHITE, 0.5f);
+        textRight(c, "EXPECTED (H)", 395, 588, BOLD, 8, Color.WHITE);
+        textRight(c, "ACTUAL (H)", 455, 588, BOLD, 8, Color.WHITE);
+        textRight(c, "COMPLETION", 547, 588, BOLD, 8, Color.WHITE);
+
+        float y = 604;
+        if (tasks.isEmpty()) {
+            text(c, "No validated tasks in this period.", 72, y + 7, OBLIQUE, 9, MUTED, 0);
+            y += ROW_H;
+        } else {
+            boolean overflow = tasks.size() > MAX_FULL_ROWS;
+            int shown = overflow ? MAX_FULL_ROWS - 1 : tasks.size();
+            for (int i = 0; i < shown; i++) {
+                SalaryReceiptLineItem li = tasks.get(i);
+                if (i % 2 == 1) rect(c, 40, y, CONTENT_W, ROW_H, BG_SOFT);
+                rect(c, 40, y + 21.5f, CONTENT_W, 0.5f, LINE);
+                text(c, String.format("%02d", i + 1), 50, y + 7, REGULAR, 9, MUTED, 0);
+                text(c, fit(REGULAR, 9, li.getTitle(), 250), 72, y + 7, REGULAR, 9, TEXT, 0);
+                textRight(c, hours(li.getExpectedHours()), 395, y + 7, REGULAR, 9, TEXT);
+                textRight(c, hours(li.getActualHours()), 455, y + 7, REGULAR, 9, TEXT);
+
+                double done = ratio(li.getCompletionRate());
+                Color barCol = completionColor(done);
+                roundRect(c, 466, y + 9, 36, 5, 2.5f, LINE, null);
+                if (done > 0) roundRect(c, 466, y + 9,
+                        (float) (36 * Math.min(1, done)), 5, 2.5f, barCol, null);
+                textRight(c, pct(li.getCompletionRate()), 547, y + 7, BOLD, 9, TEXT);
+                y += ROW_H;
+            }
+            if (overflow) {
+                text(c, "+ " + (tasks.size() - shown) + " more validated tasks (see payroll record)",
+                        72, y + 7, REGULAR, 8.5f, MUTED, 0);
+                y += ROW_H;
+            }
+        }
+
+        // Totals band
+        rect(c, 40, y, CONTENT_W, 26, GREEN_SOFT);
+        rect(c, 40, y, CONTENT_W, 1.5f, BRAND_GREEN);
+        text(c, "Total – " + tasks.size() + " validated tasks", 72, y + 8, BOLD, 9, TEXT, 0);
+        textRight(c, hours(r.getTotalExpectedHours()), 395, y + 8, BOLD, 9, TEXT);
+        textRight(c, hours(r.getTotalActualHours()), 455, y + 8, BOLD, 9, TEXT);
+        textRight(c, pct(r.getOverallProductivity()), 547, y + 8, BOLD, 9, BRAND_GREEN);
+    }
+
+    /** Row-level completion colour — 4 tiers. */
+    private static Color completionColor(double ratio01) {
+        if (ratio01 < 0.5) return DANGER;        // well below target
+        if (ratio01 < 0.9) return ACCENT_GOLD;   // under target
+        if (ratio01 <= 1.0) return BRAND_GREEN;  // on target
+        return BRAND_DARK;                       // overtime (worked more than expected)
+    }
+
+    /** Footer: divider y=752, QR, signature, band at y=826. */
+    private void drawFooter(PDDocument doc, PDPageContentStream c, SalaryReceiptResponse r) throws IOException {
+        rect(c, 40, 752, CONTENT_W, 0.75f, LINE);
+
+        try {
+            BitMatrix m = new QRCodeWriter().encode("RECEIPT:" + safe(r.getReceiptNumber()),
+                    BarcodeFormat.QR_CODE, 220, 220);
+            PDImageXObject qr = LosslessFactory.createFromImage(doc, MatrixToImageWriter.toBufferedImage(m));
+            c.drawImage(qr, 40, PAGE_H - 762 - 54, 54, 54);
+        } catch (Exception e) {
+            log.warn("QR generation failed: {}", e.getMessage());
+        }
+        text(c, "Scan to verify authenticity", 104, 774, BOLD, 8.5f, TEXT, 0);
+        text(c, "RECEIPT:" + safe(r.getReceiptNumber()), 104, 788, REGULAR, 7.5f, MUTED, 0);
+
+        String manager = safe(r.getManagerName());
+        text(c, fit(SIGN, 18, manager, 165), 385, 768, SIGN, 18, BRAND_DARK, 0);
+        rect(c, 375, 794, 180, 0.75f, TEXT);
+        text(c, "Authorized signature", 375, 799, BOLD, 8.5f, TEXT, 0);
+        text(c, fit(REGULAR, 7.5f, "Manager: " + manager + " · " + safe(r.getFarmName()), 180),
+                375, 811, REGULAR, 7.5f, MUTED, 0);
+
+        rect(c, 0, 826, PAGE_W, 16, BRAND_DARK);
+        text(c, "Computer-generated document. No physical signature is required.", 40, 831, REGULAR, 6.5f, MINT, 0);
+        textRight(c, "Page 1 of 1", RIGHT, 831, REGULAR, 6.5f, MINT);
+    }
+
+    private void rect(PDPageContentStream c, float x, float yTop, float w, float h, Color fill) throws IOException {
+        c.setNonStrokingColor(fill);
+        c.addRect(x, PAGE_H - yTop - h, w, h);
         c.fill();
+    }
 
-        c.beginText();
-        c.setFont(PDType1Font.HELVETICA, 8);
-        c.setNonStrokingColor(LIGHT_TEXT);
-        c.newLineAtOffset(x + 10, y + 15);
-        c.showText(label);
-        c.endText();
+    private void roundRect(PDPageContentStream c, float x, float yTop, float w, float h, float rad,
+                           Color fill, Color stroke) throws IOException {
+        float y = PAGE_H - yTop - h;
+        float r = Math.min(rad, Math.min(w, h) / 2);
+        float k = r * 0.5523f;
+        c.moveTo(x + r, y);
+        c.lineTo(x + w - r, y);
+        c.curveTo(x + w - r + k, y, x + w, y + r - k, x + w, y + r);
+        c.lineTo(x + w, y + h - r);
+        c.curveTo(x + w, y + h - r + k, x + w - r + k, y + h, x + w - r, y + h);
+        c.lineTo(x + r, y + h);
+        c.curveTo(x + r - k, y + h, x, y + h - r + k, x, y + h - r);
+        c.lineTo(x, y + r);
+        c.curveTo(x, y + r - k, x + r - k, y, x + r, y);
+        c.closePath();
+        if (fill != null && stroke != null) {
+            c.setNonStrokingColor(fill); c.setStrokingColor(stroke); c.setLineWidth(0.75f); c.fillAndStroke();
+        } else if (fill != null) {
+            c.setNonStrokingColor(fill); c.fill();
+        } else if (stroke != null) {
+            c.setStrokingColor(stroke); c.setLineWidth(0.75f); c.stroke();
+        } else {
+            c.closePath();
+        }
+    }
 
+    private void text(PDPageContentStream c, String s, float x, float yTop, PDFont font, float size,
+                      Color color, float letterSpacing) throws IOException {
         c.beginText();
-        c.setFont(PDType1Font.HELVETICA_BOLD, 12);
-        c.setNonStrokingColor(DARK_TEXT);
-        c.newLineAtOffset(x + 10, y + 2);
-        c.showText(value);
+        c.setFont(font, size);
+        c.setNonStrokingColor(color);
+        c.setCharacterSpacing(letterSpacing);
+        c.newLineAtOffset(x, PAGE_H - yTop - size * 0.85f);
+        c.showText(clean(font, s));
         c.endText();
+        c.setCharacterSpacing(0);
+    }
+
+    private void textRight(PDPageContentStream c, String s, float rightX, float yTop, PDFont font,
+                           float size, Color color) throws IOException {
+        text(c, s, rightX - width(font, size, s), yTop, font, size, color, 0);
+    }
+
+    private float width(PDFont font, float size, String s) throws IOException {
+        return font.getStringWidth(clean(font, s)) / 1000f * size;
+    }
+
+    private String fit(PDFont font, float size, String s, float maxWidth) throws IOException {
+        String t = clean(font, s == null ? "" : s);
+        if (width(font, size, t) <= maxWidth) return t;
+        while (t.length() > 1 && width(font, size, t + "...") > maxWidth) t = t.substring(0, t.length() - 1);
+        return t + "...";
+    }
+
+    /** Standard PDF fonts only support WinAnsi: replace anything else with '?'. */
+    private String clean(PDFont font, String s) {
+        if (s == null) return "";
+        StringBuilder sb = new StringBuilder(s.length());
+        for (char ch : s.toCharArray()) {
+            try { font.encode(String.valueOf(ch)); sb.append(ch); } catch (Exception e) { sb.append('?'); }
+        }
+        return sb.toString();
+    }
+
+    private static Color statusColor(String status) {
+        switch (status) {
+            case "PROCESSED": return BRAND_GREEN;
+            case "PENDING":   return ACCENT_GOLD;
+            case "FAILED":    return DANGER;
+            default:          return MUTED;
+        }
     }
 
     private static String safe(String s) { return s == null || s.isBlank() ? "-" : s; }
 
-    private static String safeBig(java.math.BigDecimal b) {
-        return b == null ? "0" : b.stripTrailingZeros().toPlainString();
+    private static String date(java.time.temporal.TemporalAccessor d) { return d == null ? "-" : DATE.format(d); }
+
+    private static String hours(BigDecimal b) { return b == null ? "0" : b.stripTrailingZeros().toPlainString(); }
+
+    private static String pct(BigDecimal b) {
+        return b == null ? "-" : b.setScale(1, RoundingMode.HALF_UP) + "%";
     }
 
-    private static String truncate(String s, int n) {
-        if (s == null) return "";
-        return s.length() > n ? s.substring(0, n - 3) + "..." : s;
+    private static double ratio(BigDecimal percent) {
+        if (percent == null) return 0;
+        return Math.max(0, Math.min(1, percent.doubleValue() / 100.0));
+    }
+
+    private static String capitalize(String s) {
+        if (s == null || s.length() < 2) return s;
+        return s.substring(0, 1).toUpperCase(Locale.ROOT) + s.substring(1).toLowerCase(Locale.ROOT);
     }
 }

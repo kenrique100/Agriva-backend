@@ -2,7 +2,6 @@ package com.agriva.feeding;
 
 import com.agriva.TestcontainersConfiguration;
 import com.agriva.farming.repository.FarmRepository;
-import com.agriva.feeding.calculator.ManualDemandForecaster;
 import com.agriva.feeding.model.dto.request.DemandForecastRequest;
 import com.agriva.feeding.repository.DemandForecastRepository;
 import com.agriva.feeding.repository.DemandForecastStageRepository;
@@ -34,17 +33,6 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Verifies that WITHOUT a wired-in FeedDemandForecaster, POST /feed/forecasts
- * returns 501 (UnsupportedOperationException).
- * <p>
- * This class runs on the shared Spring test context (same Postgres container
- * as FeedConsumptionIT / FeedFormulationIT / FeedProductionIT / Fishery*), so
- * its {@code @BeforeEach} must clean every feeding + fishery table in
- * FK-dependency order — otherwise {@code farmRepository.deleteAll()} is blocked
- * by the ON DELETE RESTRICT FK from {@code formulation_line} to
- * {@code ingredient}, producing the "could not execute batch" failure.
- */
 @SpringBootTest
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
@@ -54,8 +42,6 @@ class FeedForecastNotWiredIT {
     @Autowired AuthService authService;
     @Autowired AuthRepository authRepository;
     @Autowired FarmRepository farmRepository;
-    @Autowired ManualDemandForecaster manualForecaster;
-
     @Autowired FeedingEventRepository feedingEventRepo;
     @Autowired FeedBatchRepository feedBatchRepo;
     @Autowired FarmFeedStoreRepository farmFeedStoreRepo;

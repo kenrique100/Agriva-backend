@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Data
@@ -33,6 +34,8 @@ public class DemandForecastResponse {
     private String algorithmVersion;
     private LocalDateTime createdAt;
     private List<Stage> stages;
+    private BigDecimal computedCpValue;
+    private Map<String, BigDecimal> nutrientSummary;
 
     @Data
     @Builder

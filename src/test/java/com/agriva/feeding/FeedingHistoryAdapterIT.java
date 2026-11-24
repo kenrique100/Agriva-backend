@@ -24,13 +24,6 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Exercises {@link FeedingHistoryPort} directly. Rows are inserted into
- * {@code feeding_event} via JDBC rather than through {@code FeedConsumptionService.feed},
- * because the write path validates the consumer via the port SPI (a random
- * UUID consumer would be rejected), and this test's scope is the read-side
- * aggregation, not the write path.
- */
 @SpringBootTest
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
@@ -142,13 +135,6 @@ class FeedingHistoryAdapterIT {
                 .isEmpty();
     }
 
-    /**
-     * Inserts a {@code feeding_event} row directly. Bypasses {@code
-     * FeedConsumptionService.feed}, which would reject a random-UUID consumer
-     * via the {@link com.agriva.feeding.port.FeedConsumerPort} SPI. The read
-     * path being tested only cares that the row exists with the right
-     * (farmId, consumerType, consumerId, quantityKg, fedAt).
-     */
     private void deliver(UUID consumer, String kg, LocalDate date) {
         jdbc.update(
                 "INSERT INTO feeding_event " +

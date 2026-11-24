@@ -12,6 +12,8 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 public class FeedBulkUploadResponse {
+
+    private UUID batchId;
     private int totalRows;
     private int queued;
     private int failed;

@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -23,11 +24,26 @@ public interface FormulationRepository extends JpaRepository<Formulation, UUID> 
             "AND f.deletedAt IS NULL")
     Optional<Formulation> findByIdAndFarmIdLive(@Param("id") UUID id, @Param("farmId") UUID farmId);
 
-    /** NEW (DR-6): resolve a raw formulation name to a Formulation on this farm. */
     @Query("SELECT f FROM Formulation f WHERE f.farmId = :farmId " +
             "AND LOWER(f.name) = LOWER(:name) AND f.deletedAt IS NULL")
     Optional<Formulation> findByFarmIdAndNameLive(@Param("farmId") UUID farmId,
                                                   @Param("name") String name);
+
+    @Query("SELECT f FROM Formulation f WHERE f.farmId = :farmId " +
+            "AND LOWER(f.name) = LOWER(:name) AND f.deletedAt IS NULL " +
+            "ORDER BY f.createdAt DESC")
+    List<Formulation> findAllByFarmIdAndNameLive(@Param("farmId") UUID farmId,
+                                                 @Param("name") String name);
+
+    default Optional<Formulation> findMostRecentByFarmIdAndNameLive(UUID farmId, String name) {
+        var list = findAllByFarmIdAndNameLive(farmId, name);
+        return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
+    }
+
+    @Query("SELECT COUNT(f) FROM Formulation f " +
+            "WHERE f.forecastId = :forecastId AND f.farmId = :farmId AND f.deletedAt IS NULL")
+    long countByForecastIdAndFarmIdLive(
+            @Param("forecastId") UUID forecastId, @Param("farmId") UUID farmId);
 
     @Modifying
     @Query("UPDATE Formulation f SET f.deletedAt = :now " +

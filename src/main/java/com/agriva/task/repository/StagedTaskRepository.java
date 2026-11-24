@@ -40,8 +40,8 @@ public interface StagedTaskRepository extends JpaRepository<StagedTask, StagedTa
             Pageable pageable);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT s FROM StagedTask s WHERE s.id = :id")
-    Optional<StagedTask> findByIdForUpdate(@Param("id") UUID id);
+    @Query("SELECT s FROM StagedTask s WHERE s.id = :id ORDER BY s.submittedAt DESC")
+    List<StagedTask> findByIdForUpdate(@Param("id") UUID id);
 
     @Query("SELECT s FROM StagedTask s WHERE s.id = :id ORDER BY s.submittedAt DESC")
     List<StagedTask> findAllByEventId(@Param("id") UUID id);
@@ -53,4 +53,8 @@ public interface StagedTaskRepository extends JpaRepository<StagedTask, StagedTa
     @Modifying
     @Query("DELETE FROM StagedTask s WHERE s.farmId = :farmId")
     int deleteByFarmId(@Param("farmId") UUID farmId);
+
+    @Modifying
+    @Query("UPDATE StagedTask s SET s.movedTaskId = null WHERE s.movedTaskId = :taskId")
+    int clearMovedTaskId(@Param("taskId") UUID taskId);
 }

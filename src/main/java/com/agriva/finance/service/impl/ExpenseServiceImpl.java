@@ -2,14 +2,18 @@ package com.agriva.finance.service.impl;
 
 import com.agriva.finance.model.dto.request.ExpenseRequest;
 import com.agriva.finance.model.dto.request.ExpenseSubmissionEvent;
-import com.agriva.finance.model.dto.response.ExpenseBulkUploadResponse;
 import com.agriva.finance.model.dto.response.ExpenseResponse;
 import com.agriva.finance.model.dto.response.ExpenseStagingResponse;
+import com.agriva.finance.model.dto.response.ExpenseStatsResponse;
 import com.agriva.finance.model.dto.response.ExpenseSubmissionAck;
+import com.agriva.shared.models.dto.BatchStatusResponse;
+import com.agriva.shared.models.dto.BatchUploadResponse;
+import com.agriva.shared.models.enums.StagedStatus;
 import com.agriva.shared.exception.DuplicateExpenseException;
 import com.agriva.shared.exception.ExpenseNotFoundException;
 import com.agriva.shared.exception.InvestmentLimitExceededException;
 import com.agriva.shared.exception.NoActiveInvestmentException;
+import com.agriva.shared.exception.ResourceNotFoundException;
 import com.agriva.finance.kafka.producer.ExpenseProducer;
 import com.agriva.finance.mapper.ExpenseMapper;
 import com.agriva.shared.models.dto.CursorPageResponse;
@@ -17,13 +21,13 @@ import com.agriva.finance.model.entity.Expense;
 import com.agriva.finance.model.entity.Investment;
 import com.agriva.finance.model.entity.StagedExpense;
 import com.agriva.identity.models.entity.User;
-import com.agriva.finance.model.enums.StagedExpenseStatus;
 import com.agriva.identity.repository.AuthRepository;
 import com.agriva.finance.repository.ExpenseRepository;
 import com.agriva.finance.repository.InvestmentRepository;
 import com.agriva.finance.repository.StagedExpenseRepository;
 import com.agriva.finance.service.ExpenseService;
 import com.agriva.shared.models.ref.UserRef;
+import com.agriva.shared.utils.BatchParsedRow;
 import com.agriva.shared.utils.CursorCodec;
 import com.agriva.finance.utils.ExpenseExcelParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -36,8 +40,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.PrintWriter;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -65,33 +71,36 @@ public class ExpenseServiceImpl implements ExpenseService {
                                               UUID userId, String email) {
         UUID submissionId = UUID.randomUUID();
         ExpenseSubmissionEvent event = new ExpenseSubmissionEvent(
-                submissionId, farmId, userId, email, serialize(request), LocalDateTime.now());
+                submissionId, farmId, userId, email, serialize(request),
+                LocalDateTime.now(), null, null);
         expenseProducer.publish(event);
         log.info("Expense submission {} queued for farm {}", submissionId, farmId);
         return new ExpenseSubmissionAck(submissionId, farmId, "QUEUED", LocalDateTime.now());
     }
 
     @Override
-    public ExpenseBulkUploadResponse bulkUpload(MultipartFile file, UUID farmId,
-                                                UUID userId, String email) {
+    public BatchUploadResponse bulkUpload(MultipartFile file, UUID farmId,
+                                          UUID userId, String email) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("Excel file is required");
         }
 
-        List<ExpenseExcelParser.ParsedRow> rows;
+        List<BatchParsedRow<ExpenseRequest>> rows;
         try {
             rows = excelParser.parse(file.getInputStream());
         } catch (Exception e) {
             throw new IllegalArgumentException("Failed to read Excel file: " + e.getMessage(), e);
         }
 
-        ExpenseBulkUploadResponse response = new ExpenseBulkUploadResponse();
+        UUID batchId = UUID.randomUUID();
+        BatchUploadResponse response = new BatchUploadResponse();
+        response.setBatchId(batchId);
         response.setTotalRows(rows.size());
 
-        for (ExpenseExcelParser.ParsedRow row : rows) {
+        for (BatchParsedRow<ExpenseRequest> row : rows) {
             if (row.isError()) {
                 response.setFailed(response.getFailed() + 1);
-                response.getResults().add(new ExpenseBulkUploadResponse.RowResult(
+                response.getResults().add(new BatchUploadResponse.RowResult(
                         row.rowNumber(), null, "FAILED", row.error()));
                 continue;
             }
@@ -99,16 +108,53 @@ public class ExpenseServiceImpl implements ExpenseService {
             UUID submissionId = UUID.randomUUID();
             expenseProducer.publish(new ExpenseSubmissionEvent(
                     submissionId, farmId, userId, email,
-                    serialize(row.request()), LocalDateTime.now()));
+                    serialize(row.request()), LocalDateTime.now(),
+                    batchId, row.rowNumber()));
 
             response.setQueued(response.getQueued() + 1);
-            response.getResults().add(new ExpenseBulkUploadResponse.RowResult(
+            response.getResults().add(new BatchUploadResponse.RowResult(
                     row.rowNumber(), submissionId, "QUEUED", null));
         }
 
-        log.info("Bulk expense upload for farm {}: total={}, queued={}, failed={}",
-                farmId, response.getTotalRows(), response.getQueued(), response.getFailed());
+        log.info("Bulk expense upload {} for farm {}: total={}, queued={}, failed={}",
+                batchId, farmId, response.getTotalRows(),
+                response.getQueued(), response.getFailed());
         return response;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public BatchStatusResponse bulkStatus(UUID batchId, UUID farmId) {
+        List<StagedExpense> staged =
+                stagedRepo.findByFarmIdAndBatchIdOrderByRowNumberAsc(farmId, batchId);
+
+        if (staged.isEmpty()) {
+            throw new ResourceNotFoundException("Batch not found: " + batchId);
+        }
+
+        int pending = 0, moved = 0, failed = 0;
+        List<BatchStatusResponse.FailedRow> failedRows = new ArrayList<>();
+
+        for (StagedExpense s : staged) {
+            switch (s.getStatus()) {
+                case PENDING, RETRYING -> pending++;
+                case MOVED  -> moved++;
+                case FAILED -> {
+                    failed++;
+                    failedRows.add(new BatchStatusResponse.FailedRow(
+                            s.getRowNumber(), s.getId(), s.getValidationErrors()));
+                }
+            }
+        }
+
+        return BatchStatusResponse.builder()
+                .batchId(batchId)
+                .total(staged.size())
+                .pending(pending)
+                .moved(moved)
+                .failed(failed)
+                .failedRows(failedRows.isEmpty() ? null : failedRows)
+                .build();
     }
 
     @Override
@@ -227,7 +273,7 @@ public class ExpenseServiceImpl implements ExpenseService {
         Page<StagedExpense> page;
         if (status != null && !status.isBlank()) {
             page = stagedRepo.findByFarmIdAndStatus(
-                    farmId, StagedExpenseStatus.valueOf(status.toUpperCase()), pageable);
+                    farmId, StagedStatus.valueOf(status.toUpperCase()), pageable);
         } else {
             page = stagedRepo.findByFarmId(farmId, pageable);
         }
@@ -238,7 +284,7 @@ public class ExpenseServiceImpl implements ExpenseService {
     @Transactional(readOnly = true)
     public Map<String, Long> stagingStats(UUID farmId) {
         Map<String, Long> out = new LinkedHashMap<>();
-        for (StagedExpenseStatus s : StagedExpenseStatus.values()) {
+        for (StagedStatus s : StagedStatus.values()) {
             out.put(s.name(), stagedRepo.countByFarmIdAndStatus(farmId, s));
         }
         return out;
@@ -270,10 +316,9 @@ public class ExpenseServiceImpl implements ExpenseService {
     @Override
     @Transactional(readOnly = true)
     public CursorPageResponse<ExpenseResponse> listExpensesByCursor(UUID farmId, String cursor, int size) {
-        int cappedSize = Math.clamp(size, 1, 100);
-
-        org.springframework.data.domain.Pageable limit =
-                PageRequest.of(0, cappedSize + 1);
+        // RESTRICTED TO MAX 10 RECORDS PER PAGE
+        int cappedSize = Math.clamp(size, 1, 10);
+        Pageable limit = PageRequest.of(0, cappedSize + 1);
 
         java.time.LocalDate cursorDate = null;
         java.util.UUID cursorId = null;
@@ -299,5 +344,64 @@ public class ExpenseServiceImpl implements ExpenseService {
                 : null;
 
         return new CursorPageResponse<>(dtos, nextCursor, hasNext, dtos.size());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ExpenseStatsResponse getStats(UUID farmId) {
+        BigDecimal paid = expenseRepo.sumAmountPaidByFarmId(farmId);
+        BigDecimal expected = expenseRepo.sumExpectedAmountByFarmId(farmId);
+        BigDecimal due = expenseRepo.sumDueBalanceByFarmId(farmId);
+        long records = expenseRepo.countByFarmId(farmId);
+
+        return new ExpenseStatsResponse(
+                paid != null ? paid : BigDecimal.ZERO,
+                expected != null ? expected : BigDecimal.ZERO,
+                due != null ? due : BigDecimal.ZERO,
+                records
+        );
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public void exportToCsv(UUID farmId, PrintWriter writer) {
+        // Fetch all live expenses for the farm (without pagination)
+        List<Expense> expenses = expenseRepo.findAll().stream()
+                .filter(e -> e.getFarmId().equals(farmId) && e.getDeletedAt() == null)
+                .toList();
+
+        writer.println("ID,Date,Reason,Category,Amount Paid,Expected Amount,Due Balance,Currency,Qty Purchased,Created By,Receipt URL");
+
+        Map<UUID, UserRef> userById = lookupUsers(expenses);
+
+        for (Expense e : expenses) {
+            String createdBy = "N/A";
+            if (e.getCreatedByUserId() != null) {
+                UserRef ref = userById.get(e.getCreatedByUserId());
+                createdBy = ref != null ? ref.username() : "deleted-user";
+            }
+
+            writer.printf("%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s%n",
+                    e.getId(),
+                    e.getExpenseDate(),
+                    escapeCsv(e.getReason()),
+                    e.getCategory(),
+                    e.getAmountPaid(),
+                    e.getExpectedAmount(),
+                    e.getDueBalance(),
+                    e.getCurrency(),
+                    e.getQtyPurchased(),
+                    escapeCsv(createdBy),
+                    escapeCsv(e.getReceipt())
+            );
+        }
+    }
+
+    private String escapeCsv(String value) {
+        if (value == null) return "";
+        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
     }
 }

@@ -37,6 +37,12 @@ public class SubUserRegisterRequest {
     @NotBlank(message = "Phone number is required")
     private String phoneNumber;
 
+    @Size(max = 15, message = "National ID must not exceed 15 characters")
+    @Pattern(regexp = "^[A-Za-z0-9-]*$",
+            message = "National ID may only contain letters, digits and hyphens")
+    @Schema(description = "National identification number", example = "CM123456789")
+    private String nationalId;
+
     @NotBlank(message = "Address is required")
     private String address;
 

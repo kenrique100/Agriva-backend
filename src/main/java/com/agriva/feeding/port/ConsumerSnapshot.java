@@ -2,11 +2,6 @@ package com.agriva.feeding.port;
 
 import java.util.UUID;
 
-/**
- * Immutable snapshot of a consumer at feeding time.
- * The feeding module snapshots this onto each FeedingEvent so historical
- * reports are accurate even if the consumer is renamed or restocked later.
- */
 public record ConsumerSnapshot(
         UUID consumerId,
         String displayName,

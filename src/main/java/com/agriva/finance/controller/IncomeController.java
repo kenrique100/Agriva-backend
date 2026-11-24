@@ -1,15 +1,18 @@
 package com.agriva.finance.controller;
 
 import com.agriva.finance.model.dto.request.IncomeRequest;
-import com.agriva.finance.model.dto.response.IncomeBulkUploadResponse;
 import com.agriva.finance.model.dto.response.IncomeResponse;
 import com.agriva.finance.model.dto.response.IncomeStagingResponse;
+import com.agriva.finance.model.dto.response.IncomeStatsResponse;
 import com.agriva.finance.model.dto.response.IncomeSubmissionAck;
+import com.agriva.shared.models.dto.BatchStatusResponse;
+import com.agriva.shared.models.dto.BatchUploadResponse;
 import com.agriva.shared.models.dto.CursorPageResponse;
 import com.agriva.shared.models.dto.PageResponse;
 import com.agriva.shared.security.AuthenticatedUser;
 import com.agriva.file.service.FileStorageService;
 import com.agriva.finance.service.IncomeService;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -22,6 +25,8 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.io.PrintWriter;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -35,8 +40,6 @@ public class IncomeController {
 
     private final IncomeService incomeService;
     private final FileStorageService fileStorageService;
-
-    // ----- Write endpoints (unchanged) -----
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
@@ -53,48 +56,36 @@ public class IncomeController {
 
     @PostMapping(value = "/bulk", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public ResponseEntity<IncomeBulkUploadResponse> bulkUpload(
+    public ResponseEntity<BatchUploadResponse> bulkUpload(
             @AuthenticationPrincipal AuthenticatedUser u,
             @RequestPart("file") MultipartFile file) {
         return ResponseEntity.accepted().body(incomeService.bulkUpload(
                 file, u.farmId(), u.userId(), u.email()));
     }
 
-    // ----- Read endpoints: OFFSET (backward-compat) -----
+    @GetMapping("/bulk/{batchId}")
+    public ResponseEntity<BatchStatusResponse> bulkStatus(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            @PathVariable UUID batchId) {
+        return ResponseEntity.ok(incomeService.bulkStatus(batchId, u.farmId()));
+    }
 
     @GetMapping
     public ResponseEntity<PageResponse<IncomeResponse>> list(
             @AuthenticationPrincipal AuthenticatedUser u,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "incomeDate,desc") String sort) {
         return ResponseEntity.ok(PageResponse.of(incomeService.listIncome(
                 u.farmId(),
-                PageRequest.of(page, Math.min(size, 100), parseSort(sort)))));
+                PageRequest.of(page, Math.min(size, 10), parseSort(sort)))));
     }
 
-    // ----- Read endpoints: CURSOR (preferred for large lists) -----
-
-    /**
-     * Keyset (cursor) pagination.
-     * <p>
-     * First call: GET /incomes/cursor?size=20
-     *   → { content: [...20 rows], nextCursor: "…", hasNext: true, size: 20 }
-     * <p>
-     * Next call: GET /incomes/cursor?size=20&cursor=… (same cursor string)
-     * <p>
-     * When hasNext is false, nextCursor is null — stop.
-     * <p>
-     * Why this endpoint exists: OFFSET /incomes?page=500 gets progressively
-     * slower (Postgres scans and discards page*size rows). Cursor is O(1)
-     * per page because it seeks directly to the row position via the
-     * (farm_id, income_date DESC, id DESC) composite index.
-     */
     @GetMapping("/cursor")
     public ResponseEntity<CursorPageResponse<IncomeResponse>> listByCursor(
             @AuthenticationPrincipal AuthenticatedUser u,
             @RequestParam(required = false) String cursor,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "10") int size) {
         return ResponseEntity.ok(
                 incomeService.listIncomeByCursor(u.farmId(), cursor, size));
     }
@@ -140,11 +131,28 @@ public class IncomeController {
             @AuthenticationPrincipal AuthenticatedUser u,
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "10") int size) {
         return ResponseEntity.ok(PageResponse.of(incomeService.listStaging(
                 u.farmId(), status,
-                PageRequest.of(page, Math.min(size, 100),
+                PageRequest.of(page, Math.min(size, 10),
                         Sort.by(Sort.Direction.DESC, "submittedAt")))));
+    }
+
+    @GetMapping("/stats")
+    public ResponseEntity<IncomeStatsResponse> getStats(@AuthenticationPrincipal AuthenticatedUser u) {
+        return ResponseEntity.ok(incomeService.getStats(u.farmId()));
+    }
+
+    @GetMapping("/export")
+    public void exportToCsv(
+            @AuthenticationPrincipal AuthenticatedUser u,
+            HttpServletResponse response) throws IOException {
+        response.setContentType("text/csv");
+        response.setHeader("Content-Disposition", "attachment; filename=\"incomes.csv\"");
+
+        try (PrintWriter writer = response.getWriter()) {
+            incomeService.exportToCsv(u.farmId(), writer);
+        }
     }
 
     private Sort parseSort(String sort) {

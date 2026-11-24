@@ -10,17 +10,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-/**
- * Immutable record of one physical feed-ration delivery to one consumer.
- * <p>
- * The consumer's identity, display name, headcount, and life-stage are
- * snapshotted at feed time so a rename, restock, or deletion of the consumer
- * does not corrupt historical reports. {@code feedBatchId} is optional —
- * the farm store is a single fungible balance.
- * <p>
- * No soft-delete: feedings are physical facts. Corrections go through a
- * future reversal slice.
- */
 @Entity
 @Table(name = "feeding_event")
 @Data
@@ -35,6 +24,9 @@ public class FeedingEvent {
 
     @Column(name = "farm_id", nullable = false)
     private UUID farmId;
+
+    @Column(name = "fishery_batch_id")
+    private UUID fisheryBatchId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "consumer_type", nullable = false, length = 20)

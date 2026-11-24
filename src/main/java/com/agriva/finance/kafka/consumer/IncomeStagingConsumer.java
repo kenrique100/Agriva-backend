@@ -29,7 +29,6 @@ public class IncomeStagingConsumer {
 
         log.info("Received income submission {} partition={} offset={}",
                 event.getSubmissionId(), partition, offset);
-
         incomeStagingService.persistStaged(event);
     }
 }

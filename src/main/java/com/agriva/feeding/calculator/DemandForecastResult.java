@@ -5,8 +5,8 @@ import java.util.List;
 
 public record DemandForecastResult(
         List<GrowthStageResult> stages,
-        BigDecimal totalFeedKg,
         int totalDays,
+        BigDecimal totalFeedKg,
         BigDecimal averageDailyFeedKg,
         String algorithmVersion
 ) {}

@@ -15,5 +15,6 @@ public interface FormulationService {
 
     FormulationResponse getFormulation(UUID id, UUID farmId);
 
-    void deleteFormulation(UUID id, UUID farmId);
+    void deleteFormulation(UUID id, UUID farmId, UUID userId);
+
 }
