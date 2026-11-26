@@ -119,6 +119,10 @@ public class Personnel extends AuditableEntity {
     @Builder.Default
     private List<PersonnelStatusHistory> statusHistory = new ArrayList<>();
 
+    @Column(name = "is_farm_owner", nullable = false)
+    @Builder.Default
+    private Boolean isFarmOwner = false;
+
     @Version
     @Column(nullable = false)
     private Long version;

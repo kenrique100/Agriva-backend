@@ -40,21 +40,21 @@ public class PdfReceiptServiceImpl implements PdfReceiptService {
     private static final float MARGIN = 40f;
     private static final float CONTENT_W = PAGE_W - 2 * MARGIN;   // 515
     private static final float RIGHT = PAGE_W - MARGIN;           // 555
-    private static final Color BRAND_DARK  = new Color(14, 59, 44);     // #0E3B2C
-    private static final Color BRAND_GREEN = new Color(31, 143, 95);    // #1F8F5F
-    private static final Color ACCENT_GOLD = new Color(232, 163, 61);   // #E8A33D
-    private static final Color GREEN_SOFT  = new Color(230, 244, 236);  // #E6F4EC
-    private static final Color TEXT        = new Color(20, 32, 27);     // #14201B
-    private static final Color MUTED       = new Color(101, 117, 108);  // #65756C
-    private static final Color LINE        = new Color(227, 234, 228);  // #E3EAE4
-    private static final Color BG_SOFT     = new Color(244, 247, 243);  // #F4F7F3
-    private static final Color MINT        = new Color(191, 227, 208);  // #BFE3D0
-    private static final Color DANGER      = new Color(229, 72, 77);    // #E5484D
+    private static final Color BRAND_DARK  = new Color(14, 59, 44);
+    private static final Color BRAND_GREEN = new Color(31, 143, 95);
+    private static final Color ACCENT_GOLD = new Color(232, 163, 61);
+    private static final Color GREEN_SOFT  = new Color(230, 244, 236);
+    private static final Color TEXT        = new Color(20, 32, 27);
+    private static final Color MUTED       = new Color(101, 117, 108);
+    private static final Color LINE        = new Color(227, 234, 228);
+    private static final Color BG_SOFT     = new Color(244, 247, 243);
+    private static final Color MINT        = new Color(191, 227, 208);
+    private static final Color DANGER      = new Color(229, 72, 77);
     private static final PDFont REGULAR = PDType1Font.HELVETICA;
     private static final PDFont BOLD    = PDType1Font.HELVETICA_BOLD;
     private static final PDFont OBLIQUE = PDType1Font.HELVETICA_OBLIQUE;
     private static final PDFont SIGN    = PDType1Font.TIMES_ITALIC;
-    private static final String CURRENCY = "XAF";
+    private static final String FALLBACK_CURRENCY = "XAF";   // only when the DTO lacks one
     private static final float ROW_H = 22f;
     private static final int MAX_FULL_ROWS = 5;
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH);
@@ -90,7 +90,6 @@ public class PdfReceiptServiceImpl implements PdfReceiptService {
         }
     }
 
-    /** Header band 0,0 595x112 + gold stripe 112..116. */
     private void drawHeader(PDDocument doc, PDPageContentStream c, SalaryReceiptResponse r) throws IOException {
         rect(c, 0, 0, PAGE_W, 112, BRAND_DARK);
         rect(c, 0, 112, PAGE_W, 4, ACCENT_GOLD);
@@ -116,12 +115,17 @@ public class PdfReceiptServiceImpl implements PdfReceiptService {
         textRight(c, date(r.getIssueDate()), RIGHT, 74, REGULAR, 10, Color.WHITE);
     }
 
-    /** Net pay card 40,136 515x84 + status pill. */
     private void drawNetPayCard(PDPageContentStream c, SalaryReceiptResponse r) throws IOException {
         roundRect(c, 40, 136, CONTENT_W, 84, 12, GREEN_SOFT, LINE);
         text(c, "NET PAY", 60, 152, BOLD, 8, MUTED, 1f);
         String amount = r.getAmount() == null ? "0.00" : String.format(Locale.US, "%,.2f", r.getAmount());
-        text(c, CURRENCY + " " + amount, 60, 166, BOLD, 30, BRAND_GREEN, 0);
+
+        // D3: use the currency carried by the DTO.
+        String currencyLabel = r.getCurrency() != null
+                ? r.getCurrency().name()
+                : FALLBACK_CURRENCY;
+
+        text(c, currencyLabel + " " + amount, 60, 166, BOLD, 30, BRAND_GREEN, 0);
 
         String status = safe(r.getStatus()).toUpperCase(Locale.ROOT);
         float pillW = width(BOLD, 8.5f, status) + 24;
@@ -133,7 +137,6 @@ public class PdfReceiptServiceImpl implements PdfReceiptService {
         textRight(c, "Ref: " + safe(r.getPaymentReference()), 535, 198, REGULAR, 8, MUTED);
     }
 
-    /** Info card at (x,240) 250x118. */
     private void drawInfoCard(PDPageContentStream c, float x, String title, String[][] rows) throws IOException {
         roundRect(c, x, 240, 250, 118, 10, Color.WHITE, LINE);
         rect(c, x + 16, 253, 3, 10, BRAND_GREEN);
@@ -147,12 +150,10 @@ public class PdfReceiptServiceImpl implements PdfReceiptService {
     }
 
     private void drawProductivitySection(PDPageContentStream c, SalaryReceiptResponse r) throws IOException {
-        // ---- Title
         rect(c, 40, 368, 3, 10, BRAND_GREEN);
         text(c, "PERFORMANCE & PRODUCTIVITY", 50, 368, BOLD, 8.5f, BRAND_GREEN, 1f);
         textRight(c, "Last 30 days · as of " + date(LocalDate.now()), RIGHT, 368, REGULAR, 8, MUTED);
 
-        // ---- Derived labels
         String avgLabel = "no work recorded";
         if (r.getWorkingDays() != null && r.getWorkingDays() > 0 && r.getTotalActualHours() != null) {
             double avg = r.getTotalActualHours().doubleValue() / r.getWorkingDays();
@@ -175,7 +176,6 @@ public class PdfReceiptServiceImpl implements PdfReceiptService {
         String tier = productivityTier(r.getOverallProductivity());
         Color tierCol = tierColor(r.getOverallProductivity());
 
-        // ---- 4 rich KPI cards
         drawRichKpiCard(c, 40,      "HOURS WORKED",  hours(r.getTotalActualHours()) + " h",
                 avgLabel, BRAND_GREEN, false);
         drawRichKpiCard(c, 171.25f, "TARGET HOURS",  hours(r.getTotalExpectedHours()) + " h",
@@ -186,7 +186,6 @@ public class PdfReceiptServiceImpl implements PdfReceiptService {
                 String.valueOf(r.getWorkingDays() == null ? 0 : r.getWorkingDays()),
                 "of last 30 days", MUTED, false);
 
-        // ---- Reporting period + tier badge
         LocalDate pStart = r.getPeriodStartDate() != null
                 ? r.getPeriodStartDate()
                 : (r.getPaymentDate() != null ? r.getPaymentDate().minusDays(30) : null);
@@ -203,7 +202,6 @@ public class PdfReceiptServiceImpl implements PdfReceiptService {
         roundRect(c, pillX, 468, pillW, 24, 12, tierCol, null);
         text(c, tier, pillX + 14, 474, BOLD, 9, Color.WHITE, 0.5f);
 
-        // ---- Progress bar + scale
         text(c, "Overall productivity", 40, 494, BOLD, 7.5f, MUTED, 0.5f);
         textRight(c, pct(r.getOverallProductivity()), RIGHT, 494, BOLD, 9, tierCol);
 
@@ -225,7 +223,6 @@ public class PdfReceiptServiceImpl implements PdfReceiptService {
             text(c, scale[i], tx, barY + barH + 4, REGULAR, 7, MUTED, 0);
         }
 
-        // ---- Task breakdown chips
         TaskBreakdown tb = breakdown(r.getTasks());
         drawBreakdownChip(c, 40,      String.valueOf(tb.total),    "TASKS VALIDATED",       MUTED);
         drawBreakdownChip(c, 171.25f, String.valueOf(tb.onTarget), "ON TARGET · 90-100%",   BRAND_GREEN);
@@ -233,7 +230,6 @@ public class PdfReceiptServiceImpl implements PdfReceiptService {
         drawBreakdownChip(c, 433.75f, String.valueOf(tb.under),    "UNDER BUDGET · <90%",   DANGER);
     }
 
-    /** Rich KPI card — label + big value + separator + subtext. */
     private void drawRichKpiCard(PDPageContentStream c, float x, String label, String value,
                                  String subtitle, Color valueColor, boolean highlight) throws IOException {
         float w = 121.25f;
@@ -250,7 +246,6 @@ public class PdfReceiptServiceImpl implements PdfReceiptService {
         text(c, fit(REGULAR, 7.5f, subtitle, w - 24), x + 14, 444, REGULAR, 7.5f, MUTED, 0);
     }
 
-    /** Task breakdown chip — big count on top, small caption below. */
     private void drawBreakdownChip(PDPageContentStream c, float x, String value,
                                    String label, Color color) throws IOException {
         float w = 121.25f;
@@ -266,7 +261,6 @@ public class PdfReceiptServiceImpl implements PdfReceiptService {
         text(c, fit(BOLD, 7, label, w - 20), x + 14, 546, BOLD, 7, MUTED, 0.3f);
     }
 
-    /** Mutually-exclusive classification of all validated tasks. */
     private record TaskBreakdown(int total, int onTarget, int overtime, int under) {}
 
     private static TaskBreakdown breakdown(List<SalaryReceiptLineItem> tasks) {
@@ -303,7 +297,6 @@ public class PdfReceiptServiceImpl implements PdfReceiptService {
         return DANGER;
     }
 
-    /** Validated tasks table — header y=580, rows from y=604, totals after the rows. */
     private void drawTasksTable(PDPageContentStream c, SalaryReceiptResponse r) throws IOException {
         List<SalaryReceiptLineItem> tasks = r.getTasks() == null ? List.of() : r.getTasks();
 
@@ -349,7 +342,6 @@ public class PdfReceiptServiceImpl implements PdfReceiptService {
             }
         }
 
-        // Totals band
         rect(c, 40, y, CONTENT_W, 26, GREEN_SOFT);
         rect(c, 40, y, CONTENT_W, 1.5f, BRAND_GREEN);
         text(c, "Total – " + tasks.size() + " validated tasks", 72, y + 8, BOLD, 9, TEXT, 0);
@@ -358,15 +350,13 @@ public class PdfReceiptServiceImpl implements PdfReceiptService {
         textRight(c, pct(r.getOverallProductivity()), 547, y + 8, BOLD, 9, BRAND_GREEN);
     }
 
-    /** Row-level completion colour — 4 tiers. */
     private static Color completionColor(double ratio01) {
-        if (ratio01 < 0.5) return DANGER;        // well below target
-        if (ratio01 < 0.9) return ACCENT_GOLD;   // under target
-        if (ratio01 <= 1.0) return BRAND_GREEN;  // on target
-        return BRAND_DARK;                       // overtime (worked more than expected)
+        if (ratio01 < 0.5) return DANGER;
+        if (ratio01 < 0.9) return ACCENT_GOLD;
+        if (ratio01 <= 1.0) return BRAND_GREEN;
+        return BRAND_DARK;
     }
 
-    /** Footer: divider y=752, QR, signature, band at y=826. */
     private void drawFooter(PDDocument doc, PDPageContentStream c, SalaryReceiptResponse r) throws IOException {
         rect(c, 40, 752, CONTENT_W, 0.75f, LINE);
 
@@ -453,7 +443,6 @@ public class PdfReceiptServiceImpl implements PdfReceiptService {
         return t + "...";
     }
 
-    /** Standard PDF fonts only support WinAnsi: replace anything else with '?'. */
     private String clean(PDFont font, String s) {
         if (s == null) return "";
         StringBuilder sb = new StringBuilder(s.length());

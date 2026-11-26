@@ -56,8 +56,8 @@ public class PersonnelServiceImpl implements PersonnelService {
     @Transactional(readOnly = true)
     public Page<PersonnelResponse> list(UUID farmId, PersonnelStatus status, Pageable pageable) {
         Page<Personnel> page = status == null
-                ? personnelRepository.findByFarmIdLive(farmId, pageable)
-                : personnelRepository.findByFarmIdAndStatusLive(farmId, status, pageable);
+                ? personnelRepository.findStaffByFarmIdLive(farmId, pageable)
+                : personnelRepository.findStaffByFarmIdAndStatusLive(farmId, status, pageable);
         return page.map(mapper::toResponse);
     }
 
@@ -82,11 +82,6 @@ public class PersonnelServiceImpl implements PersonnelService {
         return buildProfile(p);
     }
 
-    /**
-     * Loads status history, tasks and salary payments for the profile view.
-     * Tasks are read via the Live finder so soft-deleted tasks do not leak
-     * into the response.
-     */
     private PersonnelProfileResponse buildProfile(Personnel p) {
         List<PersonnelStatusHistoryResponse> history =
                 historyRepository.findByPersonnelIdOrderByStartTimestampDesc(p.getId())
@@ -108,6 +103,12 @@ public class PersonnelServiceImpl implements PersonnelService {
         Personnel p = load(id, farmId);
         validator.validateUpdate(p, req);
 
+        if (Boolean.TRUE.equals(p.getIsFarmOwner())
+                && req.getDepartment() != null
+                && req.getDepartment() != p.getDepartment()) {
+            throw new BusinessException("The farm owner's department cannot be changed.");
+        }
+
         if (req.getName() != null && !req.getName().isBlank()) p.setName(req.getName());
         if (req.getGender() != null) p.setGender(req.getGender());
         if (req.getDateOfBirth() != null) p.setDateOfBirth(req.getDateOfBirth());
@@ -120,11 +121,15 @@ public class PersonnelServiceImpl implements PersonnelService {
         return mapper.toResponse(personnelRepository.save(p));
     }
 
-
     @Override
     @Transactional
     public PersonnelResponse changeStatus(UUID id, PersonnelStatusUpdateRequest req, UUID farmId) {
         Personnel p = load(id, farmId);
+
+        if (Boolean.TRUE.equals(p.getIsFarmOwner())) {
+            throw new BusinessException("The farm owner's status cannot be changed here.");
+        }
+
         validator.validateStatusTransition(p, req.getStatus());
         validator.validateStatusPayload(req);
 
@@ -185,25 +190,22 @@ public class PersonnelServiceImpl implements PersonnelService {
         User user = authRepository.findById(p.getUserId())
                 .orElseThrow(() -> new BusinessException("Linked user not found"));
 
-        if (RoleConstants.MASTER.equals(user.getRole())) {
+        if (Boolean.TRUE.equals(p.getIsFarmOwner())
+                || RoleConstants.MASTER.equals(user.getRole())) {
             throw new BusinessException(
-                    "Cannot delete MASTER via personnel endpoint. Delete the farm or the account instead.");
+                    "Cannot delete the farm owner via the personnel endpoint. "
+                            + "Delete the farm or the account instead.");
         }
 
         LocalDateTime now = LocalDateTime.now();
-
-        // Soft-delete the personnel record.
         p.setDeletedAt(now);
         personnelRepository.save(p);
 
-        // Soft-delete the linked user (keeps FK integrity).
         user.setDeletedAt(now);
         authRepository.save(user);
 
-        log.info("Soft-deleted personnel {} and user {} from farm {}",
-                id, user.getId(), farmId);
+        log.info("Soft-deleted personnel {} and user {} from farm {}", id, user.getId(), farmId);
     }
-
 
     @Override
     @Transactional(readOnly = true)

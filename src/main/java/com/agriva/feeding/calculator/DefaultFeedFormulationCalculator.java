@@ -22,10 +22,10 @@ import java.util.stream.Collectors;
 public class DefaultFeedFormulationCalculator implements FeedFormulationCalculator {
 
     private static final String ALGORITHM_VERSION = "agriva-default-v1";
-    private static final String DEFAULT_TEMPLATE_NAME = "AGRIVA_DEFAULT_TILAPIA_GROWER";
     private static final BigDecimal FALLBACK_LIQUID_DENSITY = new BigDecimal("0.90");
     private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
     private static final int SCALE = 4;
+
     private final FormulationTemplateRepository templateRepository;
     private final FormulationTemplateLineRepository templateLineRepository;
     private final FormulationCpCalculator cpCalculator;
@@ -122,8 +122,9 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
         BigDecimal averageCp = cpCalculator.weightedAverageCp(cpLines);
         Map<String, BigDecimal> nutrients = Map.of("crudeProteinPct", averageCp);
 
-        log.info("ALGORITHM formulation computed: template={} lines={} totalKg={} avgCp={}%",
-                template.getName(), lines.size(), totalKg, averageCp);
+        log.info("ALGORITHM formulation computed: template={} species={} lines={} "
+                        + "totalKg={} avgCp={}%",
+                template.getName(), input.targetSpecies(), lines.size(), totalKg, averageCp);
 
         return new FormulationResult(lines, totalKg, totalCost, nutrients, ALGORITHM_VERSION);
     }
@@ -135,11 +136,15 @@ public class DefaultFeedFormulationCalculator implements FeedFormulationCalculat
                     .orElseThrow(() -> new ResourceNotFoundException(
                             "Formulation template not found: " + input.formulaTemplateId()));
         }
+
+        String defaultName = SpeciesKey.defaultTemplateNameFor(input.targetSpecies());
         return templateRepository.findSystemTemplatesLive().stream()
-                .filter(t -> DEFAULT_TEMPLATE_NAME.equals(t.getName()))
+                .filter(t -> defaultName.equals(t.getName()))
                 .findFirst()
                 .orElseThrow(() -> new BusinessException(
-                        "Default template '" + DEFAULT_TEMPLATE_NAME + "' is not seeded"));
+                        "No template specified and no default '" + defaultName
+                                + "' is seeded. Seed the default for this species "
+                                + "or set formulaTemplateId explicitly."));
     }
 
     private FormulationResult calculateCustom(FormulationInput input) {

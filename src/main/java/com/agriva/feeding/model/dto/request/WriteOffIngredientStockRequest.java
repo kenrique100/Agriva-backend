@@ -15,7 +15,6 @@ public class WriteOffIngredientStockRequest {
     @DecimalMin(value = "0.0001", message = "quantity must be positive")
     private BigDecimal quantity;
 
-    /** Optional; must match the current stock version when supplied. */
     private Long expectedVersion;
 
     @NotBlank(message = "reason is required")

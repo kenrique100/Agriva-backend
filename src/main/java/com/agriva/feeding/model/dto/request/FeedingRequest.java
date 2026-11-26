@@ -17,6 +17,8 @@ public class FeedingRequest {
     @NotNull(message = "consumerId is required")
     private UUID consumerId;
 
+    private UUID fisheryBatchId;
+
     private UUID feedBatchId;
 
     @NotNull(message = "quantityKg is required")

@@ -6,9 +6,10 @@ import com.agriva.payroll.model.entity.StagedSalary;
 import com.agriva.payroll.model.enums.StagedSalaryStatus;
 import com.agriva.payroll.repository.StagedSalaryRepository;
 import com.agriva.payroll.service.SalaryService;
+import com.agriva.personnel.repository.PersonnelRepository;
 import com.agriva.shared.exception.InvestmentLimitExceededException;
 import com.agriva.shared.exception.NoActiveInvestmentException;
-import com.agriva.shared.port.PersonnelLookupPort;
+import com.agriva.shared.utils.ValidationRules;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,8 +19,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -32,7 +31,7 @@ public class StagedSalaryValidator {
     private static final int ERROR_FIELD_LIMIT = 1990;
 
     private final StagedSalaryRepository stagedRepo;
-    private final PersonnelLookupPort personnelLookupPort;
+    private final PersonnelRepository personnelRepo;
     private final SalaryService salaryService;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
@@ -69,7 +68,10 @@ public class StagedSalaryValidator {
             SalaryPaymentRequest req = objectMapper.readValue(
                     staged.getPayloadJson(), SalaryPaymentRequest.class);
 
-            String error = validate(req, staged.getFarmId());
+            String error = ValidationRules.salaryPayableError(
+                    personnelRepo,
+                    req.getPersonnelId(), staged.getFarmId(),
+                    req.getAmount(), req.getPaymentDate(), req.getNotes());
             if (error != null) { onFailure(staged, List.of(error)); return; }
 
             SalaryPaymentResponse resp = salaryService.create(
@@ -90,25 +92,13 @@ public class StagedSalaryValidator {
         }
     }
 
-    private String validate(SalaryPaymentRequest req, UUID farmId) {
-        if (req.getPersonnelId() == null) return "Personnel is required";
-        if (req.getAmount() == null || req.getAmount().compareTo(BigDecimal.ZERO) <= 0)
-            return "Amount must be positive";
-        if (req.getPaymentDate() == null) return "Payment date is required";
-        if (req.getPaymentDate().isAfter(LocalDate.now()))
-            return "Payment date cannot be in the future";
-        if (personnelLookupPort.findByIdAndFarmId(req.getPersonnelId(), farmId).isEmpty())
-            return "Personnel not found in farm";
-        return null;
-    }
-
     private void markTerminal(StagedSalary staged, String message) {
-        staged.setRetryCount((staged.getRetryCount() == null ? 0 : staged.getRetryCount()) + 1);
         staged.setValidationErrors(truncate(message));
         staged.setStatus(StagedSalaryStatus.FAILED);
         staged.setProcessedAt(LocalDateTime.now());
         staged.setNextRetryAt(null);
         stagedRepo.save(staged);
+        log.warn("Staged salary {} FAILED (terminal): {}", staged.getId(), message);
     }
 
     private void onFailure(StagedSalary staged, List<String> errors) {

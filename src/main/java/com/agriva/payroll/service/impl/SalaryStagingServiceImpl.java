@@ -1,16 +1,16 @@
 package com.agriva.payroll.service.impl;
 
-import com.agriva.shared.kafka.IdempotencyGuard;
-import com.agriva.shared.kafka.topics.SalaryKafkaConfig;
 import com.agriva.payroll.model.dto.requests.SalarySubmissionEvent;
 import com.agriva.payroll.model.entity.StagedSalary;
 import com.agriva.payroll.model.enums.StagedSalaryStatus;
 import com.agriva.payroll.repository.StagedSalaryRepository;
 import com.agriva.payroll.service.SalaryStagingService;
+import com.agriva.shared.kafka.IdempotencyGuard;
+import com.agriva.shared.kafka.topics.SalaryKafkaConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 
@@ -23,6 +23,7 @@ public class SalaryStagingServiceImpl implements SalaryStagingService {
     private final IdempotencyGuard idempotencyGuard;
 
     @Override
+    @Transactional
     public void persistStaged(SalarySubmissionEvent event) {
         if (event == null || event.getSubmissionId() == null || event.getPayloadJson() == null) {
             log.warn("Skipping malformed salary event: {}", event);
@@ -46,13 +47,8 @@ public class SalaryStagingServiceImpl implements SalaryStagingService {
                         ? event.getSubmittedAt() : LocalDateTime.now())
                 .retryCount(0)
                 .build();
-        try {
-            stagedRepo.save(staged);
-            log.info("Staged salary {} persisted with status PENDING", staged.getId());
-        } catch (DataIntegrityViolationException e) {
-            log.error("Staged salary {} FK violation, routing to DLQ: {}",
-                    staged.getId(), e.getMessage());
-            throw e;
-        }
+
+        stagedRepo.save(staged);
+        log.info("Staged salary {} persisted with status PENDING", staged.getId());
     }
 }

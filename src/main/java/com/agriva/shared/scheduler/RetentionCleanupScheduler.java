@@ -16,8 +16,9 @@ import java.util.List;
 @Slf4j
 public class RetentionCleanupScheduler {
 
-    private static final int KEEP_STAGING_DAYS   = 30;
-    private static final int CREATE_MONTHS_AHEAD = 3;
+    private static final int KEEP_STAGING_DAYS     = 30;
+    private static final int KEEP_IDEMPOTENCY_DAYS = 30;
+    private static final int CREATE_MONTHS_AHEAD   = 3;
 
     private static final List<String> STAGING_TABLES = List.of(
             "staged_income",
@@ -85,9 +86,13 @@ public class RetentionCleanupScheduler {
     private void pruneIdempotency(List<RuntimeException> failures) {
         try {
             int deleted = jdbc.update(
-                    "DELETE FROM consumer_processed_events " +
-                            "WHERE processed_at < NOW() - INTERVAL '30 days'");
-            if (deleted > 0) log.info("Pruned {} stale idempotency markers", deleted);
+                    "DELETE FROM consumer_processed_events "
+                            + "WHERE processed_at < NOW() - (? || ' days')::INTERVAL",
+                    KEEP_IDEMPOTENCY_DAYS);
+            if (deleted > 0) {
+                log.info("Pruned {} stale idempotency markers older than {} day(s)",
+                        deleted, KEEP_IDEMPOTENCY_DAYS);
+            }
         } catch (RuntimeException e) {
             log.error("Idempotency prune failed: {}", e.getMessage(), e);
             failures.add(e);

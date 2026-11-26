@@ -9,6 +9,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -26,27 +27,48 @@ public class TaskAutoStopScheduler {
         if (running.isEmpty()) return;
 
         LocalDateTime now = LocalDateTime.now();
-        for (Task t : running) {
-            long accumulated = t.getTotalWorkedMinutes() != null ? t.getTotalWorkedMinutes() : 0L;
-            long expectedMinutes = (t.getExpectedHours() != null ? t.getExpectedHours() : 0) * 60L;
+        int processed = 0;
 
-            long remaining = expectedMinutes - accumulated;
-            LocalDateTime stopAt;
-            if (remaining <= 0) {
-                stopAt = now;
-            } else {
-                stopAt = t.getLastResumeTime().plusMinutes(remaining);
-                if (stopAt.isAfter(now)) stopAt = now;
+        for (Task t : running) {
+            LocalDateTime segmentStart = t.getLastResumeTime() != null
+                    ? t.getLastResumeTime()
+                    : t.getStartTime();
+            if (segmentStart == null) {
+                log.warn("Task {} is IN_PROGRESS but has no start/resume timestamp — skipping",
+                        t.getId());
+                continue;
             }
 
-            long newTotal = Math.max(accumulated, expectedMinutes);
+            long expectedMinutes = (t.getExpectedHours() != null ? t.getExpectedHours() : 0) * 60L;
+            long accumulated = t.getTotalWorkedMinutes() != null ? t.getTotalWorkedMinutes() : 0L;
+            long remaining = expectedMinutes - accumulated;
+
+            LocalDateTime stopAt;
+            long segmentMinutes;
+
+            if (remaining > 0) {
+
+                LocalDateTime budgetDeadline = segmentStart.plusMinutes(remaining);
+                stopAt = budgetDeadline.isAfter(now) ? now : budgetDeadline;
+                segmentMinutes = Math.max(0,
+                        Duration.between(segmentStart, stopAt).toMinutes());
+            } else {
+                stopAt = now;
+                segmentMinutes = Math.max(0,
+                        Duration.between(segmentStart, now).toMinutes());
+            }
+
+            long newTotal = accumulated + segmentMinutes;
+
             t.setTotalWorkedMinutes(newTotal);
             t.setActualHours(newTotal / 60.0);
             t.setStopTime(stopAt);
             t.setStatus(TaskStatus.SUBMITTED);
             t.setIsSubmitted(true);
+            processed++;
         }
         taskRepository.saveAll(running);
-        log.info("Auto-stopped {} overdue task(s)", running.size());
+        log.info("Auto-stopped {} overdue task(s) out of {} candidates",
+                processed, running.size());
     }
 }

@@ -1,6 +1,7 @@
 package com.agriva.dashboard.repository;
 
 import java.math.BigDecimal;
+import java.util.Map;
 import java.util.UUID;
 
 public interface DashboardQueryRepository {
@@ -8,6 +9,8 @@ public interface DashboardQueryRepository {
     Totals totalsForFarm(UUID farmId);
 
     Totals totalsForUser(UUID farmId, UUID userId);
+
+    Map<UUID, Totals> totalsByUserForFarm(UUID farmId);
 
     record Totals(
             long incomeCount,
@@ -20,6 +23,7 @@ public interface DashboardQueryRepository {
         public static Totals empty() {
             return new Totals(0, 0, 0, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
         }
+
         public boolean hasMixedCurrency() {
             return totalIncome == null
                     || totalExpense == null

@@ -37,8 +37,10 @@ public class TaskController {
     private static final int MAX_PAGE_SIZE = 500;
     private final TaskService taskService;
     private final PersonnelService personnelService;
+
     private static int safePage(int page)  { return Math.max(page, 0); }
-    private static int safeSize(int size)  { return Math.min(Math.max(size, 1), MAX_PAGE_SIZE); }
+    private static int safeSize(int size)  { return Math.clamp(size, 1, MAX_PAGE_SIZE); }
+
     private UUID resolveOwnPersonnelId(AuthenticatedUser u) {
         var own = personnelService.getOwnProfile(u.userId());
         if (own == null || own.getPersonnel() == null) {
@@ -100,6 +102,7 @@ public class TaskController {
     }
 
     @PutMapping("/{id}/action")
+    @PreAuthorize("hasAnyRole('MASTER','ADMIN') or @taskAuthorization.canAct(#id, principal)")
     public ResponseEntity<TaskResponse> action(
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id,

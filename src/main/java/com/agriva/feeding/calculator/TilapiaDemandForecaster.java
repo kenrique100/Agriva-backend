@@ -8,7 +8,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 @Component("tilapiaDemandForecaster")
 @Slf4j
@@ -50,8 +49,8 @@ public class TilapiaDemandForecaster implements FeedDemandForecaster {
         if (input == null) {
             throw new BusinessException("Forecast input is required");
         }
-        String species = input.species() == null ? "" : input.species().trim();
-        if (!species.toUpperCase(Locale.ROOT).contains("TILAPIA")) {
+        String key = SpeciesKey.of(input.species());
+        if (!SpeciesKey.TILAPIA.equals(key)) {
             throw new BusinessException("Species '" + input.species()
                     + "' is not supported by this algorithm. Currently supported: TILAPIA");
         }
@@ -59,7 +58,6 @@ public class TilapiaDemandForecaster implements FeedDemandForecaster {
         if (input.numberOfHead() <= 0) {
             throw new BusinessException("numberOfHead must be positive");
         }
-
         if (input.initialWeightKg() == null || input.targetWeightKg() == null) {
             throw new BusinessException("initialWeightKg and targetWeightKg are required");
         }
@@ -97,7 +95,6 @@ public class TilapiaDemandForecaster implements FeedDemandForecaster {
                     .multiply(BigDecimal.valueOf(daysInStage))
                     .setScale(SCALE, RoundingMode.HALF_UP);
 
-            // Stage result is PER-FISH — matches FishDemandForecaster and entity contract
             stages.add(new GrowthStageResult(
                     def.name,
                     overlapStart.divide(THOUSAND, SCALE, RoundingMode.HALF_UP),
@@ -127,13 +124,7 @@ public class TilapiaDemandForecaster implements FeedDemandForecaster {
                 input.numberOfHead(), input.initialWeightKg(), input.targetWeightKg(),
                 stages.size(), totalDays, totalFeedKg);
 
-        return new DemandForecastResult(
-                stages,
-                totalDays,
-                totalFeedKg,
-                avgDaily,
-                VERSION
-        );
+        return new DemandForecastResult(stages, totalDays, totalFeedKg, avgDaily, VERSION);
     }
 
     @Override

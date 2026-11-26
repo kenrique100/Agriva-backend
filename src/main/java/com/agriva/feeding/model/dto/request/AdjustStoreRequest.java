@@ -15,7 +15,6 @@ public class AdjustStoreRequest {
     @DecimalMin(value = "0", message = "quantityOnHandKg must be >= 0")
     private BigDecimal quantityOnHandKg;
 
-    /** Optional; must match the current store version when supplied. */
     private Long expectedVersion;
 
     @NotBlank(message = "reason is required")

@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.UUID;
 
@@ -67,8 +68,10 @@ public class TaskMapper {
 
         long expectedSeconds = t.getExpectedHours() * 3600L;
         long workedSeconds = (t.getTotalWorkedMinutes() == null ? 0L : t.getTotalWorkedMinutes()) * 60L;
+
+        LocalDateTime nowUtc = LocalDateTime.now(ZoneOffset.UTC);
         long currentSegmentSeconds = Math.max(0L,
-                Duration.between(t.getLastResumeTime(), LocalDateTime.now()).getSeconds());
+                Duration.between(t.getLastResumeTime(), nowUtc).getSeconds());
 
         // Can go negative when the task is in overtime.
         return expectedSeconds - workedSeconds - currentSegmentSeconds;

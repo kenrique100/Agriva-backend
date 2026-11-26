@@ -5,10 +5,12 @@ import com.agriva.payroll.model.dto.response.SalaryBulkUploadResponse;
 import com.agriva.payroll.model.dto.response.SalaryPaymentResponse;
 import com.agriva.payroll.model.dto.response.SalaryReceiptResponse;
 import com.agriva.payroll.model.dto.response.StagedSalaryResponse;
-import com.agriva.shared.models.dto.PageResponse;
-import com.agriva.shared.security.AuthenticatedUser;
 import com.agriva.personnel.service.PersonnelService;
 import com.agriva.payroll.service.SalaryService;
+import com.agriva.shared.exception.BusinessException;
+import com.agriva.shared.exception.PersonnelAccessDeniedException;
+import com.agriva.shared.models.dto.PageResponse;
+import com.agriva.shared.security.AuthenticatedUser;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -29,6 +31,23 @@ public class SalaryController {
 
     private final SalaryService salaryService;
     private final PersonnelService personnelService;
+
+    private UUID resolveOwnPersonnelId(AuthenticatedUser u) {
+        var own = personnelService.getOwnProfile(u.userId());
+        if (own == null || own.getPersonnel() == null) {
+            throw new BusinessException("No personnel profile linked to this account");
+        }
+        return own.getPersonnel().getId();
+    }
+
+    private void assertCanReadSalary(AuthenticatedUser u, UUID salaryPersonnelId) {
+        if (u.isMasterOrAdmin()) return;
+        UUID own = resolveOwnPersonnelId(u);
+        if (!own.equals(salaryPersonnelId)) {
+            throw new PersonnelAccessDeniedException(
+                    "You can only view your own salary records");
+        }
+    }
 
     @PostMapping
     @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
@@ -58,11 +77,11 @@ public class SalaryController {
 
         UUID filter = personnelId;
         if (!u.isMasterOrAdmin()) {
-            filter = personnelService.getOwnProfile(u.userId()).getPersonnel().getId();
+            filter = resolveOwnPersonnelId(u);
         }
         return ResponseEntity.ok(PageResponse.of(salaryService.list(
                 u.farmId(), filter,
-                PageRequest.of(page, Math.min(size, 10),
+                PageRequest.of(Math.max(page, 0), Math.min(size, 10),
                         Sort.by(Sort.Direction.DESC, "paymentDate")))));
     }
 
@@ -70,7 +89,9 @@ public class SalaryController {
     public ResponseEntity<SalaryPaymentResponse> get(
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id) {
-        return ResponseEntity.ok(salaryService.get(id, u.farmId()));
+        SalaryPaymentResponse resp = salaryService.get(id, u.farmId());
+        assertCanReadSalary(u, resp.getPersonnelId());
+        return ResponseEntity.ok(resp);
     }
 
     @DeleteMapping("/{id}")
@@ -87,6 +108,8 @@ public class SalaryController {
     public ResponseEntity<SalaryReceiptResponse> receipt(
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id) {
+        SalaryPaymentResponse summary = salaryService.get(id, u.farmId());
+        assertCanReadSalary(u, summary.getPersonnelId());
         return ResponseEntity.ok(salaryService.getReceipt(id, u.farmId()));
     }
 
@@ -95,6 +118,9 @@ public class SalaryController {
             @AuthenticationPrincipal AuthenticatedUser u,
             @PathVariable UUID id,
             @RequestParam(defaultValue = "false") boolean preview) {
+        SalaryPaymentResponse summary = salaryService.get(id, u.farmId());
+        assertCanReadSalary(u, summary.getPersonnelId());
+
         byte[] pdf = salaryService.getReceiptPdf(id, u.farmId());
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_PDF);
@@ -114,7 +140,7 @@ public class SalaryController {
             @RequestParam(defaultValue = "10") int size) {
         return ResponseEntity.ok(PageResponse.of(salaryService.listStaging(
                 u.farmId(), status,
-                PageRequest.of(page, Math.min(size, 10),
+                PageRequest.of(Math.max(page, 0), Math.min(size, 10),
                         Sort.by(Sort.Direction.DESC, "submittedAt")))));
     }
 

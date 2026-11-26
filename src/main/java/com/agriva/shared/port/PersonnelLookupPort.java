@@ -21,6 +21,7 @@ public interface PersonnelLookupPort {
             String name,
             String status,
             String department,
-            String email
+            String email,
+            boolean isFarmOwner
     ) {}
 }

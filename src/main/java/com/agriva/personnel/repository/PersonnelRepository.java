@@ -19,27 +19,15 @@ import java.util.UUID;
 @Repository
 public interface PersonnelRepository extends JpaRepository<Personnel, UUID> {
 
-    @Query("SELECT p FROM Personnel p WHERE p.farmId = :farmId AND p.deletedAt IS NULL")
-    Page<Personnel> findByFarmIdLive(@Param("farmId") UUID farmId, Pageable p);
-
     @Query("SELECT p FROM Personnel p WHERE p.farmId = :farmId AND p.status = :status " +
             "AND p.deletedAt IS NULL")
     Page<Personnel> findByFarmIdAndStatusLive(@Param("farmId") UUID farmId,
                                               @Param("status") PersonnelStatus status,
                                               Pageable p);
 
-    @Query("SELECT p FROM Personnel p WHERE p.id = :id AND p.farmId = :farmId " +
-            "AND p.deletedAt IS NULL")
-    Optional<Personnel> findByIdAndFarmIdLive(@Param("id") UUID id, @Param("farmId") UUID farmId);
-
-    @Query("SELECT p FROM Personnel p WHERE p.userId = :userId AND p.deletedAt IS NULL")
-    Optional<Personnel> findByUserIdLive(@Param("userId") UUID userId);
-
     @Query("SELECT p FROM Personnel p WHERE p.status = :status AND p.deletedAt IS NULL")
     List<Personnel> findByStatusLive(@Param("status") PersonnelStatus status);
 
-    // Unfiltered finder used internally for soft-delete cascades.
-    Optional<Personnel> findByUserId(UUID userId);
 
     boolean existsByFarmIdAndNationalId(UUID farmId, String nationalId);
     boolean existsByFarmIdAndNationalIdAndIdNot(UUID farmId, String nationalId, UUID id);
@@ -57,22 +45,6 @@ public interface PersonnelRepository extends JpaRepository<Personnel, UUID> {
     void deleteByUserId(UUID userId);
 
     @Modifying
-    @Query("""
-        UPDATE Personnel p
-        SET p.totalHoursWorkedLast30Days = 0.0,
-            p.workingDaysCount = 0,
-            p.lastProductivityResetDate = :today,
-            p.currentPeriodStartDate = :today
-        WHERE p.status = com.agriva.personnel.models.enums.PersonnelStatus.ACTIVE
-          AND p.deletedAt IS NULL
-    """)
-    int bulkResetProductivity(@Param("today") LocalDate today);
-
-    /**
-     * Hard-deletes every personnel row for a farm. DB-level ON DELETE CASCADE
-     * removes dependent personnel_status_history, tasks and salary_payments.
-     */
-    @Modifying
     @Query("DELETE FROM Personnel p WHERE p.farmId = :farmId")
     int deleteByFarmId(@Param("farmId") UUID farmId);
 
@@ -87,4 +59,60 @@ public interface PersonnelRepository extends JpaRepository<Personnel, UUID> {
         WHERE p.farmId = :farmId AND p.profilePictureThumbnailPath IS NOT NULL
     """)
     List<String> findProfilePictureThumbnailPathsByFarmId(@Param("farmId") UUID farmId);
+
+    @Query("SELECT p FROM Personnel p WHERE p.farmId = :farmId AND p.deletedAt IS NULL")
+    Page<Personnel> findByFarmIdLive(@Param("farmId") UUID farmId, Pageable pageable);
+
+    @Query("SELECT p FROM Personnel p WHERE p.id = :id AND p.farmId = :farmId "
+            + "AND p.deletedAt IS NULL")
+    Optional<Personnel> findByIdAndFarmIdLive(@Param("id") UUID id,
+                                              @Param("farmId") UUID farmId);
+
+    @Query("SELECT p FROM Personnel p WHERE p.userId = :userId AND p.deletedAt IS NULL")
+    Optional<Personnel> findByUserIdLive(@Param("userId") UUID userId);
+
+    Optional<Personnel> findByUserId(UUID userId);
+
+    @Query("""
+            SELECT p FROM Personnel p
+            WHERE p.farmId = :farmId
+              AND p.deletedAt IS NULL
+              AND (p.isFarmOwner IS NULL OR p.isFarmOwner = FALSE)
+            """)
+    Page<Personnel> findStaffByFarmIdLive(@Param("farmId") UUID farmId,
+                                          Pageable pageable);
+
+    @Query("""
+            SELECT p FROM Personnel p
+            WHERE p.farmId = :farmId
+              AND p.status = :status
+              AND p.deletedAt IS NULL
+              AND (p.isFarmOwner IS NULL OR p.isFarmOwner = FALSE)
+            """)
+    Page<Personnel> findStaffByFarmIdAndStatusLive(@Param("farmId") UUID farmId,
+                                                   @Param("status") PersonnelStatus status,
+                                                   Pageable pageable);
+
+    @Query("""
+            SELECT p FROM Personnel p
+            WHERE p.farmId = :farmId
+              AND p.deletedAt IS NULL
+              AND (p.isFarmOwner IS NULL OR p.isFarmOwner = FALSE)
+            """)
+    List<Personnel> findAllStaffByFarmIdLive(@Param("farmId") UUID farmId);
+
+    @Modifying
+    @Query("""
+            UPDATE Personnel p
+               SET p.totalHoursWorkedLast30Days = 0,
+                   p.totalProductiveDays = 0,
+                   p.workingDaysCount = 0,
+                   p.currentPeriodStartDate = :now
+             WHERE p.deletedAt IS NULL
+               AND p.status = com.agriva.personnel.models.enums.PersonnelStatus.ACTIVE
+               AND (p.isFarmOwner IS NULL OR p.isFarmOwner = FALSE)
+            """)
+    int bulkResetProductivity(@Param("now") LocalDate now);
+
+    void deleteByPersonnelId(UUID personnelId);
 }

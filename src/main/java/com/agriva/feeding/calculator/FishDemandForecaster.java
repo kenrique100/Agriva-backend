@@ -9,7 +9,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 @Component
@@ -61,8 +60,8 @@ public class FishDemandForecaster implements FeedDemandForecaster {
     );
 
     private static final Map<String, List<StageDef>> PROFILES = Map.of(
-            "CATFISH", CATFISH_STAGES,
-            "TILAPIA", TILAPIA_STAGES
+            SpeciesKey.CATFISH, CATFISH_STAGES,
+            SpeciesKey.TILAPIA, TILAPIA_STAGES
     );
 
     @Override
@@ -71,22 +70,12 @@ public class FishDemandForecaster implements FeedDemandForecaster {
             throw new BusinessException("Forecast input is required");
         }
 
-        String speciesKey = input.species() == null
-                ? ""
-                : input.species().trim().toUpperCase(Locale.ROOT);
-        List<StageDef> stagesProfile = null;
-
-        // Match species flexibly (e.g., "African Catfish", "Nile Tilapia")
-        for (String key : PROFILES.keySet()) {
-            if (speciesKey.contains(key)) {
-                stagesProfile = PROFILES.get(key);
-                break;
-            }
-        }
-
+        // Canonical species resolution (B2) — one place, one rule.
+        String speciesKey = SpeciesKey.of(input.species());
+        List<StageDef> stagesProfile = PROFILES.get(speciesKey);
         if (stagesProfile == null) {
-            throw new BusinessException("Species '" + input.species()
-                    + "' is not supported. Supported: CATFISH, TILAPIA");
+            throw new BusinessException(
+                    "Species '" + input.species() + "' has no stage profile configured");
         }
 
         if (input.numberOfHead() <= 0) {
@@ -108,7 +97,6 @@ public class FishDemandForecaster implements FeedDemandForecaster {
         int totalDays = 0;
 
         for (StageDef def : stagesProfile) {
-            // Calculate the overlap of the requested range with this stage's bounds
             BigDecimal overlapStart = initialG.max(def.startG);
             BigDecimal overlapEnd = targetG.min(def.endG);
             if (overlapStart.compareTo(overlapEnd) >= 0) continue;
@@ -123,17 +111,14 @@ public class FishDemandForecaster implements FeedDemandForecaster {
                     .divide(TWO, SCALE, RoundingMode.HALF_UP);
             BigDecimal avgWeightKg = avgWeightG.divide(THOUSAND, SCALE, RoundingMode.HALF_UP);
 
-            // PER-FISH daily feed for this stage
             BigDecimal dailyFeedPerHeadKg = avgWeightKg
                     .multiply(def.dailyFeedPctBw)
                     .divide(HUNDRED, SCALE, RoundingMode.HALF_UP);
 
-            // PER-FISH feed consumed over the stage
             BigDecimal feedConsumedPerHeadKg = dailyFeedPerHeadKg
                     .multiply(BigDecimal.valueOf(daysInStage))
                     .setScale(SCALE, RoundingMode.HALF_UP);
 
-            // Stage result uses PER-FISH metrics (matches entity contract)
             stages.add(new GrowthStageResult(
                     def.name,
                     overlapStart.divide(THOUSAND, SCALE, RoundingMode.HALF_UP),
@@ -144,7 +129,6 @@ public class FishDemandForecaster implements FeedDemandForecaster {
                     def.feedingsPerDay
             ));
 
-            // Accumulate POPULATION total
             BigDecimal stageTotalFeedKg = feedConsumedPerHeadKg
                     .multiply(BigDecimal.valueOf(input.numberOfHead()));
             totalFeedKg = totalFeedKg.add(stageTotalFeedKg);
@@ -155,7 +139,6 @@ public class FishDemandForecaster implements FeedDemandForecaster {
             throw new BusinessException("Could not compute forecast for the given weight range");
         }
 
-        // Average daily feed for the ENTIRE population
         BigDecimal avgDaily = totalFeedKg.divide(
                 BigDecimal.valueOf(totalDays), SCALE, RoundingMode.HALF_UP);
 

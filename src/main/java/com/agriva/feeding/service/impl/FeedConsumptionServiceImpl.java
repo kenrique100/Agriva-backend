@@ -10,6 +10,7 @@ import com.agriva.feeding.port.ConsumerType;
 import com.agriva.feeding.port.FeedConsumerPort;
 import com.agriva.feeding.repository.FeedBatchRepository;
 import com.agriva.feeding.repository.FeedingEventRepository;
+import com.agriva.feeding.repository.FisheryBatchRepository;
 import com.agriva.feeding.service.FarmStoreService;
 import com.agriva.feeding.service.FeedConsumptionService;
 import com.agriva.shared.exception.BusinessException;
@@ -36,6 +37,7 @@ public class FeedConsumptionServiceImpl implements FeedConsumptionService {
     private final List<FeedConsumerPort> consumerPorts;
     private final FeedingEventRepository feedingEventRepository;
     private final FeedBatchRepository feedBatchRepository;
+    private final FisheryBatchRepository fisheryBatchRepository;
     private final FarmStoreService farmStoreService;
     private final FeedFeedingMapper mapper;
 
@@ -52,13 +54,19 @@ public class FeedConsumptionServiceImpl implements FeedConsumptionService {
         FeedConsumerPort port = resolvePort(request.getConsumerType());
 
         ConsumerSnapshot snapshot = port.snapshot(farmId, request.getConsumerId())
-                .orElseThrow(() -> new ConsumerNotFoundInDomainException(
+                .orElseThrow(() -> new ConsumerNotFoundInDomainException(   // <-- fixed
                         request.getConsumerType().name(), request.getConsumerId()));
 
         if (request.getFeedBatchId() != null) {
             feedBatchRepository.findByIdAndFarmId(request.getFeedBatchId(), farmId)
                     .orElseThrow(() -> new ResourceNotFoundException(
                             "Feed batch not found with ID: " + request.getFeedBatchId()));
+        }
+
+        if (request.getFisheryBatchId() != null) {
+            fisheryBatchRepository.findByIdAndFarmId(request.getFisheryBatchId(), farmId)
+                    .orElseThrow(() -> new ResourceNotFoundException(
+                            "Fishery batch not found with ID: " + request.getFisheryBatchId()));
         }
 
         FarmFeedStore store = farmStoreService.getOrCreateForUpdate(farmId);
@@ -75,6 +83,7 @@ public class FeedConsumptionServiceImpl implements FeedConsumptionService {
 
         FeedingEvent event = FeedingEvent.builder()
                 .farmId(farmId)
+                .fisheryBatchId(request.getFisheryBatchId())
                 .consumerType(request.getConsumerType())
                 .consumerId(request.getConsumerId())
                 .consumerDisplayName(snapshot.displayName())
@@ -89,10 +98,11 @@ public class FeedConsumptionServiceImpl implements FeedConsumptionService {
 
         FeedingEvent saved = feedingEventRepository.save(event);
 
-        log.info("Fed {} kg to {} {} ('{}', headcount={}); farm store now {} kg",
+        log.info("Fed {} kg to {} {} ('{}', headcount={}); farm store now {} kg; "
+                        + "fisheryBatch={}",
                 request.getQuantityKg(), request.getConsumerType(),
                 request.getConsumerId(), snapshot.displayName(),
-                snapshot.headcount(), newBalance);
+                snapshot.headcount(), newBalance, request.getFisheryBatchId());
 
         return mapper.toResponse(saved);
     }

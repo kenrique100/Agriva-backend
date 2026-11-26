@@ -2,14 +2,16 @@ package com.agriva.payroll.service.impl;
 
 import com.agriva.farming.model.entity.Farm;
 import com.agriva.farming.repository.FarmRepository;
+import com.agriva.finance.model.entity.Expense;
 import com.agriva.finance.model.entity.Investment;
 import com.agriva.finance.model.enums.ExpenseCategory;
 import com.agriva.finance.repository.ExpenseRepository;
 import com.agriva.finance.repository.InvestmentRepository;
-import com.agriva.payroll.kafka.producer.SalaryProducer;
-import com.agriva.payroll.mapper.SalaryMapper;
+import com.agriva.finance.service.ExpenseService;
 import com.agriva.finance.model.dto.request.ExpenseRequest;
 import com.agriva.finance.model.dto.response.ExpenseResponse;
+import com.agriva.payroll.kafka.producer.SalaryProducer;
+import com.agriva.payroll.mapper.SalaryMapper;
 import com.agriva.payroll.model.dto.requests.SalaryPaymentRequest;
 import com.agriva.payroll.model.dto.requests.SalarySubmissionEvent;
 import com.agriva.payroll.model.dto.response.*;
@@ -19,23 +21,24 @@ import com.agriva.payroll.model.enums.SalaryPaymentStatus;
 import com.agriva.payroll.model.enums.StagedSalaryStatus;
 import com.agriva.payroll.repository.SalaryPaymentRepository;
 import com.agriva.payroll.repository.StagedSalaryRepository;
-import com.agriva.personnel.models.entity.Personnel;
-import com.agriva.personnel.repository.PersonnelRepository;
-import com.agriva.finance.service.ExpenseService;
 import com.agriva.payroll.service.PdfReceiptService;
 import com.agriva.payroll.service.SalaryService;
+import com.agriva.payroll.utils.SalaryExcelParser;
+import com.agriva.payroll.utils.SalaryValidator;
+import com.agriva.personnel.models.entity.Personnel;
+import com.agriva.personnel.repository.PersonnelRepository;
+import com.agriva.shared.exception.BusinessException;
 import com.agriva.shared.exception.NoActiveInvestmentException;
 import com.agriva.shared.exception.PersonnelNotFoundException;
 import com.agriva.shared.exception.SalaryPaymentNotFoundException;
 import com.agriva.shared.models.enums.Currency;
-import com.agriva.payroll.utils.SalaryExcelParser;
-import com.agriva.payroll.utils.SalaryValidator;
 import com.agriva.task.model.entity.Task;
 import com.agriva.task.model.enums.TaskStatus;
 import com.agriva.task.repository.TaskRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -77,6 +80,10 @@ public class SalaryServiceImpl implements SalaryService {
         Personnel p = personnelRepository.findByIdAndFarmIdLive(req.getPersonnelId(), farmId)
                 .orElseThrow(() -> new PersonnelNotFoundException(
                         "Personnel not found with ID: " + req.getPersonnelId()));
+
+        if (Boolean.TRUE.equals(p.getIsFarmOwner())) {
+            throw new BusinessException("The farm owner cannot be paid a salary here.");
+        }
         validator.validate(p.getStatus() != null ? p.getStatus().name() : null);
 
         Investment active = investmentRepository.findFirstByFarmIdAndActiveTrue(farmId)
@@ -106,17 +113,31 @@ public class SalaryServiceImpl implements SalaryService {
                 .paidByUserId(actorUserId)
                 .build();
 
-        SalaryPayment saved = salaryRepository.save(sp);
+        SalaryPayment saved;
+        try {
+            saved = salaryRepository.saveAndFlush(sp);
+        } catch (DataIntegrityViolationException e) {
+            if (isUniqueReferenceViolation(e)) {
+                throw new BusinessException(
+                        "Payment reference collision — please retry the request. "
+                                + "This is exceedingly rare.");
+            }
+            throw e;
+        }
+
         log.info("Salary {} paid for personnel {} — expense {}",
                 saved.getId(), p.getId(), expense.getId());
         return mapper.toResponse(saved);
     }
 
+    private static final int REF_SUFFIX_LEN = 12;
+
     private String generateReference() {
         String candidate;
         int attempt = 0;
         do {
-            String suffix = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+            String suffix = UUID.randomUUID().toString().replace("-", "")
+                    .substring(0, REF_SUFFIX_LEN).toUpperCase();
             candidate = "SAL-" + LocalDate.now().getYear() + "-" + suffix;
             attempt++;
         } while (salaryRepository.existsByPaymentReference(candidate) && attempt < 10);
@@ -142,15 +163,15 @@ public class SalaryServiceImpl implements SalaryService {
     @Transactional
     public void delete(UUID id, UUID farmId) {
         SalaryPayment sp = load(id, farmId);
-        if (sp.getExpenseId() != null) {
-            expenseRepository.findById(sp.getExpenseId()).ifPresent(e -> {
-                e.setDeletedAt(LocalDateTime.now());
-                expenseRepository.save(e);
-            });
-        }
+        UUID expenseId = sp.getExpenseId();
+
         salaryRepository.delete(sp);
 
-        log.info("Deleted salary payment {} and soft-deleted linked expense {}", id, sp.getExpenseId());
+        if (expenseId != null) {
+            expenseRepository.findById(expenseId).ifPresent(expenseRepository::delete);
+        }
+
+        log.info("Hard-deleted salary payment {} and linked expense {}", id, expenseId);
     }
 
     @Override
@@ -169,6 +190,14 @@ public class SalaryServiceImpl implements SalaryService {
             Personnel masterPersonnel = personnelRepository
                     .findByUserId(farm.getMasterId()).orElse(null);
             if (masterPersonnel != null) managerName = masterPersonnel.getName();
+        }
+
+        Currency currency = Currency.XAF;
+        if (sp.getExpenseId() != null) {
+            Currency fromExpense = expenseRepository.findById(sp.getExpenseId())
+                    .map(Expense::getCurrency)
+                    .orElse(null);
+            if (fromExpense != null) currency = fromExpense;
         }
 
         LocalDate periodEnd   = sp.getPaymentDate();
@@ -223,6 +252,7 @@ public class SalaryServiceImpl implements SalaryService {
                 .department(p.getDepartment() != null ? p.getDepartment().name() : null)
                 .employmentDate(p.getDateOfEmployment())
                 .amount(sp.getAmount())
+                .currency(currency)
                 .paymentDate(sp.getPaymentDate())
                 .paymentReference(sp.getPaymentReference())
                 .status(sp.getStatus().name())
@@ -316,5 +346,10 @@ public class SalaryServiceImpl implements SalaryService {
         return salaryRepository.findByIdAndFarmId(id, farmId)
                 .orElseThrow(() -> new SalaryPaymentNotFoundException(
                         "Salary payment not found with ID: " + id));
+    }
+
+    private static boolean isUniqueReferenceViolation(DataIntegrityViolationException e) {
+        String msg = e.getMostSpecificCause().getMessage();
+        return msg != null && msg.contains("ux_salary_payments_ref");
     }
 }

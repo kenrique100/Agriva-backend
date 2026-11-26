@@ -10,11 +10,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * extracted from DatabaseInitializer so @Transactional actually applies.
- * Previously, DatabaseInitializer called its own protected method, bypassing
- * Spring's CGLIB proxy → REQUIRES_NEW was silently ignored.
- */
 @Service
 @RequiredArgsConstructor
 @Slf4j

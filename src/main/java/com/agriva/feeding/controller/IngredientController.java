@@ -129,6 +129,7 @@ public class IngredientController {
                 PageRequest.of(page, Math.min(size, 100)))));
     }
 
+    @Deprecated(since = "stage-6", forRemoval = false)
     @PostMapping(value = "/bulk", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
     @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
@@ -139,6 +140,7 @@ public class IngredientController {
                 ingredientService.bulkUpload(file, u.farmId(), u.userId(), u.email()));
     }
 
+    @Deprecated(since = "stage-6", forRemoval = false)
     @GetMapping("/bulk/{batchId}")
     @PreAuthorize("hasAnyRole('MASTER','ADMIN')")
     public ResponseEntity<BatchStatusResponse> bulkStatus(

@@ -15,6 +15,7 @@ public class DemandForecastRequest {
 
     @NotNull(message = "Number of head is required")
     @Positive(message = "Number of head must be positive")
+    @Max(value = Integer.MAX_VALUE, message = "Number of head is too large")
     private Long numberOfHead;
 
     @NotNull(message = "Initial weight is required")

@@ -61,10 +61,6 @@ public class AuthServiceImpl implements AuthService {
     private static final String LOGIN_FAIL_KEY_PREFIX = "agriva:auth:loginfail:";
     private static final Duration LOCKOUT_WINDOW = Duration.ofMinutes(15);
 
-    /**
-     * A valid BCrypt hash used to equalize timing when the user does not exist.
-     * This prevents attackers from guessing valid usernames based on response times.
-     */
     private static final String DUMMY_HASH = "$2a$12$C6UzMDM.H6dfI/f/IKcEeO7ZBvnpCL6VgIi89oBW3eZ6y2r6WJZWi";
 
     private final AuthRepository authRepository;
@@ -116,13 +112,11 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public AuthResponse login(LoginRequest request) {
-        // Canonicalize once. The repository compares LOWER(col) = LOWER(:p).
         String identity = request.getEmailOrUsername().toLowerCase(Locale.ROOT).trim();
         String lockKey  = LOGIN_FAIL_KEY_PREFIX + identity;
 
-        // Per-identity lockout (complements per-IP blacklist)
         if (isLocked(lockKey)) {
-            loginAttemptTracker.recordFailure(); // still counts towards IP
+            loginAttemptTracker.recordFailure();
             log.warn("Login attempt for locked identity: {}", identity);
             throw new RateLimitExceededException(
                     "Too many failed login attempts. Try again later.",
@@ -130,10 +124,6 @@ public class AuthServiceImpl implements AuthService {
         }
 
         Optional<User> userOpt = authRepository.findByEmailOrUsernameLive(identity);
-
-        // Always call matches() so the timing of a missing user and a bad
-        // password are indistinguishable (prevents username enumeration via
-        // response time).
         String storedHash = userOpt.map(User::getPassword).orElse(DUMMY_HASH);
         boolean matches = passwordEncoder.matches(request.getPassword(), storedHash);
 
@@ -141,11 +131,9 @@ public class AuthServiceImpl implements AuthService {
             recordLoginFailure(lockKey);
             loginAttemptTracker.recordFailure();
             log.warn("Failed login for {}", identity);
-            // Generic message — never reveal whether the user or the password was wrong.
             throw new InvalidCredentialsException("Invalid username or password");
         }
 
-        // Success — clear both counters
         try { redis.delete(lockKey); } catch (Exception ignored) { }
         loginAttemptTracker.clear();
 
@@ -356,6 +344,8 @@ public class AuthServiceImpl implements AuthService {
                    ? user.getUsername()
                    : user.getEmail().split("@")[0]);
 
+        boolean isOwner = RoleConstants.MASTER.equals(user.getRole());
+
         Personnel p = personnelRepository.save(Personnel.builder()
                 .farmId(user.getFarmId())
                 .userId(user.getId())
@@ -368,6 +358,7 @@ public class AuthServiceImpl implements AuthService {
                 .department(department)
                 .dateOfEmployment(LocalDate.now())
                 .status(PersonnelStatus.ACTIVE)
+                .isFarmOwner(isOwner)
                 .statusChangeTimestamp(LocalDateTime.now())
                 .build());
 

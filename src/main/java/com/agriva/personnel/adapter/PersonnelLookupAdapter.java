@@ -4,7 +4,6 @@ import com.agriva.personnel.models.entity.Personnel;
 import com.agriva.personnel.repository.PersonnelRepository;
 import com.agriva.shared.port.PersonnelLookupPort;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -34,8 +33,9 @@ public class PersonnelLookupAdapter implements PersonnelLookupPort {
 
     @Override
     public List<PersonnelInfo> findAllByFarmId(UUID farmId) {
-        return repo.findByFarmIdLive(farmId, Pageable.unpaged())
-                .getContent().stream().map(this::toInfo).toList();
+        return repo.findAllStaffByFarmIdLive(farmId).stream()
+                .map(this::toInfo)
+                .toList();
     }
 
     private PersonnelInfo toInfo(Personnel p) {
@@ -46,7 +46,8 @@ public class PersonnelLookupAdapter implements PersonnelLookupPort {
                 p.getName(),
                 p.getStatus() != null ? p.getStatus().name() : null,
                 p.getDepartment() != null ? p.getDepartment().name() : null,
-                p.getEmail()
+                p.getEmail(),
+                Boolean.TRUE.equals(p.getIsFarmOwner())
         );
     }
 }
