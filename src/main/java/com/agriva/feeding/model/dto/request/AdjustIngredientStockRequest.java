@@ -15,7 +15,6 @@ public class AdjustIngredientStockRequest {
     @DecimalMin(value = "0", message = "quantityOnHand must be >= 0")
     private BigDecimal quantityOnHand;
 
-    /** Optional; must match the current stock version when supplied. */
     private Long expectedVersion;
 
     @NotBlank(message = "reason is required")

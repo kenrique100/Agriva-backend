@@ -2,25 +2,25 @@ package com.agriva.dashboard.service.impl;
 
 import com.agriva.dashboard.model.DashboardProductivityResponse;
 import com.agriva.dashboard.model.DashboardResponse;
-import com.agriva.finance.model.entity.Expense;
+import com.agriva.dashboard.repository.DashboardQueryRepository;
+import com.agriva.dashboard.service.DashboardService;
 import com.agriva.farming.model.entity.Farm;
+import com.agriva.farming.repository.FarmRepository;
+import com.agriva.finance.model.entity.Expense;
 import com.agriva.finance.model.entity.Income;
 import com.agriva.finance.model.entity.Investment;
-import com.agriva.personnel.models.entity.Personnel;
-import com.agriva.task.model.entity.Task;
 import com.agriva.finance.model.entity.Transaction;
-import com.agriva.identity.models.entity.User;
-import com.agriva.identity.repository.AuthRepository;
-import com.agriva.dashboard.repository.DashboardQueryRepository;
 import com.agriva.finance.repository.ExpenseRepository;
-import com.agriva.farming.repository.FarmRepository;
 import com.agriva.finance.repository.IncomeRepository;
 import com.agriva.finance.repository.InvestmentRepository;
-import com.agriva.personnel.repository.PersonnelRepository;
-import com.agriva.task.repository.TaskRepository;
 import com.agriva.finance.repository.TransactionRepository;
+import com.agriva.identity.models.entity.User;
+import com.agriva.identity.repository.AuthRepository;
+import com.agriva.personnel.models.entity.Personnel;
+import com.agriva.personnel.repository.PersonnelRepository;
 import com.agriva.shared.security.RoleConstants;
-import com.agriva.dashboard.service.DashboardService;
+import com.agriva.task.model.entity.Task;
+import com.agriva.task.repository.TaskRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -39,7 +39,6 @@ import java.util.stream.Collectors;
 @Slf4j
 public class DashboardServiceImpl implements DashboardService {
 
-    // Reduced from 50 to 10 to match the new pagination limit rules
     private static final int DASHBOARD_TX_LIMIT = 10;
 
     private final DashboardQueryRepository dashboardQueryRepo;
@@ -53,17 +52,17 @@ public class DashboardServiceImpl implements DashboardService {
     private final TaskRepository taskRepository;
 
     @Override
+    @Transactional(readOnly = true)
     public DashboardResponse personalDashboard(UUID userId, UUID farmId, String role) {
         User user = userId != null ? authRepository.findByIdLive(userId).orElse(null) : null;
         String effectiveRole = user != null ? user.getRole() : role;
-
         boolean canSeeInvestments = isMasterOrAdmin(effectiveRole);
 
         String farmName = farmId != null
                 ? farmRepository.findByIdLive(farmId).map(Farm::getName).orElse(null)
                 : null;
 
-        DashboardQueryRepository.Totals personal = userId != null
+        DashboardQueryRepository.Totals personal = userId != null && farmId != null
                 ? dashboardQueryRepo.totalsForUser(farmId, userId)
                 : DashboardQueryRepository.Totals.empty();
 
@@ -82,11 +81,13 @@ public class DashboardServiceImpl implements DashboardService {
                 .role(effectiveRole)
                 .personal(toTotals(personal, canSeeInvestments))
                 .farm(toTotals(farm, canSeeInvestments))
+                .users(List.of())
                 .transactions(txSummaries)
                 .build();
     }
 
     @Override
+    @Transactional(readOnly = true)
     public DashboardResponse farmDashboard(UUID farmId, UUID requesterUserId) {
         User requester = requesterUserId != null
                 ? authRepository.findByIdLive(requesterUserId).orElse(null)
@@ -99,22 +100,29 @@ public class DashboardServiceImpl implements DashboardService {
                 .map(Farm::getName).orElse(null);
 
         DashboardQueryRepository.Totals farmTotals = dashboardQueryRepo.totalsForFarm(farmId);
+        Map<UUID, DashboardQueryRepository.Totals> totalsByUser =
+                dashboardQueryRepo.totalsByUserForFarm(farmId);
 
-        List<User> farmUsers = authRepository.findByFarmIdLive(farmId);
+        // Owner is excluded from the activity list (D3). Their money entries
+        // still count in farmTotals.
+        List<User> farmUsers = authRepository.findByFarmIdLive(farmId).stream()
+                .filter(u -> !RoleConstants.MASTER.equals(u.getRole()))
+                .toList();
 
-        List<DashboardResponse.UserActivity> userActivities = new ArrayList<>();
-        for (User u : farmUsers) {
-            DashboardQueryRepository.Totals userTotals =
-                    dashboardQueryRepo.totalsForUser(farmId, u.getId());
-
-            userActivities.add(DashboardResponse.UserActivity.builder()
-                    .userId(u.getId())
-                    .email(u.getEmail())
-                    .username(u.getUsername())
-                    .role(u.getRole())
-                    .activitySummary(toTotals(userTotals, canSeeInvestments))
-                    .build());
-        }
+        List<DashboardResponse.UserActivity> userActivities = farmUsers.stream()
+                .map(u -> {
+                    DashboardQueryRepository.Totals userTotals =
+                            totalsByUser.getOrDefault(u.getId(),
+                                    DashboardQueryRepository.Totals.empty());
+                    return DashboardResponse.UserActivity.builder()
+                            .userId(u.getId())
+                            .email(u.getEmail())
+                            .username(u.getUsername())
+                            .role(u.getRole())
+                            .activitySummary(toTotals(userTotals, canSeeInvestments))
+                            .build();
+                })
+                .toList();
 
         List<DashboardResponse.TransactionSummary> txSummaries =
                 buildTransactionSummaries(farmId, canSeeInvestments);
@@ -125,6 +133,7 @@ public class DashboardServiceImpl implements DashboardService {
                 .userId(requesterUserId)
                 .username(requester != null ? requester.getUsername() : null)
                 .role(role)
+                .personal(toTotals(DashboardQueryRepository.Totals.empty(), canSeeInvestments))
                 .farm(toTotals(farmTotals, canSeeInvestments))
                 .users(userActivities)
                 .transactions(txSummaries)
@@ -146,8 +155,9 @@ public class DashboardServiceImpl implements DashboardService {
                         ((Number) r[2]).doubleValue()
                 });
             }
+            // Staff-only — owner excluded (D3).
             for (Personnel p : personnelRepository
-                    .findByFarmIdLive(farmId, Pageable.unpaged()).getContent()) {
+                    .findStaffByFarmIdLive(farmId, Pageable.unpaged()).getContent()) {
                 double[] a = aggregates.getOrDefault(p.getId(), new double[]{0, 0});
                 rows.add(toProductivity(p, a[0], a[1]));
             }
@@ -179,25 +189,35 @@ public class DashboardServiceImpl implements DashboardService {
 
         if (dashboard.getFarm() != null) {
             writer.println("FARM TOTALS");
-            writer.println("Total Transactions,Total Incomes,Total Expenses,Total Investments,Total Income,Total Expense,Total Investment,Net Position");
+            writer.println("Total Transactions,Total Incomes,Total Expenses,Total Investments,"
+                    + "Total Income,Total Expense,Total Investment,Net Position");
             DashboardResponse.Totals t = dashboard.getFarm();
             writer.printf("%s,%s,%s,%s,%s,%s,%s,%s%n",
-                    t.getTotalTransactions(), t.getTotalIncomes(), t.getTotalExpenses(),
-                    t.getTotalInvestments(), t.getTotalIncome(), t.getTotalExpense(),
-                    t.getTotalInvestment(), t.getNetPosition());
+                    csvValue(t.getTotalTransactions()),
+                    csvValue(t.getTotalIncomes()),
+                    csvValue(t.getTotalExpenses()),
+                    csvValue(t.getTotalInvestments()),
+                    csvValue(t.getTotalIncome()),
+                    csvValue(t.getTotalExpense()),
+                    csvValue(t.getTotalInvestment()),
+                    csvValue(t.getNetPosition()));
             writer.println();
         }
 
         writer.println("RECENT TRANSACTIONS");
-        writer.println("Reference,Date,Status,Recorded By,Income,Expense,Investment,Net Position,Notes");
+        writer.println("Reference,Date,Status,Recorded By,Income,Expense,Investment,"
+                + "Net Position,Notes");
         if (dashboard.getTransactions() != null) {
             for (DashboardResponse.TransactionSummary tx : dashboard.getTransactions()) {
                 writer.printf("%s,%s,%s,%s,%s,%s,%s,%s,%s%n",
                         escapeCsv(tx.getTransactionRef()),
-                        tx.getOccurredAt(),
-                        tx.getStatus(),
+                        csvValue(tx.getOccurredAt()),
+                        csvValue(tx.getStatus()),
                         escapeCsv(tx.getRecordedByUsername()),
-                        tx.getIncome(), tx.getExpense(), tx.getInvestment(), tx.getNetPosition(),
+                        csvValue(tx.getIncome()),
+                        csvValue(tx.getExpense()),
+                        csvValue(tx.getInvestment()),
+                        csvValue(tx.getNetPosition()),
                         escapeCsv(tx.getNotes()));
             }
         }
@@ -209,6 +229,12 @@ public class DashboardServiceImpl implements DashboardService {
             return "\"" + value.replace("\"", "\"\"") + "\"";
         }
         return value;
+    }
+
+    private static String csvValue(Object v) {
+        if (v == null) return "";
+        if (v instanceof BigDecimal bd) return bd.toPlainString();
+        return v.toString();
     }
 
     private DashboardProductivityResponse.UserProductivity toProductivity(
@@ -335,7 +361,7 @@ public class DashboardServiceImpl implements DashboardService {
                                 .createdByUsername(usernameOrNull(v.getCreatedByUserId(), userById))
                                 .build())
                       .toList()
-                    : null;
+                    : List.of();
 
             User txCreator = tx.getCreatedByUserId() == null
                     ? null : userById.get(tx.getCreatedByUserId());
@@ -356,10 +382,9 @@ public class DashboardServiceImpl implements DashboardService {
                     .incomeCount(incomes.size())
                     .expenseCount(expenses.size())
                     .investmentCount(canSeeInvestments ? investments.size() : null)
-                    .incomeLines(incomeLines.isEmpty() ? null : incomeLines)
-                    .expenseLines(expenseLines.isEmpty() ? null : expenseLines)
-                    .investmentLines(investmentLines == null || investmentLines.isEmpty()
-                            ? null : investmentLines)
+                    .incomeLines(incomeLines)
+                    .expenseLines(expenseLines)
+                    .investmentLines(investmentLines)
                     .build());
         }
         return out;

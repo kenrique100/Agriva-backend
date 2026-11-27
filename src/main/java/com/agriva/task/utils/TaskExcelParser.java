@@ -9,11 +9,14 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
 import java.io.InputStream;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
@@ -29,8 +32,8 @@ public class TaskExcelParser {
         DataFormatter fmt = new DataFormatter();
 
         Map<String, Personnel> byEmail = new HashMap<>();
-        for (Personnel p : personnelRepo.findByFarmIdLive(farmId, Pageable.unpaged())
-                .getContent()) {
+        // Staff-only — the farm owner is not assignable (Stage 3).
+        for (Personnel p : personnelRepo.findAllStaffByFarmIdLive(farmId)) {
             if (p.getEmail() != null) byEmail.put(p.getEmail().toLowerCase(), p);
         }
 

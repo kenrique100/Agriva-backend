@@ -1,7 +1,6 @@
 package com.agriva.task.service.impl;
 
 import com.agriva.personnel.models.entity.Personnel;
-import com.agriva.personnel.models.enums.PersonnelStatus;
 import com.agriva.personnel.repository.PersonnelRepository;
 import com.agriva.shared.exception.BusinessException;
 import com.agriva.shared.exception.PersonnelAccessDeniedException;
@@ -22,12 +21,14 @@ import com.agriva.task.model.enums.StagedTaskStatus;
 import com.agriva.task.model.enums.TaskStatus;
 import com.agriva.task.repository.StagedTaskRepository;
 import com.agriva.task.repository.TaskRepository;
+import com.agriva.task.service.TaskAssignmentRules;
 import com.agriva.task.service.TaskService;
 import com.agriva.task.utils.TaskExcelParser;
 import com.agriva.task.utils.TaskValidator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -59,17 +60,12 @@ public class TaskServiceImpl implements TaskService {
     private final TaskProducer taskProducer;
     private final TaskExcelParser excelParser;
     private final ObjectMapper objectMapper;
+    private final TaskAssignmentRules assignmentRules;
 
     @Override
     @Transactional
     public TaskResponse create(TaskCreateRequest req, UUID farmId, UUID assignedByUserId) {
-        Personnel p = personnelRepository.findByIdAndFarmIdLive(req.getPersonnelId(), farmId)
-                .orElseThrow(() -> new PersonnelNotFoundException(
-                        "Personnel not found with ID: " + req.getPersonnelId()));
-
-        if (p.getStatus() != PersonnelStatus.ACTIVE) {
-            throw new BusinessException("Cannot assign tasks to personnel who are not ACTIVE.");
-        }
+        Personnel p = assignmentRules.validateAssignable(req.getPersonnelId(), farmId, null);
 
         Task t = Task.builder()
                 .farmId(farmId)
@@ -81,7 +77,18 @@ public class TaskServiceImpl implements TaskService {
                 .status(TaskStatus.PENDING)
                 .assignedByUserId(assignedByUserId)
                 .build();
-        return mapper.toResponse(taskRepository.save(t));
+
+        try {
+            Task saved = taskRepository.saveAndFlush(t);
+            return mapper.toResponse(saved);
+        } catch (DataIntegrityViolationException e) {
+            if (isOneOpenTaskViolation(e)) {
+                throw new BusinessException(String.format(
+                        "%s already has an open task. Finish or cancel it first.",
+                        p.getName()));
+            }
+            throw e;
+        }
     }
 
     @Override
@@ -107,7 +114,6 @@ public class TaskServiceImpl implements TaskService {
                 .distinct()
                 .toList();
 
-        // FIX — Collectors.toMap throws NPE on a null value, so coalesce the name.
         Map<UUID, String> nameById = personnelIds.isEmpty()
                 ? Map.of()
                 : personnelRepository.findAllById(personnelIds).stream()
@@ -141,8 +147,9 @@ public class TaskServiceImpl implements TaskService {
     public TaskResponse update(UUID id, TaskUpdateRequest req, UUID farmId) {
         Task t = load(id, farmId);
 
-        // on the old assignee; a CANCELLED task is an audit record and must stay
-        // frozen. Title/description/deadline corrections on live tasks still work.
+        // Defensive: after Stage 5, no row reaches this service with CANCELLED
+        // status (the transition hard-deletes the row). Kept in case a
+        // hand-patched DB or a race lands a row here in a terminal state.
         if (t.getStatus() == TaskStatus.CANCELLED) {
             throw new BusinessException("Cannot edit a cancelled task");
         }
@@ -158,22 +165,26 @@ public class TaskServiceImpl implements TaskService {
         if (req.getExpectedHours() != null) t.setExpectedHours(req.getExpectedHours());
 
         if (req.getPersonnelId() != null && !req.getPersonnelId().equals(t.getPersonnelId())) {
-            Personnel p = personnelRepository.findByIdAndFarmIdLive(req.getPersonnelId(), farmId)
-                    .orElseThrow(() -> new PersonnelNotFoundException(
-                            "Personnel not found: " + req.getPersonnelId()));
-
-            if (p.getStatus() != PersonnelStatus.ACTIVE) {
-                throw new BusinessException("Cannot assign tasks to personnel who are not ACTIVE.");
-            }
+            Personnel p = assignmentRules.validateAssignable(
+                    req.getPersonnelId(), farmId, id);
             t.setPersonnelId(p.getId());
         }
-        return mapper.toResponse(taskRepository.save(t));
+
+        try {
+            Task saved = taskRepository.saveAndFlush(t);
+            return mapper.toResponse(saved);
+        } catch (DataIntegrityViolationException e) {
+            if (isOneOpenTaskViolation(e)) {
+                throw new BusinessException(
+                        "The new assignee already has an open task. Finish or cancel it first.");
+            }
+            throw e;
+        }
     }
 
     @Override
     @Transactional
     public TaskResponse action(UUID id, UUID farmId, UUID actorUserId, boolean isMaster, String action) {
-        // inside validator.validateAction.
         if (action == null || action.isBlank()) {
             throw new BusinessException("Action is required");
         }
@@ -186,7 +197,6 @@ public class TaskServiceImpl implements TaskService {
             if (own.getUserId() == null || !actorUserId.equals(own.getUserId())) {
                 throw new PersonnelAccessDeniedException("You can only act on your own tasks");
             }
-            // Cancel now destroys the row — sub-users can PAUSE or STOP instead.
             if ("CANCEL".equalsIgnoreCase(action)) {
                 throw new PersonnelAccessDeniedException(
                         "Only the farm master can cancel and remove tasks");
@@ -227,15 +237,12 @@ public class TaskServiceImpl implements TaskService {
                 t.setStatus(TaskStatus.SUBMITTED);
             }
             case "CANCEL" -> {
-                // HARD DELETE. Snapshot the response first so the client still
-                // gets a well-formed body. The only FK pointing at `tasks` is
-                // staged_task.moved_task_id — we clear it defensively below in
-                // addition to relying on DELETE SET NULL.
+                // Snapshot first so the client still gets a well-formed body.
                 t.setStatus(TaskStatus.CANCELLED);
                 t.setStopTime(now);
                 TaskResponse snapshot = mapper.toResponse(t);
 
-                stagedRepo.clearMovedTaskId(t.getId());   // FIX — defensive FK clear
+                stagedRepo.clearMovedTaskId(t.getId());
                 taskRepository.delete(t);
 
                 log.info("Task {} action=CANCEL — hard deleted by user={} isMaster={}",
@@ -273,13 +280,22 @@ public class TaskServiceImpl implements TaskService {
             t.setStatus(TaskStatus.COMPLETED);
             personnelRepository.findById(t.getPersonnelId())
                     .ifPresent(p -> rollProductivity(p, t.getActualHours()));
-        } else {
-            // Rejection keeps the row — distinct from user-initiated CANCEL.
-            t.setIsValidated(false);
-            t.setStatus(TaskStatus.CANCELLED);
+            log.info("Task {} validated (approved) by {}", id, adminUserId);
+            return mapper.toResponse(taskRepository.save(t));
         }
-        log.info("Task {} validated={}", id, approve);
-        return mapper.toResponse(taskRepository.save(t));
+
+        // Rejection: build the response snapshot BEFORE the row is gone.
+        // The stopTime is already set on SUBMITTED; stamp defensively if not.
+        t.setIsValidated(false);
+        t.setStatus(TaskStatus.CANCELLED);
+        if (t.getStopTime() == null) t.setStopTime(LocalDateTime.now());
+        TaskResponse snapshot = mapper.toResponse(t);
+
+        stagedRepo.clearMovedTaskId(t.getId());
+        taskRepository.delete(t);
+
+        log.info("Task {} rejected — hard deleted by {}", id, adminUserId);
+        return snapshot;
     }
 
     private void rollProductivity(Personnel p, Double hours) {
@@ -299,9 +315,18 @@ public class TaskServiceImpl implements TaskService {
     @Transactional
     public void delete(UUID id, UUID farmId) {
         Task t = load(id, farmId);
-        t.setDeletedAt(LocalDateTime.now());
-        taskRepository.save(t);
-        log.info("Soft-deleted task {}", id);
+
+        if (t.getStatus() == TaskStatus.COMPLETED) {
+            throw new BusinessException(
+                    "Completed tasks cannot be deleted — they are the productivity "
+                            + "audit record for this person. Leave them as completed "
+                            + "history or reopen via action=UNCOMPLETED.");
+        }
+
+        stagedRepo.clearMovedTaskId(t.getId());
+        taskRepository.delete(t);
+
+        log.info("Hard-deleted task {} (final status was {})", id, t.getStatus());
     }
 
     @Override
@@ -371,12 +396,13 @@ public class TaskServiceImpl implements TaskService {
     @Transactional
     public void updateDailyProductivity() {
         LocalDateTime since = LocalDate.now().minusDays(30).atStartOfDay();
-        List<Personnel> all = personnelRepository.findAll().stream()
+        List<Personnel> staff = personnelRepository.findAll().stream()
                 .filter(p -> p.getDeletedAt() == null)
+                .filter(p -> !Boolean.TRUE.equals(p.getIsFarmOwner()))
                 .toList();
 
         int updated = 0;
-        for (Personnel p : all) {
+        for (Personnel p : staff) {
             List<Task> validated = taskRepository.findValidatedSince(p.getId(), since);
             double hours = 0.0;
             Set<LocalDate> days = new HashSet<>();
@@ -403,14 +429,15 @@ public class TaskServiceImpl implements TaskService {
                 updated++;
             }
         }
-        log.info("Daily productivity updated — {} personnel scanned, {} changed", all.size(), updated);
+        log.info("Daily productivity updated — {} staff scanned, {} changed",
+                staff.size(), updated);
     }
 
     @Override
     @Transactional
     public void resetProductivityMetrics() {
         int n = personnelRepository.bulkResetProductivity(LocalDate.now());
-        log.info("Reset 30-day productivity metrics for {} active personnel", n);
+        log.info("Reset 30-day productivity metrics for {} active staff", n);
     }
 
     @Override
@@ -486,5 +513,10 @@ public class TaskServiceImpl implements TaskService {
     private Task load(UUID id, UUID farmId) {
         return taskRepository.findByIdAndFarmIdLive(id, farmId)
                 .orElseThrow(() -> new TaskNotFoundException("Task not found with ID: " + id));
+    }
+
+    private static boolean isOneOpenTaskViolation(DataIntegrityViolationException e) {
+        String msg = e.getMostSpecificCause().getMessage();
+        return msg != null && msg.contains("ux_tasks_one_open_per_personnel");
     }
 }

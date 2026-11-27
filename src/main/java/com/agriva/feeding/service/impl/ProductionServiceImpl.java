@@ -82,7 +82,7 @@ public class ProductionServiceImpl implements ProductionService {
         Map<UUID, BigDecimal> requiredByIngredient = new LinkedHashMap<>();
         Map<UUID, String> nameById = new HashMap<>();
         for (FormulationLine line : lines) {
-            BigDecimal required = line.getQuantityKg()
+            BigDecimal required = line.getQuantityInStockUnit()
                     .multiply(scaleFactor)
                     .setScale(SCALE_QTY, RoundingMode.HALF_UP);
             requiredByIngredient.merge(line.getIngredientId(), required, BigDecimal::add);
@@ -126,6 +126,10 @@ public class ProductionServiceImpl implements ProductionService {
         farmStoreService.save(store);
 
         int bagSizeKg = feedingProperties.getDefaultBagSizeKg();
+        if (bagSizeKg <= 0) {
+            throw new BusinessException(
+                    "agriva.feeding.default-bag-size-kg must be > 0 (current: " + bagSizeKg + ")");
+        }
         BigDecimal bagSize = BigDecimal.valueOf(bagSizeKg);
         long numberOfBagsLong = producedKg.divideToIntegralValue(bagSize).longValue();
         if (numberOfBagsLong > Integer.MAX_VALUE) {
@@ -144,6 +148,11 @@ public class ProductionServiceImpl implements ProductionService {
         }
         totalCost = totalCost.setScale(SCALE_QTY, RoundingMode.HALF_UP);
 
+        String normalizedKey = (req.getIdempotencyKey() != null
+                && !req.getIdempotencyKey().isBlank())
+                ? req.getIdempotencyKey()
+                : null;
+
         FeedBatch batch = FeedBatch.builder()
                 .farmId(farmId)
                 .formulationId(formulation.getId())
@@ -157,12 +166,10 @@ public class ProductionServiceImpl implements ProductionService {
                 .productionDate(req.getProductionDate())
                 .notes(req.getNotes())
                 .createdByUserId(userId)
-                .idempotencyKey(req.getIdempotencyKey())
+                .idempotencyKey(normalizedKey)
                 .build();
 
-        // saveAndFlush when idempotencyKey is set — the unique constraint must
-        // fire inside this tx so a race rolls back the stock decrements too.
-        FeedBatch saved = (req.getIdempotencyKey() != null)
+        FeedBatch saved = (normalizedKey != null)
                 ? feedBatchRepository.saveAndFlush(batch)
                 : feedBatchRepository.save(batch);
 

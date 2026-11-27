@@ -31,4 +31,6 @@ public interface ForecastService {
             UUID farmId,
             UUID userId,
             String idempotencyKey);
+
+    ProduceFeedFromForecastResponse replayByKey(UUID farmId, String idempotencyKey);
 }

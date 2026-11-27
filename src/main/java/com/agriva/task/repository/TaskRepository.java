@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -107,6 +108,19 @@ public interface TaskRepository extends JpaRepository<Task, UUID> {
         GROUP BY t.personnelId
     """)
     List<Object[]> aggregateProductivityByFarm(@Param("farmId") UUID farmId);
+
+    @Query("""
+        SELECT t FROM Task t
+        WHERE t.personnelId = :personnelId
+          AND t.deletedAt IS NULL
+          AND t.status IN :openStatuses
+          AND (:excludeTaskId IS NULL OR t.id <> :excludeTaskId)
+        ORDER BY t.createdAt ASC
+    """)
+    List<Task> findOpenTasksForPersonnel(
+            @Param("personnelId") UUID personnelId,
+            @Param("excludeTaskId") UUID excludeTaskId,
+            @Param("openStatuses") Collection<TaskStatus> openStatuses);
 
     void deleteByPersonnelId(UUID personnelId);
 }

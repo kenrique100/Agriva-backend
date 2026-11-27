@@ -1,5 +1,6 @@
 package com.agriva.payroll.model.dto.response;
 
+import com.agriva.shared.models.enums.Currency;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -27,6 +28,7 @@ public class SalaryReceiptResponse {
 
     // Salary block
     private BigDecimal amount;
+    private Currency currency;
     private LocalDate paymentDate;
     private String paymentReference;
     private String status;

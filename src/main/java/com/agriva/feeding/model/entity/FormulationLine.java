@@ -27,8 +27,8 @@ public class FormulationLine {
     @Column(name = "ingredient_name", nullable = false, length = 100)
     private String ingredientName;
 
-    @Column(name = "quantity_kg", nullable = false, precision = 19, scale = 4)
-    private BigDecimal quantityKg;
+    @Column(name = "quantity_in_stock_unit", nullable = false, precision = 19, scale = 4)
+    private BigDecimal quantityInStockUnit;
 
     @Column(precision = 7, scale = 4)
     private BigDecimal percentage;

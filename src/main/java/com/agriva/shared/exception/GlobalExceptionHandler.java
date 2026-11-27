@@ -37,6 +37,16 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, ex.getMessage(), r);
     }
 
+    @ExceptionHandler(IdempotencyKeyCollisionException.class)
+    public ResponseEntity<ErrorResponse> handleIdempotencyCollision(
+            IdempotencyKeyCollisionException ex, WebRequest r) {
+        log.warn("Idempotency-Key collision escaped to advice: {}", ex.getKey());
+        return build(HttpStatus.CONFLICT,
+                "Another request with this Idempotency-Key is still committing. "
+                        + "Retry the request — it will replay the original response.",
+                r);
+    }
+
     @ExceptionHandler(KafkaUnavailableException.class)
     public ResponseEntity<ErrorResponse> handleKafkaUnavailable(
             KafkaUnavailableException ex, WebRequest r) {

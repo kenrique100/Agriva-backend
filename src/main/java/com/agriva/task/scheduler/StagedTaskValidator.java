@@ -1,8 +1,7 @@
 package com.agriva.task.scheduler;
 
-import com.agriva.personnel.models.entity.Personnel;
-import com.agriva.personnel.models.enums.PersonnelStatus;
 import com.agriva.personnel.repository.PersonnelRepository;
+import com.agriva.shared.utils.ValidationRules;
 import com.agriva.task.model.dto.requests.TaskCreateRequest;
 import com.agriva.task.model.entity.StagedTask;
 import com.agriva.task.model.entity.Task;
@@ -10,16 +9,17 @@ import com.agriva.task.model.enums.StagedTaskStatus;
 import com.agriva.task.model.enums.TaskStatus;
 import com.agriva.task.repository.StagedTaskRepository;
 import com.agriva.task.repository.TaskRepository;
+import com.agriva.task.service.TaskAssignmentRules;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -34,6 +34,7 @@ public class StagedTaskValidator {
     private final StagedTaskRepository stagedRepo;
     private final TaskRepository taskRepo;
     private final PersonnelRepository personnelRepo;
+    private final TaskAssignmentRules assignmentRules;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
 
@@ -73,16 +74,23 @@ public class StagedTaskValidator {
             TaskCreateRequest request = objectMapper.readValue(
                     staged.getPayloadJson(), TaskCreateRequest.class);
 
-            String error = validate(request, staged.getFarmId());
+            String error = ValidationRules.taskAssignableError(
+                    personnelRepo,
+                    (personnelId, excludeId, name) ->
+                            assignmentRules.findOpenTask(personnelId, excludeId).ifPresent(open -> {
+                                throw new IllegalStateException(
+                                        name + " already has an open task ('"
+                                                + open.getTitle() + "'). "
+                                                + "Finish or cancel it first.");
+                            }),
+                    request.getPersonnelId(), staged.getFarmId(), null,
+                    request.getTitle(), request.getDescription(),
+                    request.getDeadline(), request.getExpectedHours());
             if (error != null) { onFailure(staged, List.of(error)); return; }
-
-            Personnel p = personnelRepo
-                    .findByIdAndFarmIdLive(request.getPersonnelId(), staged.getFarmId())
-                    .orElseThrow(() -> new IllegalStateException("Personnel missing"));
 
             Task t = Task.builder()
                     .farmId(staged.getFarmId())
-                    .personnelId(p.getId())
+                    .personnelId(request.getPersonnelId())
                     .title(request.getTitle())
                     .description(request.getDescription())
                     .deadline(request.getDeadline())
@@ -90,7 +98,18 @@ public class StagedTaskValidator {
                     .status(TaskStatus.PENDING)
                     .assignedByUserId(staged.getSubmittedByUserId())
                     .build();
-            Task saved = taskRepo.save(t);
+
+            Task saved;
+            try {
+                saved = taskRepo.saveAndFlush(t);
+            } catch (DataIntegrityViolationException e) {
+                if (isOneOpenTaskViolation(e)) {
+                    onFailure(staged, List.of(
+                            "Personnel already has an open task. Finish or cancel it first."));
+                    return;
+                }
+                throw e;
+            }
 
             staged.setStatus(StagedTaskStatus.MOVED);
             staged.setMovedTaskId(saved.getId());
@@ -104,23 +123,6 @@ public class StagedTaskValidator {
             log.error("Staged task {} threw: {}", staged.getId(), e.getMessage(), e);
             onFailure(staged, List.of("Processing error: " + e.getMessage()));
         }
-    }
-
-    private String validate(TaskCreateRequest req, UUID farmId) {
-        if (req.getPersonnelId() == null) return "Personnel is required";
-        if (req.getTitle() == null || req.getTitle().isBlank()) return "Title is required";
-        if (req.getDeadline() == null) return "Deadline is required";
-        if (req.getDeadline().isBefore(LocalDate.now())) return "Deadline cannot be in the past";
-        if (req.getExpectedHours() == null || req.getExpectedHours() <= 0)
-            return "Expected hours must be positive";
-
-        Personnel p = personnelRepo.findByIdAndFarmIdLive(req.getPersonnelId(), farmId)
-                .orElse(null);
-        if (p == null) return "Personnel not found in farm";
-        if (p.getStatus() != PersonnelStatus.ACTIVE)
-            return "Cannot assign tasks to personnel who are not ACTIVE (current: "
-                    + p.getStatus() + ")";
-        return null;
     }
 
     private void onFailure(StagedTask staged, List<String> errors) {
@@ -149,5 +151,10 @@ public class StagedTaskValidator {
         if (staged.getStatus() == StagedTaskStatus.PENDING) return true;
         if (staged.getStatus() != StagedTaskStatus.RETRYING) return false;
         return staged.getNextRetryAt() == null || !staged.getNextRetryAt().isAfter(now);
+    }
+
+    private static boolean isOneOpenTaskViolation(DataIntegrityViolationException e) {
+        String msg = e.getMostSpecificCause().getMessage();
+        return msg != null && msg.contains("ux_tasks_one_open_per_personnel");
     }
 }

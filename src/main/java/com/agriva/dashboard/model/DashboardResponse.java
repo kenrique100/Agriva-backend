@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -26,8 +27,14 @@ public class DashboardResponse {
     private String role;
     private Totals personal;
     private Totals farm;
-    private List<UserActivity> users;
-    private List<TransactionSummary> transactions;
+
+    @Builder.Default
+    @JsonInclude(JsonInclude.Include.ALWAYS)
+    private List<UserActivity> users = new ArrayList<>();
+
+    @Builder.Default
+    @JsonInclude(JsonInclude.Include.ALWAYS)
+    private List<TransactionSummary> transactions = new ArrayList<>();
 
     @Data
     @Builder
@@ -83,9 +90,18 @@ public class DashboardResponse {
         private Integer incomeCount;
         private Integer expenseCount;
         private Integer investmentCount;
-        private List<IncomeLine> incomeLines;
-        private List<ExpenseLine> expenseLines;
-        private List<InvestmentLine> investmentLines;
+
+        @Builder.Default
+        @JsonInclude(JsonInclude.Include.ALWAYS)
+        private List<IncomeLine> incomeLines = new ArrayList<>();
+
+        @Builder.Default
+        @JsonInclude(JsonInclude.Include.ALWAYS)
+        private List<ExpenseLine> expenseLines = new ArrayList<>();
+
+        @Builder.Default
+        @JsonInclude(JsonInclude.Include.ALWAYS)
+        private List<InvestmentLine> investmentLines = new ArrayList<>();
     }
 
     @Data
