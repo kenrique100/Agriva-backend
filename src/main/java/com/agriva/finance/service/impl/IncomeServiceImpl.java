@@ -73,6 +73,33 @@ public class IncomeServiceImpl implements IncomeService {
     }
 
     @Override
+    @Transactional
+    public IncomeResponse createDirect(IncomeRequest request, UUID farmId, UUID userId) {
+        BigDecimal expected = request.getExpectedAmount() != null
+                ? request.getExpectedAmount()
+                : request.getAmountReceived();
+
+        Income income = Income.builder()
+                .farmId(farmId)
+                .transactionId(request.getTransactionId())
+                .reason(request.getReason())
+                .quantity(request.getQuantity())
+                .amountReceived(request.getAmountReceived())
+                .expectedAmount(expected)
+                .receipt(request.getReceipt())
+                .currency(request.getCurrency())
+                .category(request.getCategory())
+                .incomeDate(request.getIncomeDate())
+                .createdByUserId(userId)
+                .build();
+
+        income.calculateDueBalance();
+        Income saved = incomeRepo.save(income);
+        log.info("Income {} created directly for farm {}", saved.getId(), farmId);
+        return mapper.toResponse(saved, lookupUsers(List.of(saved)));
+    }
+
+    @Override
     public BatchUploadResponse bulkUpload(MultipartFile file, UUID farmId, UUID userId, String email) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("Excel file is required");
@@ -179,10 +206,15 @@ public class IncomeServiceImpl implements IncomeService {
                 && Objects.equals(income.getReason(), request.getReason()))) {
             throw new DuplicateIncomeException("Another income with the same amount, date and reason already exists");
         }
+
+        BigDecimal expected = request.getExpectedAmount() != null
+                ? request.getExpectedAmount()
+                : request.getAmountReceived();
+
         income.setReason(request.getReason());
         income.setQuantity(request.getQuantity());
         income.setAmountReceived(request.getAmountReceived());
-        income.setExpectedAmount(request.getExpectedAmount());
+        income.setExpectedAmount(expected);
         income.setReceipt(request.getReceipt());
         income.setCurrency(request.getCurrency());
         income.setCategory(request.getCategory());

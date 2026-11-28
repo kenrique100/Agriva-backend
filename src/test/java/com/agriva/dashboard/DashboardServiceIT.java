@@ -2,7 +2,19 @@ package com.agriva.dashboard;
 
 import com.agriva.TestcontainersConfiguration;
 import com.agriva.farming.repository.FarmRepository;
+import com.agriva.finance.model.dto.request.ExpenseRequest;
+import com.agriva.finance.model.dto.request.IncomeRequest;
+import com.agriva.finance.model.dto.request.TransactionRequest;
+import com.agriva.finance.model.dto.response.TransactionResponse;
+import com.agriva.finance.model.enums.ExpenseCategory;
+import com.agriva.finance.model.enums.IncomeCategory;
+import com.agriva.finance.repository.ExpenseRepository;
+import com.agriva.finance.repository.IncomeRepository;
 import com.agriva.finance.repository.InvestmentRepository;
+import com.agriva.finance.repository.TransactionRepository;
+import com.agriva.finance.service.ExpenseService;
+import com.agriva.finance.service.IncomeService;
+import com.agriva.finance.service.TransactionService;
 import com.agriva.identity.models.dto.request.MasterRegisterRequest;
 import com.agriva.identity.models.dto.request.SubUserRegisterRequest;
 import com.agriva.identity.models.dto.response.AuthResponse;
@@ -14,6 +26,7 @@ import com.agriva.personnel.models.enums.Gender;
 import com.agriva.identity.service.AuthService;
 import com.agriva.dashboard.service.DashboardService;
 import com.agriva.finance.service.InvestmentService;
+import com.agriva.shared.security.RoleConstants;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,12 +48,15 @@ class DashboardServiceIT {
     @Autowired DashboardService dashboardService;
     @Autowired AuthService authService;
     @Autowired InvestmentService investmentService;
-    @Autowired
-    AuthRepository authRepository;
-    @Autowired
-    FarmRepository farmRepository;
-    @Autowired
-    InvestmentRepository investmentRepo;
+    @Autowired IncomeService incomeService;
+    @Autowired ExpenseService expenseService;
+    @Autowired TransactionService transactionService;
+    @Autowired AuthRepository authRepository;
+    @Autowired FarmRepository farmRepository;
+    @Autowired InvestmentRepository investmentRepo;
+    @Autowired IncomeRepository incomeRepo;
+    @Autowired ExpenseRepository expenseRepo;
+    @Autowired TransactionRepository transactionRepo;
 
     UUID farmId;
     UUID masterId;
@@ -48,6 +64,10 @@ class DashboardServiceIT {
 
     @BeforeEach
     void setUp() {
+        // Children first to respect FK order.
+        expenseRepo.deleteAll();
+        incomeRepo.deleteAll();
+        transactionRepo.deleteAll();
         investmentRepo.deleteAll();
         authRepository.deleteAll();
         farmRepository.deleteAll();
@@ -83,10 +103,12 @@ class DashboardServiceIT {
         authService.registerSubUser(sub, farmId, "MASTER");
         subUserId = authRepository.findByEmail("dash-sub@test.local").orElseThrow().getId();
 
+        // Must be ACTIVE so ExpenseService.createDirect() can link expenses to it.
         InvestmentRequest inv = new InvestmentRequest();
         inv.setAmount(new BigDecimal("5000"));
         inv.setInvestorName("Fund A");
         inv.setInvestmentDate(LocalDate.now().minusDays(5));
+        inv.setActivate(true);
         investmentService.createInvestment(inv, farmId, masterId);
     }
 
@@ -112,11 +134,57 @@ class DashboardServiceIT {
 
     @Test
     void farmDashboard_returnsUsersAndTransactions() {
-        DashboardResponse resp = dashboardService.farmDashboard(farmId, masterId);
+        TransactionRequest txReq = new TransactionRequest();
+        txReq.setNotes("Dashboard test transaction");
+        TransactionResponse tx = transactionService.create(txReq, farmId, subUserId);
 
-        assertThat(resp.getFarm()).isNotNull();
-        assertThat(resp.getUsers()).hasSize(2);
-        assertThat(resp.getTransactions()).isNotNull();
+        IncomeRequest incomeReq = new IncomeRequest();
+        incomeReq.setAmountReceived(new BigDecimal("1000"));
+        incomeReq.setCurrency(Currency.XAF);
+        incomeReq.setReason("Sale");
+        incomeReq.setCategory(IncomeCategory.CROP_SALES);
+        incomeReq.setIncomeDate(LocalDate.now());
+        incomeReq.setTransactionId(tx.getId());
+        incomeService.createDirect(incomeReq, farmId, subUserId);
+
+        ExpenseRequest expenseReq = new ExpenseRequest();
+        expenseReq.setAmountPaid(new BigDecimal("400"));
+        expenseReq.setCurrency(Currency.XAF);
+        expenseReq.setReason("Feed");
+        expenseReq.setCategory(ExpenseCategory.ANIMAL_FEED);
+        expenseReq.setExpenseDate(LocalDate.now());
+        expenseReq.setTransactionId(tx.getId());
+        expenseService.createDirect(expenseReq, farmId, subUserId);
+
+        DashboardResponse dashboard = dashboardService.farmDashboard(farmId, masterId);
+        assertThat(dashboard.getUsers())
+                .as("D3: owner (MASTER) excluded from user-activity list")
+                .hasSize(1);
+
+        DashboardResponse.UserActivity only = dashboard.getUsers().get(0);
+        assertThat(only.getEmail()).isEqualTo("dash-sub@test.local");
+        assertThat(only.getRole()).isEqualTo(RoleConstants.SUB_USER);
+        assertThat(only.getActivitySummary().getTotalIncomes()).isEqualTo(1L);
+        assertThat(only.getActivitySummary().getTotalExpenses()).isEqualTo(1L);
+        assertThat(only.getActivitySummary().getTotalIncome())
+                .isEqualByComparingTo("1000");
+        assertThat(only.getActivitySummary().getTotalExpense())
+                .isEqualByComparingTo("400");
+
+        assertThat(dashboard.getUsers())
+                .extracting(DashboardResponse.UserActivity::getEmail)
+                .doesNotContain("dash-master@test.local");
+
+        assertThat(dashboard.getFarm().getTotalIncomes()).isEqualTo(1L);
+        assertThat(dashboard.getFarm().getTotalExpenses()).isEqualTo(1L);
+
+        assertThat(dashboard.getTransactions()).isNotEmpty();
+        DashboardResponse.TransactionSummary summary = dashboard.getTransactions().get(0);
+        assertThat(summary.getId()).isEqualTo(tx.getId());
+        assertThat(summary.getIncomeLines()).hasSize(1);
+        assertThat(summary.getExpenseLines()).hasSize(1);
+        assertThat(summary.getIncome()).isEqualByComparingTo("1000");
+        assertThat(summary.getExpense()).isEqualByComparingTo("400");
     }
 
     @Test

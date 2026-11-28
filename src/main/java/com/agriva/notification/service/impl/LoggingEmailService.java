@@ -2,7 +2,6 @@ package com.agriva.notification.service.impl;
 
 import com.agriva.notification.EmailService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
@@ -14,9 +13,6 @@ import org.springframework.stereotype.Service;
         matchIfMissing = true
 )
 public class LoggingEmailService implements EmailService {
-
-    @Value("${agriva.app.frontend-url:http://localhost:3000}")
-    private String frontendUrl;
 
     @Override
     public void sendPasswordResetEmail(String to, String token) {

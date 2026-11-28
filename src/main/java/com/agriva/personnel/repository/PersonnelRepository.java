@@ -101,18 +101,15 @@ public interface PersonnelRepository extends JpaRepository<Personnel, UUID> {
             """)
     List<Personnel> findAllStaffByFarmIdLive(@Param("farmId") UUID farmId);
 
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
-            UPDATE Personnel p
-               SET p.totalHoursWorkedLast30Days = 0,
-                   p.totalProductiveDays = 0,
-                   p.workingDaysCount = 0,
-                   p.currentPeriodStartDate = :now
-             WHERE p.deletedAt IS NULL
-               AND p.status = com.agriva.personnel.models.enums.PersonnelStatus.ACTIVE
-               AND (p.isFarmOwner IS NULL OR p.isFarmOwner = FALSE)
-            """)
-    int bulkResetProductivity(@Param("now") LocalDate now);
-
-    void deleteByPersonnelId(UUID personnelId);
+    UPDATE Personnel p
+       SET p.totalHoursWorkedLast30Days = 0.0,
+           p.workingDaysCount = 0,
+           p.lastProductivityResetDate = :resetDate
+     WHERE p.deletedAt IS NULL
+       AND p.isFarmOwner = false
+       AND p.status = com.agriva.personnel.models.enums.PersonnelStatus.ACTIVE
+""")
+    int bulkResetProductivity(@Param("resetDate") LocalDate resetDate);
 }

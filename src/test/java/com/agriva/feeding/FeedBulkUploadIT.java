@@ -35,8 +35,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayOutputStream;
@@ -51,7 +53,23 @@ import static org.awaitility.Awaitility.await;
 @SpringBootTest
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
+@TestPropertySource(properties = {
+        "agriva.task.validator.cron=-",
+        "agriva.salary.validator.cron=-",
+        "agriva.income.validator.cron=-",
+        "agriva.expense.validator.cron=-",
+        "agriva.crop.validator.cron=-",
+        "agriva.feeding.ingredient.validator.cron=-",
+        "agriva.feeding.formulation.validator.cron=-",
+        "agriva.feeding.production.validator.cron=-",
+        "agriva.feeding.feeding.validator.cron=-",
+        "agriva.feeding.validator.per-farm-lock.enabled=false",
+        "logging.level.org.springframework.kafka=WARN"
+})
 class FeedBulkUploadIT {
+
+    /** Kafka round-trip + staging write + validator commit. 60 s is comfortable on CI. */
+    private static final Duration KAFKA_ROUNDTRIP_TIMEOUT = Duration.ofSeconds(60);
 
     @Autowired FeedBulkService bulkService;
     @Autowired IngredientService ingredientService;
@@ -80,11 +98,21 @@ class FeedBulkUploadIT {
     @Autowired PondRepository pondRepo;
     @Autowired PondStockRepository pondStockRepo;
 
+    @Autowired JdbcTemplate jdbcTemplate;
+
     UUID farmId;
     UUID userId;
 
     @BeforeEach
     void setUp() {
+        // 1) Kafka idempotency state must be wiped, otherwise retries can
+        //    silently skip messages across runs.
+        jdbcTemplate.update("DELETE FROM consumer_processed_events");
+
+        // 2) Wipe business tables in FK-safe order (children before parents).
+        //    Each deleteAll() runs in its own transaction and commits when it returns,
+        //    so no manual EntityManager.flush() is required (and would fail here,
+        //    because @BeforeEach is not transactional).
         feedingEventRepo.deleteAll();
         feedBatchRepo.deleteAll();
         farmStoreRepo.deleteAll();
@@ -101,6 +129,7 @@ class FeedBulkUploadIT {
         authRepository.deleteAll();
         farmRepository.deleteAll();
 
+        // 3) Bootstrap a master + farm. registerMaster() commits in its own transaction.
         MasterRegisterRequest reg = new MasterRegisterRequest();
         reg.setEmail("bulkfeed@test.local");
         reg.setPassword("MasterPass1!");
@@ -130,12 +159,16 @@ class FeedBulkUploadIT {
 
         var resp = bulkService.bulkUploadIngredients(file, farmId, userId, "bulkfeed@test.local");
         assertThat(resp.getTotalRows()).isEqualTo(1);
-        assertThat(resp.getQueued()).isEqualTo(1);
+        assertThat(resp.getQueued())
+                .as("bulk upload must successfully publish every valid row to Kafka")
+                .isEqualTo(1);
         assertThat(resp.getFailed()).isZero();
 
-        await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
-                assertThat(stagedIngredientRepo.findByFarmId(farmId, PageRequest.of(0, 10))
-                        .getTotalElements()).isGreaterThanOrEqualTo(1));
+        await().atMost(KAFKA_ROUNDTRIP_TIMEOUT)
+                .pollInterval(Duration.ofMillis(500))
+                .untilAsserted(() -> assertThat(
+                        stagedIngredientRepo.findByFarmId(farmId, PageRequest.of(0, 10))
+                                .getTotalElements()).isGreaterThanOrEqualTo(1));
 
         ingredientValidator.processStaged();
 
@@ -147,6 +180,7 @@ class FeedBulkUploadIT {
         var ingredient = ingredientRepo.findById(staged.getMovedIngredientId()).orElseThrow();
         assertThat(ingredient.getName()).isEqualTo("Maize");
         assertThat(ingredient.getUnit()).isEqualTo(IngredientUnit.KG);
+
         var stock = ingredientStockRepo
                 .findByFarmIdAndIngredientId(farmId, ingredient.getId()).orElseThrow();
         assertThat(stock.getQuantityOnHand()).isEqualByComparingTo("500");
@@ -166,10 +200,13 @@ class FeedBulkUploadIT {
 
         var resp = bulkService.bulkUploadFormulations(file, farmId, userId, "bulkfeed@test.local");
         assertThat(resp.getQueued()).isEqualTo(1);
+        assertThat(resp.getFailed()).isZero();
 
-        await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
-                assertThat(stagedFormulationRepo.findByFarmId(farmId, PageRequest.of(0, 10))
-                        .getTotalElements()).isGreaterThanOrEqualTo(1));
+        await().atMost(KAFKA_ROUNDTRIP_TIMEOUT)
+                .pollInterval(Duration.ofMillis(500))
+                .untilAsserted(() -> assertThat(
+                        stagedFormulationRepo.findByFarmId(farmId, PageRequest.of(0, 10))
+                                .getTotalElements()).isGreaterThanOrEqualTo(1));
 
         formulationValidator.processStaged();
 
@@ -184,7 +221,7 @@ class FeedBulkUploadIT {
     @Test
     void bulkUploadProductions_createsBatch() throws Exception {
         createIngredientDirect("Maize");
-        UUID formulationId = createFormulationDirect("Prod-Source", "100");
+        createFormulationDirect("Prod-Source", "100");
 
         MultipartFile file = buildExcel(
                 new String[]{"formulation_name", "produced_kg", "production_date", "notes"},
@@ -193,10 +230,13 @@ class FeedBulkUploadIT {
 
         var resp = bulkService.bulkUploadProductions(file, farmId, userId, "bulkfeed@test.local");
         assertThat(resp.getQueued()).isEqualTo(1);
+        assertThat(resp.getFailed()).isZero();
 
-        await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
-                assertThat(stagedProductionRepo.findByFarmId(farmId, PageRequest.of(0, 10))
-                        .getTotalElements()).isGreaterThanOrEqualTo(1));
+        await().atMost(KAFKA_ROUNDTRIP_TIMEOUT)
+                .pollInterval(Duration.ofMillis(500))
+                .untilAsserted(() -> assertThat(
+                        stagedProductionRepo.findByFarmId(farmId, PageRequest.of(0, 10))
+                                .getTotalElements()).isGreaterThanOrEqualTo(1));
 
         productionValidator.processStaged();
 
@@ -209,10 +249,10 @@ class FeedBulkUploadIT {
 
     @Test
     void bulkUploadFeedings_createsFeedingEvent() throws Exception {
-        // Produce an ingredient + a formulation + store balance
         createIngredientDirect("Maize");
         createFormulationDirect("Feed-Source", "100");
 
+        // Ensure the farm's feed store has stock so the validator can decrement it.
         FarmFeedStore store = farmStoreRepo.findByFarmId(farmId).orElseGet(() ->
                 farmStoreRepo.save(FarmFeedStore.builder()
                         .farmId(farmId)
@@ -236,10 +276,13 @@ class FeedBulkUploadIT {
 
         var resp = bulkService.bulkUploadFeedings(file, farmId, userId, "bulkfeed@test.local");
         assertThat(resp.getQueued()).isEqualTo(1);
+        assertThat(resp.getFailed()).isZero();
 
-        await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
-                assertThat(stagedEventRepo.findByFarmId(farmId, PageRequest.of(0, 10))
-                        .getTotalElements()).isGreaterThanOrEqualTo(1));
+        await().atMost(KAFKA_ROUNDTRIP_TIMEOUT)
+                .pollInterval(Duration.ofMillis(500))
+                .untilAsserted(() -> assertThat(
+                        stagedEventRepo.findByFarmId(farmId, PageRequest.of(0, 10))
+                                .getTotalElements()).isGreaterThanOrEqualTo(1));
 
         eventValidator.processStaged();
 
@@ -281,7 +324,7 @@ class FeedBulkUploadIT {
                 .formulationId(formulation.getId())
                 .ingredientId(ingredient.getId())
                 .ingredientName(ingredient.getName())
-                .quantityKg(new BigDecimal(qty))
+                .quantityInStockUnit(new BigDecimal(qty))
                 .percentage(new BigDecimal("100"))
                 .unitCost(new BigDecimal("500"))
                 .lineCost(new BigDecimal("50000"))

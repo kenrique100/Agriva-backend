@@ -172,6 +172,10 @@ public class ExpenseServiceImpl implements ExpenseService {
                     active.getCurrency().name()));
         }
 
+        BigDecimal expected = request.getExpectedAmount() != null
+                ? request.getExpectedAmount()
+                : request.getAmountPaid();
+
         Expense expense = Expense.builder()
                 .farmId(farmId)
                 .transactionId(request.getTransactionId())
@@ -179,7 +183,7 @@ public class ExpenseServiceImpl implements ExpenseService {
                 .reason(request.getReason())
                 .qtyPurchased(request.getQtyPurchased())
                 .amountPaid(request.getAmountPaid())
-                .expectedAmount(request.getExpectedAmount())
+                .expectedAmount(expected)
                 .receipt(request.getReceipt())
                 .currency(request.getCurrency())
                 .category(request.getCategory())

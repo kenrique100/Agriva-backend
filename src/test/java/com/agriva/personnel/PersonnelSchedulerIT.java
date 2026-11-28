@@ -45,26 +45,16 @@ class PersonnelSchedulerIT {
     @Autowired PersonnelStatusScheduler statusScheduler;
     @Autowired TaskService taskService;
     @Autowired AuthService authService;
-    @Autowired
-    PersonnelRepository personnelRepository;
-    @Autowired
-    PersonnelStatusHistoryRepository historyRepository;
-    @Autowired
-    TaskRepository taskRepository;
-    @Autowired
-    SalaryPaymentRepository salaryRepository;
-    @Autowired
-    ExpenseRepository expenseRepository;
-    @Autowired
-    InvestmentRepository investmentRepository;
-    @Autowired
-    IncomeRepository incomeRepository;
-    @Autowired
-    TransactionRepository transactionRepository;
-    @Autowired
-    AuthRepository authRepository;
-    @Autowired
-    FarmRepository farmRepository;
+    @Autowired PersonnelRepository personnelRepository;
+    @Autowired PersonnelStatusHistoryRepository historyRepository;
+    @Autowired TaskRepository taskRepository;
+    @Autowired SalaryPaymentRepository salaryRepository;
+    @Autowired ExpenseRepository expenseRepository;
+    @Autowired InvestmentRepository investmentRepository;
+    @Autowired IncomeRepository incomeRepository;
+    @Autowired TransactionRepository transactionRepository;
+    @Autowired AuthRepository authRepository;
+    @Autowired FarmRepository farmRepository;
 
     UUID farmId;
     UUID masterUserId;
@@ -187,6 +177,13 @@ class PersonnelSchedulerIT {
         taskService.action(t.getId(), farmId, masterUserId, true, "START");
         taskService.action(t.getId(), farmId, masterUserId, true, "SUBMIT");
 
+        // processUnvalidatedTasks() only resets SUBMITTED tasks whose stopTime is
+        // older than yesterday 00:00 (the 24-hour "stale" window). A fresh SUBMIT
+        // sets stopTime=now, so we age it to simulate a real stale submission.
+        Task justSubmitted = taskRepository.findById(t.getId()).orElseThrow();
+        justSubmitted.setStopTime(LocalDateTime.now().minusDays(2));
+        taskRepository.save(justSubmitted);
+
         taskService.processUnvalidatedTasks();
 
         Task reloaded = taskRepository.findById(t.getId()).orElseThrow();
@@ -200,6 +197,7 @@ class PersonnelSchedulerIT {
         Personnel p = personnelRepository.findById(personnelId).orElseThrow();
         p.setTotalHoursWorkedLast30Days(42.0);
         p.setWorkingDaysCount(8);
+        p.setLastProductivityResetDate(LocalDate.now().minusDays(30));
         personnelRepository.save(p);
 
         taskService.resetProductivityMetrics();

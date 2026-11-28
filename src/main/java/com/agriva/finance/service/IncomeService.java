@@ -20,6 +20,8 @@ public interface IncomeService {
 
     IncomeSubmissionAck submitIncome(IncomeRequest request, UUID farmId, UUID userId, String email);
 
+    IncomeResponse createDirect(IncomeRequest request, UUID farmId, UUID userId);
+
     BatchUploadResponse bulkUpload(MultipartFile file, UUID farmId, UUID userId, String email);
 
     BatchStatusResponse bulkStatus(UUID batchId, UUID farmId);

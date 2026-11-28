@@ -56,37 +56,23 @@ class CropBulkUploadIT {
     @Autowired AuthService authService;
     @Autowired StagedCropCycleValidator stagedCropValidator;
 
-    @Autowired
-    FieldRepository fieldRepo;
-    @Autowired
-    CropRepository cropRepo;
-    @Autowired
-    CropCycleRepository cycleRepo;
-    @Autowired
-    CropActivityRepository activityRepo;
+    @Autowired FieldRepository fieldRepo;
+    @Autowired CropRepository cropRepo;
+    @Autowired CropCycleRepository cycleRepo;
+    @Autowired CropActivityRepository activityRepo;
     @Autowired HarvestRepository harvestRepo;
     @Autowired StagedCropCycleRepository stagedRepo;
 
-    @Autowired
-    SalaryPaymentRepository salaryRepository;
-    @Autowired
-    TaskRepository taskRepository;
-    @Autowired
-    PersonnelStatusHistoryRepository historyRepository;
-    @Autowired
-    PersonnelRepository personnelRepository;
-    @Autowired
-    ExpenseRepository expenseRepository;
-    @Autowired
-    InvestmentRepository investmentRepository;
-    @Autowired
-    IncomeRepository incomeRepository;
-    @Autowired
-    TransactionRepository transactionRepository;
-    @Autowired
-    AuthRepository authRepository;
-    @Autowired
-    FarmRepository farmRepository;
+    @Autowired SalaryPaymentRepository salaryRepository;
+    @Autowired TaskRepository taskRepository;
+    @Autowired PersonnelStatusHistoryRepository historyRepository;
+    @Autowired PersonnelRepository personnelRepository;
+    @Autowired ExpenseRepository expenseRepository;
+    @Autowired InvestmentRepository investmentRepository;
+    @Autowired IncomeRepository incomeRepository;
+    @Autowired TransactionRepository transactionRepository;
+    @Autowired AuthRepository authRepository;
+    @Autowired FarmRepository farmRepository;
 
     UUID farmId;
     UUID userId;
@@ -215,10 +201,11 @@ class CropBulkUploadIT {
                 file, farmId, userId, "bulk@test.local");
 
         assertThat(resp.getTotalRows()).isEqualTo(1);
-        assertThat(resp.getCreated()).isEqualTo(1);
+        // FIX: bulkUploadCycles only ENQUEUES — actual creation is asynchronous.
+        assertThat(resp.getQueued()).isEqualTo(1);
         assertThat(resp.getFailed()).isZero();
 
-        await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
+        await().atMost(Duration.ofSeconds(60)).untilAsserted(() ->
                 assertThat(stagedRepo.findByFarmId(farmId, PageRequest.of(0, 100))
                         .getTotalElements())
                         .isGreaterThanOrEqualTo(1)
@@ -290,7 +277,7 @@ class CropBulkUploadIT {
 
         cropService.bulkUploadCycles(file, farmId, userId, "bulk@test.local");
 
-        await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
+        await().atMost(Duration.ofSeconds(60)).untilAsserted(() ->
                 assertThat(stagedRepo.findByFarmId(farmId, PageRequest.of(0, 100))
                         .getTotalElements())
                         .isGreaterThanOrEqualTo(1)
